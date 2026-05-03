@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1000" viewBox="0 0 1440 1000" role="img" aria-label="Decorative map table background">
+  <rect width="1440" height="1000" fill="#21150d"/>
+  <g opacity="0.22">
+    <path d="M-40 250 C210 170 310 350 510 260 S880 120 1080 270 S1260 410 1480 300" fill="none" stroke="#d8b06f" stroke-width="4"/>
+    <path d="M120 780 C320 670 460 790 620 710 S900 580 1120 725 S1290 820 1460 700" fill="none" stroke="#d8b06f" stroke-width="3"/>
+    <circle cx="1110" cy="330" r="110" fill="none" stroke="#d8b06f" stroke-width="4"/>
+    <path d="M1110 220 V440 M1000 330 H1220 M1032 252 L1188 408 M1188 252 L1032 408" fill="none" stroke="#d8b06f" stroke-width="2"/>
+    <path d="M0 120 H1440 M0 430 H1440 M0 740 H1440 M220 0 V1000 M520 0 V1000 M820 0 V1000 M1120 0 V1000" stroke="#d8b06f" stroke-width="1" fill="none"/>
+  </g>
+</svg>

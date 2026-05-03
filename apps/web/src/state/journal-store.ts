@@ -18,10 +18,9 @@ export interface JournalUiState {
 export function createJournalStore() {
   return createStore<JournalUiState>((set) => ({
     gateway: { status: "degraded", missingScopes: ["operator.approvals"], stale: true },
-    themeId: "default",
-    visibleSafetySurfaces: [...getTheme("default").safety.alwaysShow],
+    themeId: "openclog-journal",
+    visibleSafetySurfaces: [...getTheme("openclog-journal").safety.alwaysShow],
     setGatewayStatus: (gateway) => set({ gateway }),
     setTheme: (themeId) => set({ themeId, visibleSafetySurfaces: [...getTheme(themeId).safety.alwaysShow] })
   }));
 }
-

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1000" viewBox="0 0 1440 1000" role="img" aria-label="Decorative desktop shell background">
+  <rect width="1440" height="1000" fill="#dbe7f5"/>
+  <g opacity="0.2">
+    <rect x="120" y="90" width="1180" height="760" rx="18" fill="#ffffff" stroke="#3566b8" stroke-width="4"/>
+    <rect x="120" y="90" width="1180" height="58" rx="18" fill="#3566b8"/>
+    <circle cx="164" cy="119" r="9" fill="#ffffff"/>
+    <circle cx="196" cy="119" r="9" fill="#ffffff"/>
+    <circle cx="228" cy="119" r="9" fill="#ffffff"/>
+    <rect x="190" y="220" width="290" height="520" fill="#9fb1c8"/>
+    <rect x="540" y="220" width="590" height="96" fill="#9fb1c8"/>
+    <rect x="540" y="360" width="590" height="96" fill="#9fb1c8"/>
+    <rect x="540" y="500" width="590" height="96" fill="#9fb1c8"/>
+  </g>
+</svg>

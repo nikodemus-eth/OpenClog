@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 
 const requiredLogs = [
   "development.md",
@@ -35,3 +36,27 @@ for (const method of ["sessions.create", "sessions.send", "sessions.abort", "exe
   }
 }
 
+const staleProductCopy = ["OpenClaw", "Journal"].join(" ");
+
+for (const path of walk(".")) {
+  if (path === "Instructions.md") continue;
+  if (!shouldScan(path)) continue;
+  if (readFileSync(path, "utf8").includes(staleProductCopy)) {
+    console.error(`Stale product copy outside Instructions.md: ${path}`);
+    process.exit(1);
+  }
+}
+
+function walk(root: string): string[] {
+  const ignored = new Set([".git", "coverage", "dist", "node_modules", "output", "playwright-report"]);
+  return readdirSync(root).flatMap((entry) => {
+    if (ignored.has(entry)) return [];
+    const path = join(root, entry).replace(/^\.\//, "");
+    const stats = statSync(path);
+    return stats.isDirectory() ? walk(path) : [path];
+  });
+}
+
+function shouldScan(path: string): boolean {
+  return [".css", ".html", ".json", ".md", ".svg", ".ts", ".tsx"].some((extension) => path.endsWith(extension));
+}

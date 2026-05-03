@@ -6,9 +6,10 @@ import {
   exportDayAsMarkdown,
   getThemes,
   normalizeGatewayEvent,
+  redactGatewayPayload,
   sampleJournalDay
 } from "@openclog/core";
-import type { GatewayEventLike, JournalEntry } from "@openclog/core";
+import type { AgentActivity, ApprovalView, GatewayEventLike, JournalDay, JournalEntry } from "@openclog/core";
 import type { ServerResponse } from "node:http";
 import type { GatewayPort } from "./gateway.js";
 import type { OpenClogRepository } from "./repository.js";
@@ -51,13 +52,21 @@ export function createApiApp(services: ApiServices): FastifyInstance {
 
   app.get("/api/themes", async () => ({ themes: getThemes() }));
 
-  app.get("/api/settings", async () => ({ settings: { theme: "default", gateway: publicGatewayState(services.gateway.getState()) } }));
-  app.put("/api/settings", async () => ({ ok: true }));
+  app.get("/api/settings", async () => ({ settings: publicSettings(services) }));
+  app.put<{ Body: { showToolCalls?: boolean; theme?: string } }>("/api/settings", async (request) => {
+    if (typeof request.body?.theme === "string") services.repo.setSetting("theme", request.body.theme);
+    if (typeof request.body?.showToolCalls === "boolean") services.repo.setSetting("showToolCalls", request.body.showToolCalls);
+    return { ok: true, settings: publicSettings(services) };
+  });
 
   app.get("/api/approvals", async () => {
     const result = await services.gateway.request("exec.approval.list", {});
-    return result;
+    return { approvals: sanitizeApprovals(result) };
   });
+
+  app.get<{ Querystring: { dayKey?: string } }>("/api/sessions", async (request) => ({
+    agents: await listAgentActivity(services, request.query.dayKey ?? todayKey())
+  }));
 
   app.post<{ Body: { text: string } }>("/api/composer", async (request, reply) => {
     const text = request.body?.text ?? "";
@@ -91,7 +100,7 @@ export function createApiApp(services: ApiServices): FastifyInstance {
   });
 
   app.post<{ Params: { id: string }; Body: { decision: string } }>("/api/approvals/:id/resolve", async (request) => {
-    const decision = request.body?.decision ?? "deny";
+    const decision = request.body?.decision === "allow-once" ? "allow-once" : "deny";
     await services.gateway.request("exec.approval.resolve", { id: request.params.id, decision });
     services.repo.addAudit("approval.resolve", { target_type: "approval", target_id: request.params.id, decision });
     return { ok: true };
@@ -142,6 +151,152 @@ function shouldJournalGatewayEvent(event: GatewayEventLike): boolean {
 function publishJournalEvent(clients: Set<ServerResponse>, entry: JournalEntry, day: unknown): void {
   const body = JSON.stringify({ entry, day });
   for (const client of clients) client.write(`event: journal\ndata: ${body}\n\n`);
+}
+
+function publicSettings(services: ApiServices): Record<string, unknown> {
+  return {
+    theme: services.repo.getSetting("theme", "default"),
+    showToolCalls: services.repo.getSetting("showToolCalls", true),
+    gateway: publicGatewayState(services.gateway.getState())
+  };
+}
+
+async function listAgentActivity(services: ApiServices, dayKey: string): Promise<AgentActivity[]> {
+  const state = services.gateway.getState();
+  if (state.canIssueControlActions) {
+    try {
+      const result = await services.gateway.request("sessions.list", { includeDerivedTitles: true, includeLastMessage: true, limit: 50 });
+      const agents = sanitizeLiveSessions(result);
+      if (agents.length > 0) return sortAgentActivity(latestAgentsByDisplayName(agents));
+    } catch {
+      // Fall back to the local journal when live session listing is unavailable.
+    }
+  }
+  return sortAgentActivity(latestAgentsByDisplayName(deriveAgentsFromDay(services.repo.getDay(dayKey))));
+}
+
+function sanitizeLiveSessions(result: unknown): AgentActivity[] {
+  const record = asRecord(result);
+  const sessions = Array.isArray(result) ? result : Array.isArray(record.sessions) ? record.sessions : [];
+  return sessions.map((session) => sanitizeSession(asRecord(session))).filter((agent): agent is AgentActivity => agent !== null);
+}
+
+function sanitizeSession(session: Record<string, unknown>): AgentActivity | null {
+  const sessionKey = stringValue(session.key) || stringValue(session.sessionKey) || stringValue(session.id);
+  if (!sessionKey) return null;
+  const rawStatus = stringValue(session.status) || stringValue(session.phase);
+  const label = cleanPublicText(stringValue(session.title) || stringValue(session.label) || labelFromSessionKey(sessionKey));
+  const status = workingStatuses.has(rawStatus.toLowerCase()) ? "working" : "idle";
+  const statusSummary = cleanPublicText(stringValue(session.summary)) || titleCase(rawStatus) || "Idle";
+  return {
+    id: sessionKey,
+    label,
+    status,
+    summary: statusSummary,
+    sessionKey,
+    ...(stringValue(session.lastSeenAt) ? { lastSeenAt: stringValue(session.lastSeenAt) } : {})
+  };
+}
+
+function deriveAgentsFromDay(day: JournalDay | null): AgentActivity[] {
+  if (!day) return [];
+  const latestBySession = new Map<string, JournalEntry>();
+  for (const entry of day.entries) {
+    if (!entry.sessionId) continue;
+    const previous = latestBySession.get(entry.sessionId);
+    if (!previous || previous.timestamp.localeCompare(entry.timestamp) < 0) latestBySession.set(entry.sessionId, entry);
+  }
+  return [...latestBySession.entries()].map(([sessionKey, entry]) => ({
+    id: sessionKey,
+    label: labelFromSessionKey(sessionKey),
+    status: entry.status === "pending" || entry.status === "running" ? "working" : "idle",
+    summary: entry.title,
+    sessionKey,
+    lastSeenAt: entry.timestamp
+  }));
+}
+
+function latestAgentsByDisplayName(agents: AgentActivity[]): AgentActivity[] {
+  const latest = new Map<string, { agent: AgentActivity; index: number }>();
+  agents.forEach((agent, index) => {
+    const nameKey = agent.label.trim().toLocaleLowerCase();
+    const current = latest.get(nameKey);
+    if (!current || isNewerAgent(agent, index, current.agent, current.index)) latest.set(nameKey, { agent, index: current?.index ?? index });
+  });
+  return [...latest.values()].map(({ agent }) => agent);
+}
+
+function sortAgentActivity(agents: AgentActivity[]): AgentActivity[] {
+  return agents
+    .map((agent, index) => ({ agent, index }))
+    .sort((left, right) => {
+      const statusOrder = agentStatusRank(left.agent) - agentStatusRank(right.agent);
+      if (statusOrder !== 0) return statusOrder;
+      const leftLastSeen = agentLastSeenTime(left.agent);
+      const rightLastSeen = agentLastSeenTime(right.agent);
+      return leftLastSeen === rightLastSeen ? left.index - right.index : rightLastSeen - leftLastSeen;
+    })
+    .map(({ agent }) => agent);
+}
+
+function agentStatusRank(agent: AgentActivity): number {
+  return agent.status === "working" ? 0 : 1;
+}
+
+function isNewerAgent(candidate: AgentActivity, candidateIndex: number, current: AgentActivity, currentIndex: number): boolean {
+  const candidateTime = agentLastSeenTime(candidate);
+  const currentTime = agentLastSeenTime(current);
+  if (candidateTime !== currentTime) return candidateTime > currentTime;
+  return candidateIndex > currentIndex;
+}
+
+function agentLastSeenTime(agent: AgentActivity): number {
+  const parsed = Date.parse(agent.lastSeenAt ?? "");
+  return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
+}
+
+function sanitizeApprovals(result: unknown): ApprovalView[] {
+  const record = asRecord(result);
+  const approvals = Array.isArray(record.approvals) ? record.approvals : [];
+  return approvals.map((approval) => sanitizeApproval(asRecord(approval))).filter((approval): approval is ApprovalView => approval !== null);
+}
+
+function sanitizeApproval(approval: Record<string, unknown>): ApprovalView | null {
+  const id = stringValue(approval.id);
+  if (!id) return null;
+  const request = asRecord(approval.request);
+  return {
+    id,
+    title: cleanPublicText(stringValue(approval.title)) || "Approval requested",
+    command: cleanPublicText(stringValue(request.command) || stringValue(approval.command)),
+    status: cleanPublicText(stringValue(approval.status)) || "pending",
+    ...(stringValue(approval.createdAt) || stringValue(approval.requestedAt) ? { requestedAt: stringValue(approval.createdAt) || stringValue(approval.requestedAt) } : {}),
+    ...(stringValue(request.sessionKey) || stringValue(approval.sessionKey) ? { sessionKey: stringValue(request.sessionKey) || stringValue(approval.sessionKey) } : {})
+  };
+}
+
+const workingStatuses = new Set(["active", "busy", "running", "working"]);
+
+function labelFromSessionKey(sessionKey: string): string {
+  const parts = sessionKey.split(":");
+  const label = parts[0] === "agent" && parts[1] ? parts[1] : sessionKey;
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function titleCase(value: string): string {
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
+}
+
+function cleanPublicText(value: string): string {
+  return String(redactGatewayPayload(value).redacted).replace(/\b[A-Z0-9_]*(?:API_)?(?:KEY|TOKEN|SECRET|PASSWORD)=\[REDACTED_SECRET\]/gi, "[REDACTED_SECRET]");
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 function todayKey(now = new Date()): string {

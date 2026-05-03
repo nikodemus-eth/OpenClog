@@ -125,11 +125,11 @@ describe("normalization, exports, and themes", () => {
     const markdown = exportDayAsMarkdown(sampleJournalDay);
     const html = exportDayAsHtml(sampleJournalDay);
 
-    expect(markdown).toContain("# OpenClaw Journal");
+    expect(markdown).toContain("# OpenClog Journal");
     expect(markdown).toContain("Journal ready");
     expect(markdown).not.toContain("raw_event");
     expect(html).toContain("<article");
-    expect(html).toContain("OpenClaw Journal");
+    expect(html).toContain("OpenClog Journal");
     expect(html).not.toContain("raw_event");
   });
 
@@ -162,8 +162,9 @@ describe("normalization, exports, and themes", () => {
   });
 
   test("all themes preserve required safety surfaces", () => {
-    expect(themeIds).toEqual(["default", "captains-log", "hearty-tale", "blackbeards-log"]);
-    expect(getThemes()).toHaveLength(4);
+    expect(themeIds).toContain("openclog-journal");
+    expect(themeIds).toContain("keyboard-first");
+    expect(getThemes()).toHaveLength(27);
     for (const themeId of themeIds) {
       const theme = getTheme(themeId);
       expect(theme.safety.alwaysShow).toEqual([
@@ -171,10 +172,11 @@ describe("normalization, exports, and themes", () => {
         "pending_approvals",
         "stale_gateway_state",
         "blocked_auth",
-        "degraded_connectivity"
+        "degraded_connectivity",
+        "security_warnings"
       ]);
-      expect(theme.labels.appTitle.length).toBeGreaterThan(0);
-      expect(theme.palette.danger).toMatch(/^#/);
+      expect(theme.labels.productTitle).toBe("OpenClog");
+      expect(theme.status.danger).toMatch(/^#/);
     }
   });
 });

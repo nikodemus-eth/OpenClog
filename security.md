@@ -27,3 +27,22 @@ Track OpenClog security posture, Gateway authority boundaries, redaction, and fa
 - The browser receives journal entries and public Gateway state, not Gateway tokens, auth headers, cookies, env values, or raw Gateway frames.
 - Normalized message bodies are passed through redaction before being persisted or displayed.
 - Gateway health/tick frames are not journaled as user activity, which keeps closeout evidence tied to real message flow instead of background noise.
+
+## 2026-05-02 Five-Theme UI Refinement
+- Theme switching remains presentation-only and does not change permissions, Gateway state, composer behavior, approvals, diagnostics, or journal data.
+- Every theme keeps visible text for errors, pending approvals, stale Gateway state, blocked/degraded connectivity, and status chips.
+- The browser tests assert that token-like Gateway secrets are not displayed while rendering all five themes.
+- Static background assets are local, decorative, non-interactive, and unable to hide operational warnings.
+
+## 2026-05-02 Interaction Refinement
+- `Show Tool Calls` is display-only and does not alter Gateway subscriptions, redacted persistence, hashes, or audit evidence.
+- `GET /api/sessions` returns sanitized `AgentActivity` view models; live session metadata is redacted before browser exposure and falls back to local journal entries.
+- `GET /api/approvals` returns sanitized approval view models only, and resolution exposes only `allow-once` or `deny`; defer sends no Gateway request.
+- Live event toasts carry public day and entry identifiers only and never include Gateway tokens, auth headers, cookies, env values, or raw frames.
+
+## 2026-05-02 Theme Families Expansion
+- Theme switching remains presentation-only and does not change Gateway scopes, permissions, composer behavior, approval behavior, persistence, or delivery.
+- Every theme family keeps browser-visible text for Gateway state, Agent Activity, Recent Tools, Pending approvals, status chips, degraded state, blocked state, and security warnings.
+- Long browser-visible event text now renders as a preview with local redaction/summarization for token-like values, auth headers, cookies, OAuth values, SMTP credentials, env-looking values, raw Gateway-looking payloads, and non-operator-facing local paths.
+- Decorative backgrounds are local SVG/CSS-only assets, behind readable surfaces, and contain no external image references, logos, trademark metadata, or copied brand assets.
+- Final asset and browser-visible secret scans found no external background URLs, proprietary asset metadata, stale product title text, or browser-facing credential strings outside the intended redaction/schema guard code.

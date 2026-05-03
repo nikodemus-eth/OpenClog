@@ -58,16 +58,413 @@ describe("API routes", () => {
     expect(days.json().days).toHaveLength(1);
     expect(day.json().day).toMatchObject({ dayKey: "2026-05-02" });
     expect(missing.statusCode).toBe(404);
-    expect(themes.json().themes).toHaveLength(4);
-    expect(settings.json()).toMatchObject({ settings: { theme: "default", gateway: { status: "ready" } } });
-    expect(updateSettings.json()).toEqual({ ok: true });
+    expect(themes.json().themes).toHaveLength(27);
+    expect(settings.json()).toMatchObject({ settings: { theme: "default", showToolCalls: true, gateway: { status: "ready" } } });
+    expect(updateSettings.json()).toMatchObject({ ok: true, settings: { theme: "captains-log", showToolCalls: true } });
     expect(approvals.json()).toEqual({ approvals: [] });
     expect(markdown.headers["content-disposition"]).toContain("openclog-2026-05-02.md");
-    expect(markdown.body).toContain("# OpenClaw Journal");
+    expect(markdown.body).toContain("# OpenClog Journal");
     expect(html.headers["content-type"]).toContain("text/html");
     expect(html.body).toContain("<!doctype html>");
     expect(stream.body).toContain("event: heartbeat");
     expect(gateway.calls.map((call) => call.method)).toEqual(["exec.approval.list"]);
+    await app.close();
+  });
+
+  test("persists public UI settings without changing Gateway state", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    const gateway = createMemoryGateway({ ready: true });
+    const app = createApiApp({ repo, gateway });
+
+    const update = await app.inject({ method: "PUT", url: "/api/settings", payload: { showToolCalls: false } });
+    const settings = await app.inject({ method: "GET", url: "/api/settings" });
+
+    expect(update.json()).toMatchObject({ ok: true, settings: { theme: "default", showToolCalls: false } });
+    expect(settings.json()).toMatchObject({ settings: { theme: "default", showToolCalls: false, gateway: { status: "ready" } } });
+    expect(gateway.calls).toEqual([]);
+    await app.close();
+  });
+
+  test("serves live agent activity from sessions.list with sanitized labels", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    const gateway = createMemoryGateway({ ready: true });
+    gateway.request = async (method, params) => {
+      gateway.calls.push({ method, params });
+      if (method === "sessions.list") {
+        return {
+          sessions: [
+            { key: "agent:hugin:main", title: "Hugin", status: "running", lastSeenAt: "2026-05-02T13:00:00.000Z" },
+            { key: "agent:munin:main", label: "Munin", phase: "idle", summary: "Watching quietly" },
+            { key: "agent:secret:main", title: "OPENAI_API_KEY=sk-secret", status: "busy" }
+          ]
+        };
+      }
+      return { ok: true };
+    };
+    const app = createApiApp({ repo, gateway });
+
+    const response = await app.inject({ method: "GET", url: "/api/sessions?dayKey=2026-05-02" });
+
+    expect(response.json()).toEqual({
+      agents: [
+        { id: "agent:hugin:main", label: "Hugin", status: "working", summary: "Running", sessionKey: "agent:hugin:main", lastSeenAt: "2026-05-02T13:00:00.000Z" },
+        { id: "agent:secret:main", label: "[REDACTED_SECRET]", status: "working", summary: "Busy", sessionKey: "agent:secret:main" },
+        { id: "agent:munin:main", label: "Munin", status: "idle", summary: "Watching quietly", sessionKey: "agent:munin:main" }
+      ]
+    });
+    expect(gateway.calls).toEqual([{ method: "sessions.list", params: { includeDerivedTitles: true, includeLastMessage: true, limit: 50 } }]);
+    await app.close();
+  });
+
+  test("normalizes live agent activity variants and falls back when the live list is empty", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    const gateway = createMemoryGateway({ ready: true });
+    gateway.request = async (method, params) => {
+      gateway.calls.push({ method, params });
+      if (method === "sessions.list") {
+        return [
+          { sessionKey: "agent:freya:main", status: "active", summary: "Running live work" },
+          { id: "plain-session", phase: "", note: "no public status" },
+          { key: "agent:invalid:main", title: "OPENCLAW_GATEWAY_TOKEN=secret", status: "busy" },
+          {}
+        ];
+      }
+      return { ok: true };
+    };
+    const app = createApiApp({ repo, gateway });
+
+    const response = await app.inject({ method: "GET", url: "/api/sessions?dayKey=2026-05-02" });
+
+    expect(response.json()).toEqual({
+      agents: [
+        { id: "agent:freya:main", label: "Freya", status: "working", summary: "Running live work", sessionKey: "agent:freya:main" },
+        { id: "agent:invalid:main", label: "[REDACTED_SECRET]", status: "working", summary: "Busy", sessionKey: "agent:invalid:main" },
+        { id: "plain-session", label: "Plain-session", status: "idle", summary: "Idle", sessionKey: "plain-session" }
+      ]
+    });
+    await app.close();
+  });
+
+  test("keeps only the latest live agent activity per display name", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    const gateway = createMemoryGateway({ ready: true });
+    gateway.request = async (method, params) => {
+      gateway.calls.push({ method, params });
+      if (method === "sessions.list") {
+        return {
+          sessions: [
+            { key: "agent:highfather:old", title: "Highfather", status: "idle", summary: "Older Highfather", lastSeenAt: "2026-05-02T13:00:00.000Z" },
+            { key: "agent:hugin:main", title: "Hugin", status: "running", summary: "Working", lastSeenAt: "2026-05-02T13:30:00.000Z" },
+            { key: "agent:highfather:new", title: "Highfather", status: "running", summary: "Latest Highfather", lastSeenAt: "2026-05-02T14:00:00.000Z" },
+            { key: "agent:highfather:stale", title: "Highfather", status: "idle", summary: "Stale Highfather", lastSeenAt: "2026-05-02T12:00:00.000Z" },
+            { key: "agent:notime:old", title: "NoTime", status: "idle", summary: "Older no timestamp" },
+            { key: "agent:notime:new", title: "NoTime", status: "running", summary: "Latest no timestamp" }
+          ]
+        };
+      }
+      return { ok: true };
+    };
+    const app = createApiApp({ repo, gateway });
+
+    const response = await app.inject({ method: "GET", url: "/api/sessions?dayKey=2026-05-02" });
+
+    expect(response.json()).toEqual({
+      agents: [
+        { id: "agent:highfather:new", label: "Highfather", status: "working", summary: "Latest Highfather", sessionKey: "agent:highfather:new", lastSeenAt: "2026-05-02T14:00:00.000Z" },
+        { id: "agent:hugin:main", label: "Hugin", status: "working", summary: "Working", sessionKey: "agent:hugin:main", lastSeenAt: "2026-05-02T13:30:00.000Z" },
+        { id: "agent:notime:new", label: "NoTime", status: "working", summary: "Latest no timestamp", sessionKey: "agent:notime:new" }
+      ]
+    });
+    await app.close();
+  });
+
+  test("orders working agents first and idle agents from most to least recently active", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    const gateway = createMemoryGateway({ ready: true });
+    gateway.request = async (method, params) => {
+      gateway.calls.push({ method, params });
+      if (method === "sessions.list") {
+        return {
+          sessions: [
+            { key: "agent:hugin:idle-old", title: "Hugin", status: "idle", summary: "Older idle", lastSeenAt: "2026-05-02T12:00:00.000Z" },
+            { key: "agent:munin:active", title: "Munin", status: "running", summary: "Working now", lastSeenAt: "2026-05-02T11:00:00.000Z" },
+            { key: "agent:freya:idle-new", title: "Freya", status: "idle", summary: "Newer idle", lastSeenAt: "2026-05-02T13:00:00.000Z" },
+            { key: "agent:odin:idle-missing", title: "Odin", status: "idle", summary: "No last seen" },
+            { key: "agent:loki:idle-missing", title: "Loki", status: "idle", summary: "Also no last seen" }
+          ]
+        };
+      }
+      return { ok: true };
+    };
+    const app = createApiApp({ repo, gateway });
+
+    const response = await app.inject({ method: "GET", url: "/api/sessions?dayKey=2026-05-02" });
+
+    expect(response.json()).toEqual({
+      agents: [
+        { id: "agent:munin:active", label: "Munin", status: "working", summary: "Working now", sessionKey: "agent:munin:active", lastSeenAt: "2026-05-02T11:00:00.000Z" },
+        { id: "agent:freya:idle-new", label: "Freya", status: "idle", summary: "Newer idle", sessionKey: "agent:freya:idle-new", lastSeenAt: "2026-05-02T13:00:00.000Z" },
+        { id: "agent:hugin:idle-old", label: "Hugin", status: "idle", summary: "Older idle", sessionKey: "agent:hugin:idle-old", lastSeenAt: "2026-05-02T12:00:00.000Z" },
+        { id: "agent:odin:idle-missing", label: "Odin", status: "idle", summary: "No last seen", sessionKey: "agent:odin:idle-missing" },
+        { id: "agent:loki:idle-missing", label: "Loki", status: "idle", summary: "Also no last seen", sessionKey: "agent:loki:idle-missing" }
+      ]
+    });
+    await app.close();
+  });
+
+  test("falls back to an empty journal day when live sessions are empty or unavailable", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    const gateway = createMemoryGateway({ ready: true });
+    gateway.request = async (method, params) => {
+      gateway.calls.push({ method, params });
+      if (method === "sessions.list") return {};
+      return { ok: true };
+    };
+    const app = createApiApp({ repo, gateway });
+
+    const response = await app.inject({ method: "GET", url: "/api/sessions" });
+
+    expect(response.json()).toEqual({ agents: [] });
+    expect(gateway.calls).toEqual([{ method: "sessions.list", params: { includeDerivedTitles: true, includeLastMessage: true, limit: 50 } }]);
+    await app.close();
+  });
+
+  test("falls back to selected-day journal entries for agent activity", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    const gateway = createMemoryGateway({ ready: false });
+    repo.addEntry({
+      id: "agent-entry-1",
+      dayKey: "2026-05-02",
+      sessionId: "agent:hugin:main",
+      source: "openclaw",
+      kind: "assistant_message",
+      title: "OpenClaw response",
+      body: "Working on the current request",
+      timestamp: "2026-05-02T14:00:00.000Z",
+      status: "running",
+      severity: "info",
+      redacted: true
+    });
+    const app = createApiApp({ repo, gateway });
+
+    const response = await app.inject({ method: "GET", url: "/api/sessions?dayKey=2026-05-02" });
+
+    expect(response.json()).toEqual({
+      agents: [
+        {
+          id: "agent:hugin:main",
+          label: "Hugin",
+          status: "working",
+          summary: "OpenClaw response",
+          sessionKey: "agent:hugin:main",
+          lastSeenAt: "2026-05-02T14:00:00.000Z"
+        }
+      ]
+    });
+    expect(gateway.calls).toEqual([]);
+    await app.close();
+  });
+
+  test("uses the latest journal entry per session when deriving idle agent activity", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    const gateway = createMemoryGateway({ ready: false });
+    repo.addEntry({
+      id: "agent-entry-old",
+      dayKey: "2026-05-02",
+      sessionId: "agent:munin:main",
+      source: "openclaw",
+      kind: "assistant_message",
+      title: "Older running entry",
+      body: "Old work",
+      timestamp: "2026-05-02T13:00:00.000Z",
+      status: "running",
+      severity: "info",
+      redacted: true
+    });
+    repo.addEntry({
+      id: "agent-entry-new",
+      dayKey: "2026-05-02",
+      sessionId: "agent:munin:main",
+      source: "openclaw",
+      kind: "assistant_message",
+      title: "Later completed entry",
+      body: "Done",
+      timestamp: "2026-05-02T15:00:00.000Z",
+      status: "success",
+      severity: "info",
+      redacted: true
+    });
+    repo.addEntry({
+      id: "agent-entry-no-session",
+      dayKey: "2026-05-02",
+      source: "system",
+      kind: "system_status",
+      title: "Ignored entry without session",
+      body: "No session",
+      timestamp: "2026-05-02T16:00:00.000Z",
+      status: "info",
+      severity: "info",
+      redacted: true
+    });
+    repo.addEntry({
+      id: "agent-entry-too-old",
+      dayKey: "2026-05-02",
+      sessionId: "agent:munin:main",
+      source: "openclaw",
+      kind: "assistant_message",
+      title: "Stale entry",
+      body: "Older than the selected latest entry",
+      timestamp: "2026-05-02T12:00:00.000Z",
+      status: "running",
+      severity: "info",
+      redacted: true
+    });
+    repo.addEntry({
+      id: "agent-entry-same-time",
+      dayKey: "2026-05-02",
+      sessionId: "agent:munin:main",
+      source: "openclaw",
+      kind: "assistant_message",
+      title: "Same timestamp ignored",
+      body: "Equal timestamp should not replace the current latest entry",
+      timestamp: "2026-05-02T15:00:00.000Z",
+      status: "running",
+      severity: "info",
+      redacted: true
+    });
+    const app = createApiApp({ repo, gateway });
+
+    const response = await app.inject({ method: "GET", url: "/api/sessions?dayKey=2026-05-02" });
+
+    expect(response.json()).toEqual({
+      agents: [
+        {
+          id: "agent:munin:main",
+          label: "Munin",
+          status: "idle",
+          summary: "Later completed entry",
+          sessionKey: "agent:munin:main",
+          lastSeenAt: "2026-05-02T15:00:00.000Z"
+        }
+      ]
+    });
+    await app.close();
+  });
+
+  test("sanitizes approval list and resolves only explicit decisions", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    const gateway = createMemoryGateway({ ready: true });
+    gateway.request = async (method, params) => {
+      gateway.calls.push({ method, params });
+      if (method === "exec.approval.list") {
+        return {
+          approvals: [
+            {
+              id: "approval-1",
+              status: "pending",
+              request: { command: "OPENAI_API_KEY=sk-secret npm test", sessionKey: "agent:hugin:main" },
+              createdAt: "2026-05-02T13:10:00.000Z"
+            }
+          ],
+          rawToken: "Bearer should-not-reach-browser"
+        };
+      }
+      return { ok: true };
+    };
+    const app = createApiApp({ repo, gateway });
+
+    const approvals = await app.inject({ method: "GET", url: "/api/approvals" });
+    const approve = await app.inject({ method: "POST", url: "/api/approvals/approval-1/resolve", payload: { decision: "allow-once" } });
+    const deny = await app.inject({ method: "POST", url: "/api/approvals/approval-2/resolve", payload: { decision: "deny" } });
+
+    expect(approvals.json()).toEqual({
+      approvals: [
+        {
+          id: "approval-1",
+          title: "Approval requested",
+          command: "[REDACTED_SECRET] npm test",
+          status: "pending",
+          requestedAt: "2026-05-02T13:10:00.000Z",
+          sessionKey: "agent:hugin:main"
+        }
+      ]
+    });
+    expect(approvals.body).not.toContain("sk-secret");
+    expect(approvals.body).not.toContain("Bearer");
+    expect(approve.json()).toEqual({ ok: true });
+    expect(deny.json()).toEqual({ ok: true });
+    expect(gateway.calls.map((call) => call.method)).toEqual(["exec.approval.list", "exec.approval.resolve", "exec.approval.resolve"]);
+    expect(gateway.calls.at(-2)?.params).toEqual({ id: "approval-1", decision: "allow-once" });
+    expect(gateway.calls.at(-1)?.params).toEqual({ id: "approval-2", decision: "deny" });
+    await app.close();
+  });
+
+  test("sanitizes approval variants without relying on request-shaped payloads", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    const gateway = createMemoryGateway({ ready: true });
+    gateway.request = async (method, params) => {
+      gateway.calls.push({ method, params });
+      if (method === "exec.approval.list") {
+        return {
+          approvals: [
+            {},
+            { id: "approval-empty" },
+            {
+              id: "approval-plain",
+              title: "Run review",
+              command: "git diff",
+              requestedAt: "2026-05-02T13:12:00.000Z",
+              sessionKey: "agent:munin:main"
+            }
+          ]
+        };
+      }
+      return { ok: true };
+    };
+    const app = createApiApp({ repo, gateway });
+
+    const approvals = await app.inject({ method: "GET", url: "/api/approvals" });
+
+    expect(approvals.json()).toEqual({
+      approvals: [
+        { id: "approval-empty", title: "Approval requested", command: "", status: "pending" },
+        {
+          id: "approval-plain",
+          title: "Run review",
+          command: "git diff",
+          status: "pending",
+          requestedAt: "2026-05-02T13:12:00.000Z",
+          sessionKey: "agent:munin:main"
+        }
+      ]
+    });
+    await app.close();
+  });
+
+  test("treats malformed approval list responses as empty public data", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    const gateway = createMemoryGateway({ ready: true });
+    gateway.request = async (method, params) => {
+      gateway.calls.push({ method, params });
+      if (method === "exec.approval.list") return [];
+      return { ok: true };
+    };
+    const app = createApiApp({ repo, gateway });
+
+    const approvals = await app.inject({ method: "GET", url: "/api/approvals" });
+
+    expect(approvals.json()).toEqual({ approvals: [] });
     await app.close();
   });
 

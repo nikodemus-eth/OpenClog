@@ -24,3 +24,19 @@ Track public API contracts and Gateway RPC usage.
 - Gateway event ingestion filters out noisy health/tick traffic and journals only user-visible operational events.
 - Live correction: `sessions.create` is called without a reused label because the installed Gateway enforces label uniqueness.
 - `verify:gateway` mutation mode was aligned with the same flow: `sessions.create`, `sessions.messages.subscribe`, `sessions.send`, and `sessions.abort` only when explicitly enabled.
+
+## 2026-05-02 Five-Theme UI Refinement
+- API and Gateway contracts were intentionally unchanged for this UI addendum.
+- Public UI fixtures and route expectations now use OpenClog/OpenClog Journal product copy while preserving OpenClaw Gateway wording for integration/status messages.
+- Theme IDs exposed to the browser now use canonical frontend IDs from `packages/core`; aliases remain resolver-only compatibility inputs.
+
+## 2026-05-02 Interaction Refinement
+- `GET/PUT /api/settings` now includes `showToolCalls` for display-only tool-call filtering and preserves existing public Gateway state behavior.
+- Added `GET /api/sessions?dayKey=YYYY-MM-DD`, returning sanitized `AgentActivity[]` from live `sessions.list` when Gateway control is ready, with selected-day journal fallback.
+- `GET /api/approvals` now normalizes public approval view models: `id`, `title`, `command`, `status`, `requestedAt`, and `sessionKey`.
+- Approval submit sends `exec.approval.resolve` only for approve/disapprove selections, mapping approve to `allow-once` and disapprove to `deny`; defer sends no API call.
+
+## 2026-05-02 Theme Families Expansion
+- No public API routes, Gateway RPC method names, permissions, composer behavior, approval behavior, persistence behavior, or delivery behavior were changed for the theme family expansion.
+- Theme metadata exposed to the browser remains UI presentation data only.
+- Public UI fixtures and tests were expanded to cover all selectable themes without adding any browser path to Gateway credentials or raw frames.

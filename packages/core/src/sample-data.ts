@@ -2,7 +2,7 @@ import type { JournalDay } from "./types.js";
 
 export const sampleJournalDay: JournalDay = {
   dayKey: "2026-05-02",
-  title: "OpenClaw Journal",
+  title: "OpenClog Journal",
   dateLabel: "Saturday, May 2, 2026",
   summary: "OpenClog is watching local OpenClaw activity. Live Gateway readiness appears in diagnostics after the backend handshake.",
   entries: [

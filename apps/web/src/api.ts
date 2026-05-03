@@ -1,4 +1,4 @@
-import type { JournalDay, ThemeId } from "@openclog/core";
+import { themeIds, type AgentActivity, type ApprovalView, type JournalDay, type ThemeId } from "@openclog/core";
 
 export interface HealthResponse {
   ok: boolean;
@@ -25,6 +25,41 @@ export async function fetchDay(dayKey: string): Promise<JournalDay> {
   return result.day;
 }
 
+export async function fetchSettings(): Promise<{ showToolCalls: boolean; theme: string }> {
+  const result = await fetchJson<{ settings: { showToolCalls?: boolean; theme?: string } }>("/api/settings");
+  return { showToolCalls: result.settings.showToolCalls !== false, theme: result.settings.theme ?? "default" };
+}
+
+export async function updateSettings(settings: { showToolCalls?: boolean; theme?: string }): Promise<{ showToolCalls: boolean; theme: string }> {
+  const response = await fetch("/api/settings", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(settings)
+  });
+  if (!response.ok) throw new Error("Settings update failed");
+  const result = (await response.json()) as { settings?: { showToolCalls?: boolean; theme?: string } };
+  return { showToolCalls: result.settings?.showToolCalls !== false, theme: result.settings?.theme ?? "default" };
+}
+
+export async function fetchSessions(dayKey: string): Promise<AgentActivity[]> {
+  const result = await fetchJson<{ agents: AgentActivity[] }>(`/api/sessions?dayKey=${encodeURIComponent(dayKey)}`);
+  return result.agents;
+}
+
+export async function fetchApprovals(): Promise<ApprovalView[]> {
+  const result = await fetchJson<{ approvals: ApprovalView[] }>("/api/approvals");
+  return result.approvals;
+}
+
+export async function resolveApproval(id: string, decision: "allow-once" | "deny"): Promise<void> {
+  const response = await fetch(`/api/approvals/${encodeURIComponent(id)}/resolve`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision })
+  });
+  if (!response.ok) throw new Error("Approval resolution failed");
+}
+
 export async function sendComposer(text: string): Promise<{ day?: JournalDay | null; mode?: string; body?: string; message?: string; sessionKey?: string }> {
   const response = await fetch("/api/composer", {
     method: "POST",
@@ -42,7 +77,7 @@ export async function exportDay(dayKey: string, format: "markdown" | "html" = "m
   return response.blob();
 }
 
-export const selectableThemeIds: ThemeId[] = ["default", "captains-log", "hearty-tale", "blackbeards-log"];
+export const selectableThemeIds: ThemeId[] = [...themeIds];
 
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url);

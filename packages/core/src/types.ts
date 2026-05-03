@@ -83,6 +83,24 @@ export interface JournalDay {
   metrics: JournalDayMetrics;
 }
 
+export interface AgentActivity {
+  id: string;
+  label: string;
+  status: "idle" | "working";
+  summary: string;
+  sessionKey?: string;
+  lastSeenAt?: string;
+}
+
+export interface ApprovalView {
+  id: string;
+  title: string;
+  command: string;
+  status: string;
+  requestedAt?: string;
+  sessionKey?: string;
+}
+
 export interface PersistableRedactedEvent {
   raw_event_redacted_json: string;
   raw_event_hash: string;
@@ -99,4 +117,3 @@ export interface GatewayCallPlan {
   method: string;
   params: Record<string, unknown>;
 }
-

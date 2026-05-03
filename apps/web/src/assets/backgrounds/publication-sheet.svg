@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1000" viewBox="0 0 1440 1000" role="img" aria-label="Decorative publication sheet background">
+  <rect width="1440" height="1000" fill="#ede5d4"/>
+  <g stroke="#1f2937" stroke-width="2" opacity="0.12">
+    <path d="M150 140 H1290 M150 220 H1290 M150 300 H1290"/>
+    <path d="M260 390 H700 M260 452 H700 M260 514 H700 M260 576 H700 M260 638 H700 M260 700 H700"/>
+    <path d="M780 390 H1180 M780 452 H1180 M780 514 H1180 M780 576 H1180 M780 638 H1180 M780 700 H1180"/>
+    <path d="M720 360 V740"/>
+  </g>
+  <g fill="#24523b" opacity="0.12">
+    <rect x="150" y="350" width="90" height="360"/>
+    <rect x="1210" y="350" width="80" height="360"/>
+  </g>
+</svg>

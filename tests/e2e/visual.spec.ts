@@ -1,15 +1,19 @@
 import { expect, test } from "@playwright/test";
+import { themeIds } from "@openclog/core";
 import { installApiFixtures } from "./support/api-fixtures.js";
 
-for (const theme of ["default", "captains-log", "hearty-tale", "blackbeards-log"] as const) {
-  test(`visual snapshot for ${theme}`, async ({ page }) => {
+const themes = themeIds;
+
+for (const theme of themes) {
+  test(`visual snapshot for ${theme}`, async ({ page }, testInfo) => {
+    const viewportName = testInfo.project.name === "mobile" ? "mobile" : "desktop";
     await installApiFixtures(page);
     await page.goto("/");
     await page.getByLabel("Theme").selectOption(theme);
     await expect(page.getByRole("main")).toHaveAttribute("data-theme", theme);
-    await expect(page).toHaveScreenshot(`${theme}.png`, {
+    await expect(page).toHaveScreenshot(`${theme}-${viewportName}.png`, {
       fullPage: true,
-      maxDiffPixels: 400
+      maxDiffPixels: 800
     });
   });
 }

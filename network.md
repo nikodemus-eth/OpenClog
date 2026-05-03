@@ -24,3 +24,22 @@ Track network behavior, local Gateway assumptions, and remote deployment boundar
 - Confirmed live Gateway event traffic includes `session.message`, `sessions.changed`, `chat`, `agent`, `health`, and `tick`; OpenClog journals only the operational event families it can safely normalize.
 - Confirmed `ping` sent through OpenClog's API produced `pong` from OpenClaw and appeared in the browser through the local HTTP/SSE path.
 - The API remains token-backed and local-only at `http://127.0.0.1:8787`; the browser continues to use only proxied `/api/*` routes from `http://127.0.0.1:5173`.
+
+## 2026-05-02 Five-Theme UI Refinement
+- No new network or Gateway permissions were added for theme switching, backgrounds, accessibility checks, or visual tests.
+- Background assets are local files bundled with the web app; no external image or font network fetch is required for theme decoration.
+- Live Gateway verification remains separate from deterministic UI verification and must not be inferred from fixture-driven Playwright results.
+- Live Gateway probing passed when supplied with the existing machine-local OpenClaw token, negotiating `operator.read`, `operator.write`, and `operator.approvals`; mutation mode stayed disabled.
+
+## 2026-05-02 Interaction Refinement
+- `Show Tool Calls`, archive selection, and toast navigation use existing backend HTTP/SSE paths and do not alter Gateway subscriptions.
+- `GET /api/sessions` may call `sessions.list` only when the negotiated Gateway state can issue control actions; otherwise it degrades to selected-day journal data.
+- Pending approval resolution continues through the backend-only Gateway path and exposes no credentials to the browser.
+- Live event toasts are generated from backend SSE `journal` events and expire locally after 10 seconds.
+- The interaction closeout live probe failed closed with `device identity required`, so current live Gateway verification is not green.
+
+## 2026-05-02 Theme Families Expansion
+- No new network calls were added for theme selection, accessibility overlays, background assets, visual tests, or browser-visible event previews.
+- All new decorative assets are local and deterministic; no external image, font, script, or stylesheet fetch is required.
+- Live OpenClaw Gateway verification remains separate from deterministic theme verification and must be reported as live only when the Gateway probe actually negotiates.
+- Final live Gateway probe returned failed-closed status with `device identity required`; deterministic UI and API verification remains separate from that unavailable live path.

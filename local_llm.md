@@ -16,3 +16,18 @@ Track local model usage, local-only execution boundaries, and future local LLM i
 - The live `ping`/`pong` flow came from OpenClaw through Gateway, not from a local LLM runtime owned by OpenClog.
 - OpenClog still does not invoke a local model directly.
 - Future local model activity must remain separate from Gateway-derived journal ingestion unless an explicit integration is added.
+
+## 2026-05-02 Five-Theme UI Refinement
+- No local LLM runtime was added for the theme work.
+- The five-theme UI only changes presentation, labels, focus behavior, and static decorative assets.
+- Accessibility and visual tests use deterministic fixtures, not simulated local model activity.
+
+## 2026-05-02 Interaction Refinement
+- No local LLM runtime was added for tool-call filtering, Agent Activity, approvals, archive navigation, or live event toasts.
+- Agent Activity summaries are derived from sanitized Gateway session metadata or selected-day journal entries, not from a local model.
+- The live event toast behavior navigates to existing journal entries and does not synthesize model responses.
+
+## 2026-05-02 Theme Families Expansion
+- No local LLM runtime was added for the 27-theme expansion.
+- Theme labels, tokens, backgrounds, and previews are deterministic code/assets in the repo.
+- Browser-visible event previews are redacted and summarized locally rather than interpreted by a model.

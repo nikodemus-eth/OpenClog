@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="720" viewBox="0 0 720 720" role="img" aria-label="Subtle paper grain">
+  <rect width="720" height="720" fill="#fbf6ea"/>
+  <g opacity="0.22" fill="none" stroke="#c6d1bf" stroke-width="1">
+    <path d="M42 104h636M42 176h636M42 248h636M42 320h636M42 392h636M42 464h636M42 536h636M42 608h636"/>
+    <path d="M104 40v640" stroke="#d7c9a9"/>
+  </g>
+  <g opacity="0.16" fill="#8aa57a">
+    <circle cx="140" cy="118" r="1.8"/>
+    <circle cx="380" cy="272" r="1.4"/>
+    <circle cx="592" cy="512" r="1.5"/>
+    <circle cx="240" cy="622" r="1.2"/>
+    <circle cx="642" cy="190" r="1.1"/>
+  </g>
+</svg>

@@ -9,8 +9,10 @@ export interface OpenClogRepository {
   close(): void;
   countRedactedEvents(): number;
   getDay(dayKey: string): JournalDay | null;
+  getSetting<T>(key: string, fallback: T): T;
   listDays(): Omit<JournalDay, "entries">[];
   listTables(): string[];
+  setSetting(key: string, value: unknown): void;
   storeRedactedEvent(entryId: string, event: PersistableRedactedEvent): void;
   upsertDay(day: JournalDay): void;
 }
@@ -84,6 +86,10 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
         entries
       };
     },
+    getSetting(key, fallback) {
+      const row = db.prepare("SELECT value_json FROM journal_settings WHERE key = ?").get(key);
+      return row ? (JSON.parse(String(row.value_json)) as typeof fallback) : fallback;
+    },
     listDays() {
       return db
         .prepare("SELECT day_key, title, date_label, summary, metrics_json FROM journal_days ORDER BY day_key DESC")
@@ -101,6 +107,12 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'journal_%' ORDER BY name ASC")
         .all()
         .map((row) => String(row.name));
+    },
+    setSetting(key, value) {
+      db.prepare("INSERT INTO journal_settings (key, value_json) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json").run(
+        key,
+        JSON.stringify(value)
+      );
     },
     storeRedactedEvent(entryId, event) {
       repo.addEntry(
@@ -216,7 +228,7 @@ function formatDay(date: Date): string {
 function emptyDay(dayKey: string): JournalDay {
   return {
     dayKey,
-    title: "OpenClaw Journal",
+    title: "OpenClog Journal",
     dateLabel: dayKey,
     summary: "",
     entries: [],

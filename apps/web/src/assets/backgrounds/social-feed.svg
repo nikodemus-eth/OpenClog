@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1000" viewBox="0 0 1440 1000" role="img" aria-label="Decorative social feed pattern background">
+  <rect width="1440" height="1000" fill="#edf4ff"/>
+  <g fill="#2f6fed" opacity="0.14">
+    <circle cx="220" cy="180" r="58"/>
+    <circle cx="1180" cy="210" r="42"/>
+    <circle cx="960" cy="790" r="70"/>
+  </g>
+  <g fill="none" stroke="#2f6fed" stroke-width="3" opacity="0.16">
+    <rect x="190" y="310" width="420" height="170" rx="24"/>
+    <rect x="660" y="250" width="510" height="190" rx="24"/>
+    <rect x="330" y="580" width="610" height="180" rx="24"/>
+    <path d="M300 480 L360 550 L660 440 M880 440 L900 570"/>
+  </g>
+</svg>

@@ -16,3 +16,20 @@ Record first-person implementation notes from the builder/operator perspective.
 - I chased the user's real `ping` failure instead of treating Gateway readiness as enough.
 - The missing piece was not auth; the backend was ignoring Gateway `event` frames after request responses.
 - I verified the fix through OpenClog itself: composer `ping` now produces a visible OpenClaw `pong`.
+
+## 2026-05-02 Five-Theme UI Refinement
+- I treated this as a presentation addendum and left backend, Gateway, permission, composer, and delivery behavior untouched.
+- I made theme switching a visual-only state change: composer text, selected day, diagnostics, pending approvals, readiness, and local journal data stay put.
+- I kept the decorative themes readable and made Accessibility a first-class mode with larger targets, clearer focus, and explicit status text.
+
+## 2026-05-02 Interaction Refinement
+- I fixed the Blackbeard overlap by constraining layout flow instead of hiding content.
+- I made `Show Tool Calls` a UI-only preference so stored journal evidence remains complete.
+- I turned live event notices into short-lived navigation affordances: clicking one selects the right day and focuses the matching entry.
+- I kept approval handling explicit: approve maps to `allow-once`, disapprove maps to `deny`, and defer sends nothing.
+
+## 2026-05-02 Theme Families Expansion
+- I expanded the theme system without turning each theme into its own app or behavior branch.
+- I kept the richer parody themes generic and local: no external logos, copied assets, proprietary glyphs, or remote background fetches.
+- I treated the Accessibility variants as real usability modes, with larger targets, stronger focus, reduced motion where appropriate, and visible status text.
+- I kept the operational surface steady while switching themes: the journal, composer text, diagnostics, Gateway readiness, approvals, agents, and tools stay where they are.

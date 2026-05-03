@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1000" viewBox="0 0 1440 1000" role="img" aria-label="Decorative manuscript surface background">
+  <rect width="1440" height="1000" fill="#3b2718"/>
+  <rect x="112" y="76" width="1216" height="848" rx="22" fill="#e8c78f" opacity="0.18"/>
+  <g fill="none" stroke="#f8dca8" stroke-width="2" opacity="0.18">
+    <path d="M160 160 C300 120 360 220 500 170 S760 132 860 190 S1070 230 1220 164"/>
+    <path d="M168 800 C340 750 430 870 600 810 S880 750 1010 815 S1130 855 1268 780"/>
+    <path d="M230 250 H1210 M230 322 H1210 M230 394 H1210 M230 466 H1210 M230 538 H1210 M230 610 H1210"/>
+  </g>
+  <circle cx="1180" cy="186" r="68" fill="#a64b24" opacity="0.16"/>
+</svg>
