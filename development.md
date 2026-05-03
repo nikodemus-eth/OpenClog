@@ -89,3 +89,14 @@ Track OpenClog implementation decisions, verification passes, refactors, and clo
 - Refreshed desktop/mobile visual snapshots after confirming the family shortcut chrome remained readable and diagnostics/status chips stayed visible.
 - The first final live probe timed out waiting for `connect.challenge`; `openclaw gateway restart` restored the local Gateway listener before the final live probe.
 - Live `npm run verify:gateway` passed after device auth, reaching `hello-ok` and probing health, presence, approval list, session list, and session subscriptions without mutation testing.
+
+## 2026-05-03 Theme Intent Realignment And Contrast Pass
+- Realigned the existing 27 themes to the user-provided intent table without adding themes, changing behavior, or cloning proprietary trade dress.
+- Added presentation-only theme intent metadata: practical group, generic inspiration, OpenClog design intent, and interaction emphasis.
+- Replaced the selector grouping with practical groups: Core Daily Modes, Narrative / Character Modes, News / Analysis Modes, Social / Feed Modes, and OS / Console Modes.
+- Retuned theme tokens and archetype CSS so themes read as daybook, operations console, accessibility mode, narrative journal, news/analysis desk, social feed, desktop shell, or terminal instead of collapsing into one visual family.
+- Improved non-accessibility theme contrast across shell text, side rails, archive metadata, status chips, placeholder text, dark/sidebar-heavy themes, and disabled/inactive surfaces.
+- Tightened Dyslexia Friendly spacing, line-height, selector width, diagnostics card flow, mobile stacking, and 200 percent zoom behavior.
+- Refactored the theme/style pass into token-driven metadata and CSS data attributes: `data-practical-group` and `data-interaction-emphasis`; no backend, Gateway, permission, composer, approval, persistence, API, or delivery behavior changed.
+- Refreshed all 54 desktop/mobile Playwright visual snapshots after representative inspection of Blackbeard's Log, Clog News, Clog News Network, Clog-Net, Clogbuntu, Cloginal, Accessibility Dark, Dyslexia Friendly, and mobile OpenClog Journal.
+- Final deterministic verification and live Gateway verification passed after the log update; live mutation testing remained disabled.

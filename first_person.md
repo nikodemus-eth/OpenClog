@@ -59,3 +59,10 @@ Record first-person implementation notes from the builder/operator perspective.
 - I kept the token and device identity path backend-only and verified the live Gateway path after implementing the signed challenge response.
 - When the shell controls looked inert, I treated it as an interaction bug: the controls were technically focusing elements but lacked visible feedback or concrete family selection.
 - I added failing UI tests first, made the shortcuts visibly useful, refreshed snapshots only for intentional chrome changes, and kept the behavior bounded.
+
+## 2026-05-03 Theme Intent Realignment And Contrast Pass
+- I treated the user's theme-intent table as the design contract and kept Stitch as shell vocabulary only.
+- I did not add themes; I made the current 27 themes more legible, more differentiated, and more honest to their OpenClog purpose.
+- I used practical group and interaction-emphasis metadata so the UI can express daybook, operations, news, social, desktop, terminal, and accessibility mental models without one-off behavior branches.
+- I audited the non-accessibility themes for readable text and status contrast, especially the dark and sidebar-heavy surfaces that were easiest to under-light.
+- I kept the Gateway and safety boundaries steady: this pass changes presentation and test coverage, not authority.

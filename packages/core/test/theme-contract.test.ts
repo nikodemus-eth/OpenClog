@@ -52,6 +52,66 @@ const coreLifecycleThemes = new Set<ThemeId>(["openclog-journal", "captains-log"
 const stableLifecycleThemes = new Set<ThemeId>(["a-hearty-tale", "blackbeards-log", "clog-news", "the-clog-street-journal", "cloginal"]);
 const summaryDiagnosticsThemes = new Set<ThemeId>(["accessibility", "accessibility-dark", "low-stimulus", "large-print", "dyslexia-friendly", "keyboard-first", "cloginal"]);
 
+const expectedPracticalGroups: Record<ThemeId, string> = {
+  "openclog-journal": "core-daily",
+  "captains-log": "core-daily",
+  accessibility: "core-daily",
+  "a-hearty-tale": "narrative-character",
+  "blackbeards-log": "narrative-character",
+  "clog-news": "news-analysis",
+  "the-clog-street-journal": "news-analysis",
+  cloggit: "social-feed",
+  clogdos: "os-console",
+  clogos: "os-console",
+  clogbuntu: "os-console",
+  cloginal: "os-console",
+  "accessibility-dark": "core-daily",
+  "low-stimulus": "core-daily",
+  "large-print": "core-daily",
+  "clog-news-network": "news-analysis",
+  "clog-net": "news-analysis",
+  clogdot: "news-analysis",
+  clogspace: "social-feed",
+  clogbook: "social-feed",
+  instaclog: "social-feed",
+  "x-clog": "social-feed",
+  clogsky: "social-feed",
+  clogeads: "social-feed",
+  cloggyos: "os-console",
+  "dyslexia-friendly": "core-daily",
+  "keyboard-first": "core-daily"
+};
+
+const expectedInteractionEmphasis: Record<ThemeId, string> = {
+  "openclog-journal": "journal",
+  "captains-log": "operations",
+  accessibility: "accessibility",
+  "a-hearty-tale": "journal",
+  "blackbeards-log": "journal",
+  "clog-news": "headline",
+  "the-clog-street-journal": "ledger",
+  cloggit: "thread",
+  clogdos: "desktop",
+  clogos: "desktop",
+  clogbuntu: "desktop",
+  cloginal: "terminal",
+  "accessibility-dark": "accessibility",
+  "low-stimulus": "accessibility",
+  "large-print": "accessibility",
+  "clog-news-network": "headline",
+  "clog-net": "review",
+  clogdot: "feed",
+  clogspace: "profile",
+  clogbook: "feed",
+  instaclog: "story",
+  "x-clog": "microfeed",
+  clogsky: "feed",
+  clogeads: "thread",
+  cloggyos: "desktop",
+  "dyslexia-friendly": "accessibility",
+  "keyboard-first": "accessibility"
+};
+
 const expectedUseCases: Record<ThemeId, string> = {
   "openclog-journal": "daily-journal",
   "captains-log": "operations",
@@ -182,7 +242,21 @@ describe("OpenClog theme contract", () => {
     expect(resolveThemeId("captains-log")).toBe("captains-log");
     expect(resolveThemeId("unknown-theme")).toBe("openclog-journal");
     expect(getThemes()).toHaveLength(27);
-    expect(themeGroups.map((group) => group.label)).toEqual(["Core", "News / Media", "Social / Community", "OS / Desktop", "Accessibility"]);
+    expect(themeGroups.map((group) => group.label)).toEqual([
+      "Core Daily Modes",
+      "Narrative / Character Modes",
+      "News / Analysis Modes",
+      "Social / Feed Modes",
+      "OS / Console Modes"
+    ]);
+    expect(themeGroups.map((group) => group.themeIds)).toEqual([
+      ["openclog-journal", "captains-log", "accessibility", "accessibility-dark", "low-stimulus", "large-print", "dyslexia-friendly", "keyboard-first"],
+      ["a-hearty-tale", "blackbeards-log"],
+      ["clog-news", "clog-news-network", "the-clog-street-journal", "clog-net", "clogdot"],
+      ["cloggit", "clogspace", "clogbook", "instaclog", "x-clog", "clogsky", "clogeads"],
+      ["clogdos", "clogos", "clogbuntu", "cloggyos", "cloginal"]
+    ]);
+    expect(themeGroups.flatMap((group) => group.themeIds).sort()).toEqual([...themeIds].sort());
   });
 
   test("every theme has required metadata, labels, status tokens, motifs, and safety surfaces", () => {
@@ -215,6 +289,11 @@ describe("OpenClog theme contract", () => {
       expect(theme.accessibilityProfile).toMatch(/^(standard|high-contrast-light|high-contrast-dark|low-stimulus|large-print|dyslexia-friendly|keyboard-first)$/);
       expect(theme.motionProfile).toMatch(/^(standard|reduced|minimal)$/);
       expect(theme.lifecycle).toMatch(/^(core|stable|experimental|deprecated)$/);
+      expect(theme.practicalGroup).toBe(expectedPracticalGroups[themeId]);
+      expect(theme.interactionEmphasis).toBe(expectedInteractionEmphasis[themeId]);
+      expect(theme.inspiration.length).toBeGreaterThan(12);
+      expect(theme.designIntent.length).toBeGreaterThan(12);
+      expect(`${theme.inspiration} ${theme.designIntent}`).not.toMatch(/cnn|wall street|reddit|facebook|instagram|twitter|x\.com|bluesky|threads|windows|macos|ubuntu|apple|microsoft|canonical/i);
       expect(theme.useCase).toBe(expectedUseCases[themeId]);
       expect(theme.timelineLayoutMode).toBe(expectedTimelineModes[themeId]);
       expect(theme.diagnosticsDensity).toBe(themeId === "clog-news-network" ? "expanded" : summaryDiagnosticsThemes.has(themeId) ? "summary" : "standard");
@@ -240,6 +319,24 @@ describe("OpenClog theme contract", () => {
     }
   );
 
+  test("all themes keep text readable against page, card, and rail surfaces", () => {
+    for (const themeId of themeIds) {
+      const theme = getTheme(themeId);
+      const railContrast = Math.max(contrastRatio(theme.palette.text, theme.palette.panelBg), contrastRatio(theme.palette.inverseText, theme.palette.panelBg));
+      const shellContrast = Math.max(contrastRatio(theme.palette.text, theme.palette.appBg), contrastRatio(theme.palette.inverseText, theme.palette.appBg));
+
+      expect(contrastRatio(theme.palette.text, theme.palette.pageBg), `${themeId} page text contrast`).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(theme.palette.text, theme.palette.cardBg), `${themeId} card text contrast`).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(theme.palette.mutedText, theme.palette.pageBg), `${themeId} muted page text contrast`).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(theme.palette.mutedText, theme.palette.cardBg), `${themeId} muted card text contrast`).toBeGreaterThanOrEqual(4.5);
+      expect(shellContrast, `${themeId} shell text contrast`).toBeGreaterThanOrEqual(4.5);
+      expect(railContrast, `${themeId} rail text contrast`).toBeGreaterThanOrEqual(4.5);
+      for (const [status, color] of Object.entries(theme.status)) {
+        expect(contrastRatio(color, theme.palette.cardBg), `${themeId} ${status} status chip text contrast`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
   test("theme asset registry stays local and generic", () => {
     for (const [assetId, asset] of Object.entries(themeAssetRegistry)) {
       expect(assetId).toMatch(/^[a-z0-9-]+$/);
@@ -249,7 +346,35 @@ describe("OpenClog theme contract", () => {
       expect(asset.description).not.toMatch(/cnn|wall street|reddit|facebook|instagram|twitter|x\.com|bluesky|threads|windows|macos|ubuntu|apple|microsoft|canonical/i);
     }
   });
+
+  test("same-family themes expose distinct visual signatures", () => {
+    const groupedByPracticalGroup = Map.groupBy(themeIds.map((themeId) => getTheme(themeId)), (theme) => theme.practicalGroup);
+
+    for (const themes of groupedByPracticalGroup.values()) {
+      const signatures = themes.map((theme) => visualSignature(theme));
+      expect(new Set(signatures).size).toBe(signatures.length);
+    }
+  });
 });
+
+function visualSignature(theme: ReturnType<typeof getTheme>): string {
+  return [
+    theme.interactionEmphasis,
+    theme.typography.display,
+    theme.typography.body,
+    theme.palette.appBg,
+    theme.palette.panelBg,
+    theme.palette.accent,
+    theme.cardStyle,
+    theme.diagnosticsStyle,
+    theme.timelineStyle,
+    theme.timelineLayoutMode,
+    theme.diagnosticsDensity,
+    theme.radius.card,
+    theme.spacing.cardPadding,
+    theme.background.asset ?? "none"
+  ].join("|");
+}
 
 function contrastRatio(foreground: string, background: string): number {
   const lighter = Math.max(relativeLuminance(foreground), relativeLuminance(background));

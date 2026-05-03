@@ -75,3 +75,11 @@ Track OpenClog security posture, Gateway authority boundaries, redaction, and fa
 - OpenClog still requests only `operator.read`, `operator.write`, and `operator.approvals`; the local already-paired Gateway may negotiate broader existing device scopes, but no admin, pairing, or secrets UI behavior was added.
 - Family shortcuts are presentation-only theme selection; Network, Monitors, Security, settings, and filter controls only focus existing safe surfaces or show local status feedback.
 - Browser-visible secret and red-team checks remain part of `npm run verify`, and no token-like values or raw Gateway payloads are intentionally exposed.
+
+## 2026-05-03 Theme Intent Realignment And Contrast Pass
+- Theme intent metadata is presentation-only and adds no authority, Gateway scope, command forwarding, admin surface, pairing surface, secret surface, or credential path.
+- Every theme continues to render Gateway state, Agent Activity, Recent Tools, Pending approvals, degraded/blocked/error/security warnings, and visible status chips.
+- Non-accessibility contrast was tightened for shell text, sidebars, archive cards, inactive text, placeholders, and status chips so expressive themes do not hide operational state.
+- Asset-safety scanning found no shipped external image, font, script, Tailwind CDN, Google font, Material Symbols remote dependency, or copied proprietary asset reference.
+- Browser-visible secret scanning found only redaction/test guard references, not exposed token-like values, auth headers, cookies, OAuth values, SMTP credentials, env assignments, raw Gateway payloads, or unsafe local paths.
+- Live Gateway verification negotiated a local operator device with broader existing paired scopes, but OpenClog's request path remains limited to `operator.read`, `operator.write`, and `operator.approvals` and no admin, pairing, or secrets UI was added.

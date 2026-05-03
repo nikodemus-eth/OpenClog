@@ -16,7 +16,11 @@ const backgroundUrls: Record<ThemeBackgroundAssetId, string> = {
 
 export function themeVars(theme: OpenClogTheme): React.CSSProperties {
   const backgroundUrl = theme.background.asset ? backgroundUrls[theme.background.asset] : "";
-  const darkRail = relativeLuminance(theme.palette.panelBg) < 0.36;
+  const shellText =
+    contrastRatio(theme.palette.text, theme.palette.appBg) >= contrastRatio(theme.palette.inverseText, theme.palette.appBg) ? theme.palette.text : theme.palette.inverseText;
+  const shellMuted = `color-mix(in srgb, ${shellText} 66%, ${theme.palette.accent} 34%)`;
+  const railText = contrastRatio(theme.palette.text, theme.palette.panelBg) >= contrastRatio(theme.palette.inverseText, theme.palette.panelBg) ? theme.palette.text : theme.palette.inverseText;
+  const railMuted = `color-mix(in srgb, ${railText} 76%, ${theme.palette.accent} 24%)`;
   return {
     "--app-bg": theme.palette.appBg,
     "--page-bg": theme.palette.pageBg,
@@ -67,13 +71,23 @@ export function themeVars(theme: OpenClogTheme): React.CSSProperties {
     "--theme-timeline-style": theme.timelineStyle,
     "--theme-lifecycle": theme.lifecycle,
     "--theme-use-case": theme.useCase,
+    "--theme-practical-group": theme.practicalGroup,
+    "--theme-interaction-emphasis": theme.interactionEmphasis,
     "--theme-timeline-layout": theme.timelineLayoutMode,
     "--theme-diagnostics-density": theme.diagnosticsDensity,
     "--theme-accessibility-profile": theme.accessibilityProfile,
     "--theme-motion-profile": theme.motionProfile,
-    "--rail-text": darkRail ? theme.palette.inverseText : theme.palette.text,
-    "--rail-muted": darkRail ? `color-mix(in srgb, ${theme.palette.inverseText} 78%, ${theme.palette.accent} 22%)` : theme.palette.mutedText
+    "--shell-text": shellText,
+    "--shell-muted": contrastRatio(theme.palette.mutedText, theme.palette.appBg) >= 3 ? theme.palette.mutedText : shellMuted,
+    "--rail-text": railText,
+    "--rail-muted": contrastRatio(theme.palette.mutedText, theme.palette.panelBg) >= 3 ? theme.palette.mutedText : railMuted
   } as React.CSSProperties;
+}
+
+function contrastRatio(foreground: string, background: string): number {
+  const lighter = Math.max(relativeLuminance(foreground), relativeLuminance(background));
+  const darker = Math.min(relativeLuminance(foreground), relativeLuminance(background));
+  return (lighter + 0.05) / (darker + 0.05);
 }
 
 function relativeLuminance(hex: string): number {

@@ -28,7 +28,7 @@ import {
   type JournalDay,
   type JournalEntry,
   type OpenClogTheme,
-  type ThemeFamily,
+  type ThemePracticalGroup,
   type TimelineDisplayItem,
   type ThemeId
 } from "@openclog/core";
@@ -78,7 +78,7 @@ interface AppShellProps {
   onShortcutsToggle: () => void;
   onShortcutsClose: () => void;
   onThemeChange: (themeId: ThemeId) => void;
-  onThemeFamilySelect: (family: ThemeFamily) => void;
+  onThemeGroupSelect: (practicalGroup: ThemePracticalGroup) => void;
   onThemeFocus: () => void;
   onTimelineFocus: () => void;
   onToolFilterFocus: () => void;
@@ -97,8 +97,10 @@ export function AppShell(props: AppShellProps) {
       data-family={props.theme.family}
       data-lifecycle={props.theme.lifecycle}
       data-motion={props.theme.motionProfile}
+      data-practical-group={props.theme.practicalGroup}
       data-theme={props.themeId}
       data-theme-use-case={props.theme.useCase}
+      data-interaction-emphasis={props.theme.interactionEmphasis}
       data-timeline-layout={props.theme.timelineLayoutMode}
       data-timeline-style={props.theme.timelineStyle}
       style={themeVars(props.theme)}
@@ -129,7 +131,7 @@ export function AppShell(props: AppShellProps) {
         onApprovalsFocus={props.onApprovalsFocus}
         onGatewayFocus={props.onGatewayFocus}
         onNewEntry={props.onComposerFocus}
-        onThemeFamilySelect={props.onThemeFamilySelect}
+        onThemeGroupSelect={props.onThemeGroupSelect}
         onThemeChange={props.onThemeChange}
       />
       <main id="main-content" className="journal-page" aria-label="Daily page" data-theme={props.themeId} ref={props.mainRef} tabIndex={-1}>
@@ -211,13 +213,13 @@ export function Sidebar(props: {
   onDaySelect: (dayKey: string) => void;
   onGatewayFocus: () => void;
   onNewEntry: () => void;
-  onThemeFamilySelect: (family: ThemeFamily) => void;
+  onThemeGroupSelect: (practicalGroup: ThemePracticalGroup) => void;
   onThemeChange: (themeId: ThemeId) => void;
 }) {
   return (
     <aside className="sidebar left-rail" aria-label={props.theme.labels.archiveTitle}>
       <OperatorConsoleHeader onNewEntry={props.onNewEntry} />
-      <RailGroupNav activeFamily={props.theme.family} onThemeFamilySelect={props.onThemeFamilySelect} />
+      <RailGroupNav activePracticalGroup={props.theme.practicalGroup} onThemeGroupSelect={props.onThemeGroupSelect} />
       <label className="search-box">
         <Search size={18} aria-hidden="true" />
         <input aria-label="Search days" placeholder="Search days" />
@@ -244,43 +246,35 @@ function OperatorConsoleHeader(props: { onNewEntry: () => void }) {
 }
 
 const familyShortcutIcons = {
-  accessibility: HelpCircle,
-  core: FileText,
-  "news-media": Hash,
-  "os-desktop": Settings,
-  "social-community": AtSign
-} satisfies Record<ThemeFamily, typeof FileText>;
+  "core-daily": FileText,
+  "narrative-character": FileText,
+  "news-analysis": Hash,
+  "os-console": Settings,
+  "social-feed": AtSign
+} satisfies Record<ThemePracticalGroup, typeof FileText>;
 
-function RailGroupNav(props: { activeFamily: ThemeFamily; onThemeFamilySelect: (family: ThemeFamily) => void }) {
+function RailGroupNav(props: { activePracticalGroup: ThemePracticalGroup; onThemeGroupSelect: (practicalGroup: ThemePracticalGroup) => void }) {
   return (
     <nav className="rail-group-nav" aria-label="Family shortcuts">
       <p>Groups</p>
       {themeGroups.map((group) => {
-        const Icon = familyShortcutIcons[group.family];
-        const active = group.family === props.activeFamily;
+        const Icon = familyShortcutIcons[group.practicalGroup];
+        const active = group.practicalGroup === props.activePracticalGroup;
         return (
           <button
             aria-pressed={active}
             key={group.label}
             className={active ? "active" : undefined}
             type="button"
-            onClick={() => props.onThemeFamilySelect(group.family)}
+            onClick={() => props.onThemeGroupSelect(group.practicalGroup)}
           >
             <Icon size={18} aria-hidden="true" />
-            {familyShortcutLabel(group.family)}
+            {group.shortcutLabel}
           </button>
         );
       })}
     </nav>
   );
-}
-
-function familyShortcutLabel(family: ThemeFamily): string {
-  if (family === "news-media") return "News";
-  if (family === "social-community") return "Social";
-  if (family === "os-desktop") return "OS";
-  if (family === "accessibility") return "Accessibility";
-  return "Core";
 }
 
 function RailSystemShortcuts(props: { onAgentActivityFocus: () => void; onApprovalsFocus: () => void; onGatewayFocus: () => void }) {

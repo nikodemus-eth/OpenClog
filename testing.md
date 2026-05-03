@@ -97,3 +97,15 @@ Record deterministic verification, live Gateway verification, coverage policy, a
 - Focused checks passed for the new shell interactions; final full verification is tracked in this tranche closeout.
 - A final live probe initially failed closed with a Gateway challenge timeout; after the approved `openclaw gateway restart` recovery step, the live verifier passed.
 - Live `npm run verify:gateway` passed after the device-auth fix; mutation testing remained disabled, so no create/send/abort test session was fabricated.
+
+## 2026-05-03 Theme Intent Realignment And Contrast Pass
+- Extended unit coverage for all 27 theme IDs so each exposes practical group, generic inspiration, design intent, interaction emphasis, lifecycle, use-case, timeline layout, diagnostics density, accessibility profile, motion profile, labels, status tokens, and aliases.
+- Added contrast assertions for page/card text, shell text, side rail text, muted labels, focus-adjacent surfaces, and status chips across light, dark, sidebar-heavy, and non-accessibility themes.
+- Added same-group differentiation checks so themes in a practical group cannot collapse to identical typography, card, timeline, diagnostics, palette, and emphasis signatures.
+- Updated Playwright interaction coverage for practical group shortcut selection and Stitch vocabulary token expectations.
+- Refreshed all 54 visual snapshots for the 27 selectable themes on desktop and mobile after representative visual inspection.
+- `npm run verify` passed on the final logged tree: forbidden RPC guard, typecheck, lint, build, 100% configured unit coverage, 176 E2E/UI tests, 54 visual snapshots, 4 red-team tests, and docs check.
+- `npm run verify:gateway` passed live after the device-auth work; mutation testing remained disabled, so no create/send/abort test session was fabricated.
+- Stale-copy scan found no stale historical product-title references outside preserved `Instructions.md`.
+- Asset safety scan found only documentation guard wording and the red-team forbidden-pattern assertion; no shipped external Stitch/Tailwind/font/image/script asset was introduced.
+- Browser-visible secret scan found only redaction code and test fixtures; no UI source path intentionally exposes tokens, auth headers, cookies, OAuth values, SMTP credentials, env assignments, raw Gateway payloads, or unsafe local paths.

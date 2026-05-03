@@ -69,3 +69,10 @@ Track network behavior, local Gateway assumptions, and remote deployment boundar
 - `openclaw gateway status` reports the Gateway listener on `127.0.0.1:18789` with connectivity probe `ok`; service PATH hygiene warnings remain OpenClaw service configuration notes, not OpenClog network blockers.
 - During final closeout, a transient Gateway challenge timeout was recovered with `openclaw gateway restart`; the follow-up status probe returned connectivity `ok`.
 - UI shortcut fixes added no network calls; they only select themes, move focus, or update local action status.
+
+## 2026-05-03 Theme Intent Realignment And Contrast Pass
+- No network calls were added for practical theme grouping, intent metadata, archetype styling, contrast fixes, Dyslexia Friendly layout work, or visual snapshot refreshes.
+- All theme changes remain local React/CSS/token behavior behind the existing OpenClog HTTP/SSE API.
+- Browser-to-Gateway isolation remains unchanged: the browser never connects to the OpenClaw Gateway and never receives Gateway token, device identity, auth header, cookie, env value, or raw frame data.
+- Live `npm run verify:gateway` passed against the loopback Gateway after device auth; the verifier did not run mutation testing or fabricate session traffic.
+- The live probe reported `hello-ok` readiness and probed `health`, `system-presence`, `exec.approval.list`, `sessions.list`, `sessions.subscribe`, and `sessions.messages.subscribe`.

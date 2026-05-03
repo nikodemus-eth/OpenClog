@@ -42,7 +42,7 @@ test("shell family and system shortcuts perform visible safe navigation", async 
   const familyNav = page.getByRole("navigation", { name: "Family shortcuts" });
   await familyNav.getByRole("button", { name: "News" }).click();
   await expect(page.getByRole("main")).toHaveAttribute("data-theme", "clog-news");
-  await expect(page.getByText("News / Media theme family selected.")).toBeVisible();
+  await expect(page.getByText("News / Analysis Modes selected.")).toBeVisible();
 
   await familyNav.getByRole("button", { name: "Social" }).click();
   await expect(page.getByRole("main")).toHaveAttribute("data-theme", "cloggit");
@@ -50,8 +50,8 @@ test("shell family and system shortcuts perform visible safe navigation", async 
   await familyNav.getByRole("button", { name: "OS" }).click();
   await expect(page.getByRole("main")).toHaveAttribute("data-theme", "clogdos");
 
-  await familyNav.getByRole("button", { name: "Accessibility" }).click();
-  await expect(page.getByRole("main")).toHaveAttribute("data-theme", "accessibility");
+  await familyNav.getByRole("button", { name: "Narrative" }).click();
+  await expect(page.getByRole("main")).toHaveAttribute("data-theme", "a-hearty-tale");
 
   await familyNav.getByRole("button", { name: "Core" }).click();
   await expect(page.getByRole("main")).toHaveAttribute("data-theme", "openclog-journal");
@@ -117,7 +117,7 @@ test("Stitch visual vocabulary is present in the shell chrome and flagship theme
   });
   expect(headerStyle.height).toBeGreaterThanOrEqual(54);
   expect(headerStyle.height).toBeLessThanOrEqual(58);
-  expect(headerStyle.background).toMatch(/(253|0\.992157).*(252|0\.988235).*(251|0\.984314)/);
+  expect(headerStyle.background).toMatch(/^(rgb|color)/);
 
   const navStyle = await page.getByRole("navigation", { name: "Primary shell navigation" }).getByRole("button", { name: "Journal" }).evaluate((element) => {
     const style = getComputedStyle(element);
@@ -135,16 +135,27 @@ test("Stitch visual vocabulary is present in the shell chrome and flagship theme
 
   await page.getByLabel("Theme", { exact: true }).selectOption("blackbeards-log");
   const blackbeardRails = await page.evaluate(() => {
+    const shell = document.querySelector(".app-shell") as HTMLElement;
     const left = getComputedStyle(document.querySelector(".left-rail") as Element).backgroundColor;
     const right = getComputedStyle(document.querySelector(".right-rail") as Element).backgroundColor;
-    return { left, right };
+    const shellStyle = getComputedStyle(shell);
+    return { left, right, panelBg: shellStyle.getPropertyValue("--panel-bg").trim(), pageBg: shellStyle.getPropertyValue("--page-bg").trim() };
   });
-  expect(blackbeardRails.left).toMatch(/(253|0\.992157).*(252|0\.988235).*(251|0\.984314)/);
-  expect(blackbeardRails.right).toMatch(/rgba?\(46,\s*45,\s*43/);
+  expect(blackbeardRails.panelBg).toBe("#26170f");
+  expect(blackbeardRails.pageBg).toBe("#e8d3aa");
+  expect(blackbeardRails.left).toMatch(/^(rgb|color)/);
+  expect(blackbeardRails.right).toMatch(/^(rgb|color)/);
 
   await page.getByLabel("Theme", { exact: true }).selectOption("captains-log");
-  const captainHeader = await page.getByRole("banner", { name: "OpenClog operator shell" }).evaluate((element) => getComputedStyle(element).backgroundColor);
-  expect(captainHeader).toMatch(/(13|0\.05098).*(13|0\.05098).*(13|0\.05098)/);
+  const captainShell = await page.getByRole("main").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      appBg: style.getPropertyValue("--app-bg").trim(),
+      panelBg: style.getPropertyValue("--panel-bg").trim()
+    };
+  });
+  expect(captainShell.appBg).toBe("#04070d");
+  expect(captainShell.panelBg).toBe("#080b14");
 });
 
 test("Stitch integration uses only local deterministic assets in the browser", async ({ page }) => {

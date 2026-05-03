@@ -32,6 +32,7 @@ export type ThemeId = (typeof themeIds)[number];
 export type ThemeAlias = "default" | "hearty-tale" | "accessibility-light";
 export type ThemeInputId = ThemeId | ThemeAlias | string;
 export type ThemeFamily = "core" | "news-media" | "social-community" | "os-desktop" | "accessibility";
+export type ThemePracticalGroup = "core-daily" | "narrative-character" | "news-analysis" | "social-feed" | "os-console";
 export type ThemeDensity = "comfortable" | "compact" | "accessible";
 export type CardStyle = "plain" | "console" | "publication" | "feed" | "desktop" | "terminal" | "parchment" | "map" | "accessible";
 export type DiagnosticsStyle = "plain" | "broadcast" | "market" | "community" | "desktop" | "terminal" | "accessible";
@@ -57,6 +58,20 @@ export type ThemeUseCase =
   | "accessibility";
 export type TimelineLayoutMode = "cards" | "compact-feed" | "threaded" | "ledger" | "terminal" | "headline" | "large-print";
 export type DiagnosticsDensity = "summary" | "standard" | "expanded";
+export type InteractionEmphasis =
+  | "accessibility"
+  | "desktop"
+  | "feed"
+  | "headline"
+  | "journal"
+  | "ledger"
+  | "microfeed"
+  | "operations"
+  | "profile"
+  | "review"
+  | "story"
+  | "terminal"
+  | "thread";
 export type IconToken =
   | "accessibility"
   | "approval"
@@ -93,6 +108,10 @@ export interface OpenClogTheme {
   useCase: ThemeUseCase;
   timelineLayoutMode: TimelineLayoutMode;
   diagnosticsDensity: DiagnosticsDensity;
+  practicalGroup: ThemePracticalGroup;
+  inspiration: string;
+  designIntent: string;
+  interactionEmphasis: InteractionEmphasis;
   labels: {
     productTitle: string;
     productSubtitle?: string;
@@ -295,6 +314,10 @@ const foundation: ThemeFoundation = {
   useCase: "daily-journal",
   timelineLayoutMode: "cards",
   diagnosticsDensity: "standard",
+  practicalGroup: "core-daily",
+  inspiration: "Classic paper daybook and field journal",
+  designIntent: "Calm default mode for readable daily operational journaling",
+  interactionEmphasis: "journal",
   labels: {
     productTitle: "OpenClog",
     exportDay: "Export day",
@@ -532,6 +555,13 @@ export const accessibilityOverlays = {
   "keyboard-first": {
     accessibilityProfile: "keyboard-first",
     motionProfile: "minimal",
+    typography: {
+      body: "Atkinson Hyperlegible, Inter, ui-sans-serif, system-ui, sans-serif",
+      display: coreTypography.mono,
+      mono: coreTypography.mono,
+      labelTransform: "none"
+    },
+    spacing: { shellGap: "3px", panelPadding: "28px", cardPadding: "18px", controlMinHeight: "50px" },
     focus: { ring: "#ffbf00", width: "5px", offset: "5px" },
     borders: { panel: "2px solid var(--border)", card: "2px solid var(--border)", active: "4px solid var(--accent)" },
     background: { kind: "none", overlay: "transparent", opacity: 0, panelScrim: "rgba(255, 255, 255, 1)" },
@@ -577,6 +607,179 @@ function diagnosticsDensityFor(id: ThemeId): DiagnosticsDensity {
   if (id === "cloginal" || accessibilityThemeIds.has(id)) return "summary";
   return "standard";
 }
+
+const themeIntentRegistry = {
+  "openclog-journal": {
+    practicalGroup: "core-daily",
+    inspiration: "Classic paper daybook and field journal",
+    designIntent: "Calm default mode with cream surfaces, muted green accents, readable cards, and low visual drama",
+    interactionEmphasis: "journal"
+  },
+  "captains-log": {
+    practicalGroup: "core-daily",
+    inspiration: "Starship command console and bridge operations dashboard",
+    designIntent: "Dark command-center mode with amber operational hierarchy and bridge diagnostics",
+    interactionEmphasis: "operations"
+  },
+  accessibility: {
+    practicalGroup: "core-daily",
+    inspiration: "High-contrast accessible light web application",
+    designIntent: "Clarity-first light mode with large targets, strong contrast, and minimal decoration",
+    interactionEmphasis: "accessibility"
+  },
+  "a-hearty-tale": {
+    practicalGroup: "narrative-character",
+    inspiration: "Bardic chronicle, manuscript, and fantasy chapter book",
+    designIntent: "Narrative writing mode using parchment, chapters, warm manuscript styling, and Keeper's Tools",
+    interactionEmphasis: "journal"
+  },
+  "blackbeards-log": {
+    practicalGroup: "narrative-character",
+    inspiration: "Pirate ship log, map table, and sea chart",
+    designIntent: "Nautical journal mode with ship archive language, parchment, dark wood, brass, and compass cues",
+    interactionEmphasis: "journal"
+  },
+  "clog-news": {
+    practicalGroup: "news-analysis",
+    inspiration: "Cable-news headline desk and ticker rhythm",
+    designIntent: "Headline-first daily signal mode with newsroom diagnostics and red/navy urgency",
+    interactionEmphasis: "headline"
+  },
+  "the-clog-street-journal": {
+    practicalGroup: "news-analysis",
+    inspiration: "Financial newspaper and market ledger",
+    designIntent: "Serious analytical mode with serif-heavy ivory pages, market green, and ledger structure",
+    interactionEmphasis: "ledger"
+  },
+  cloggit: {
+    practicalGroup: "social-feed",
+    inspiration: "Threaded discussion community and forum energy",
+    designIntent: "Community thread mode with warm accents, reply grouping, and discussion-card rhythm",
+    interactionEmphasis: "thread"
+  },
+  clogdos: {
+    practicalGroup: "os-console",
+    inspiration: "Productivity workspace shell and office control surface",
+    designIntent: "Workspace mode with file/run language, productivity panels, and desktop-shell cues",
+    interactionEmphasis: "desktop"
+  },
+  clogos: {
+    practicalGroup: "os-console",
+    inspiration: "Polished desktop application shell",
+    designIntent: "Refined app mode with rounded panels, subtle polish, quiet shadows, and app diagnostics",
+    interactionEmphasis: "desktop"
+  },
+  clogbuntu: {
+    practicalGroup: "os-console",
+    inspiration: "Linux workspace and package-management dashboard",
+    designIntent: "Practical workspace mode with warm utilitarian panels and package diagnostics",
+    interactionEmphasis: "desktop"
+  },
+  cloginal: {
+    practicalGroup: "os-console",
+    inspiration: "Terminal and TUI operator console",
+    designIntent: "Command-line mode with monospace density, green-on-dark surfaces, prompt syntax, and terminal diagnostics",
+    interactionEmphasis: "terminal"
+  },
+  "accessibility-dark": {
+    practicalGroup: "core-daily",
+    inspiration: "High-contrast dark accessibility interface",
+    designIntent: "Dark equivalent of Accessibility Light with clear focus rings and reduced visual clutter",
+    interactionEmphasis: "accessibility"
+  },
+  "low-stimulus": {
+    practicalGroup: "core-daily",
+    inspiration: "Calm assistive interface with reduced sensory load",
+    designIntent: "Minimal ornament with softer transitions, muted accents, stable layout, and low distraction",
+    interactionEmphasis: "accessibility"
+  },
+  "large-print": {
+    practicalGroup: "core-daily",
+    inspiration: "Large-type assistive interface",
+    designIntent: "Readability-at-distance mode with larger typography, larger hit targets, more spacing, and simplified diagnostics",
+    interactionEmphasis: "accessibility"
+  },
+  "clog-news-network": {
+    practicalGroup: "news-analysis",
+    inspiration: "Live broadcast control room and alert desk",
+    designIntent: "Urgent live desk mode with broadcast diagnostics and alert-panel rhythm",
+    interactionEmphasis: "headline"
+  },
+  "clog-net": {
+    practicalGroup: "news-analysis",
+    inspiration: "Technology review site and product specification desk",
+    designIntent: "Tech-review mode with cobalt/teal palette, spec-card structure, and tool monitoring",
+    interactionEmphasis: "review"
+  },
+  clogdot: {
+    practicalGroup: "news-analysis",
+    inspiration: "Old-web technology forum and hacker feed",
+    designIntent: "Dense technical mode with compact feed rhythm, node/archive framing, and unpolished old-web energy",
+    interactionEmphasis: "feed"
+  },
+  clogspace: {
+    practicalGroup: "social-feed",
+    inspiration: "Early social-network profile page",
+    designIntent: "Personal page mode with playful profile/archive feel and nostalgic but readable social styling",
+    interactionEmphasis: "profile"
+  },
+  clogbook: {
+    practicalGroup: "social-feed",
+    inspiration: "General-purpose social feed utility pattern",
+    designIntent: "Practical social-card mode with blue/white day-feed language and familiar feed rhythm",
+    interactionEmphasis: "feed"
+  },
+  instaclog: {
+    practicalGroup: "social-feed",
+    inspiration: "Visual story and caption-oriented feed framing",
+    designIntent: "Story-oriented mode with larger cards, warm accents, caption-like previews, and no image-dependent information",
+    interactionEmphasis: "story"
+  },
+  "x-clog": {
+    practicalGroup: "social-feed",
+    inspiration: "Dense microblogging timeline and fast feed",
+    designIntent: "Fast-scan mode with compact entries, minimal chrome, and high-density timeline rhythm",
+    interactionEmphasis: "microfeed"
+  },
+  clogsky: {
+    practicalGroup: "social-feed",
+    inspiration: "Airy decentralized social network",
+    designIntent: "Calm social mode with blue/white palette, open spacing, and lighter hierarchy",
+    interactionEmphasis: "feed"
+  },
+  clogeads: {
+    practicalGroup: "social-feed",
+    inspiration: "Modern thread-based social conversation flow",
+    designIntent: "Conversation thread mode with rounded thread cards, reply grouping, and lightweight community diagnostics",
+    interactionEmphasis: "thread"
+  },
+  cloggyos: {
+    practicalGroup: "os-console",
+    inspiration: "Retro desktop color-block operating surface",
+    designIntent: "Retro OS mode with chunkier geometry, playful panels, and window-like card rhythm",
+    interactionEmphasis: "desktop"
+  },
+  "dyslexia-friendly": {
+    practicalGroup: "core-daily",
+    inspiration: "Dyslexia-oriented reading layout",
+    designIntent: "Reading rhythm mode with wider spacing, calmer weights, increased line-height, and reduced text crowding",
+    interactionEmphasis: "accessibility"
+  },
+  "keyboard-first": {
+    practicalGroup: "core-daily",
+    inspiration: "Keyboard-centric operator console",
+    designIntent: "Command-oriented mode with strong visible focus, shortcut discoverability, clean tab order, and keyboard workflow",
+    interactionEmphasis: "accessibility"
+  }
+} as const satisfies Record<
+  ThemeId,
+  {
+    designIntent: string;
+    inspiration: string;
+    interactionEmphasis: InteractionEmphasis;
+    practicalGroup: ThemePracticalGroup;
+  }
+>;
 
 const emptyOverlay: ThemeOverlay = {};
 
@@ -681,7 +884,7 @@ const themeSeeds = [
     background: { kind: "svg", asset: "manuscript-surface", overlay: "rgba(44, 31, 21, 0.34)", opacity: 0.5, panelScrim: "rgba(75, 50, 31, 0.9)" },
     panel: { surface: "parchment", textureOpacity: 0.34 },
     motifs: { frame: "book", divider: "flourish", selectedCard: "chapter" },
-    status: { success: "#547d35", info: "#315f8a", warning: "#935800", danger: "#a5352b" }
+    status: { success: "#466d2e", info: "#315f8a", warning: "#935800", danger: "#a5352b" }
   }),
   defineTheme({
     id: "blackbeards-log",
@@ -706,8 +909,8 @@ const themeSeeds = [
       mutedText: "#5f4931",
       inverseText: "#fff1d3",
       border: "#8a6335",
-      borderStrong: "#be7b2d",
-      accent: "#be7b2d",
+      borderStrong: "#8f5419",
+      accent: "#8f5419",
       accent2: "#246c75",
       surfaceScrim: "rgba(247, 226, 185, 0.92)",
       shadowColor: "rgba(23, 17, 12, 0.34)"
@@ -719,7 +922,7 @@ const themeSeeds = [
     background: { kind: "svg", asset: "map-table", overlay: "rgba(23, 17, 12, 0.28)", opacity: 0.56, panelScrim: "rgba(38, 23, 15, 0.9)" },
     panel: { surface: "map", textureOpacity: 0.36 },
     motifs: { frame: "nautical", divider: "map", selectedCard: "ship-log" },
-    status: { success: "#476f3a", info: "#246c75", warning: "#915c00", danger: "#9d2f24" }
+    status: { success: "#476f3a", info: "#246c75", warning: "#7a4a00", danger: "#9d2f24" }
   }),
   defineTheme({
     id: "clog-news",
@@ -888,6 +1091,7 @@ const themeSeeds = [
       surfaceScrim: "rgba(7, 17, 11, 0.96)",
       shadowColor: "rgba(0, 0, 0, 0.48)"
     },
+    status: { success: "#86efac", info: "#7dd3fc", warning: "#facc15", danger: "#ff6b6b" },
     typography: { body: coreTypography.mono, display: coreTypography.mono, mono: coreTypography.mono, labelTransform: "uppercase" },
     spacing: { shellGap: "1px", panelPadding: "18px", cardPadding: "14px", controlMinHeight: "40px" },
     layout: { density: "compact", cardMinHeight: "74px" },
@@ -953,17 +1157,18 @@ const themeSeeds = [
       appBg: "#050817",
       pageBg: "#0d1428",
       panelBg: "#091021",
-      cardBg: "#f8fafc",
-      text: "#101828",
-      mutedText: "#475467",
-      inverseText: "#ffffff",
+      cardBg: "#111c33",
+      text: "#f8fafc",
+      mutedText: "#cbd5e1",
+      inverseText: "#08111f",
       border: "#31446b",
       borderStrong: "#ef4444",
       accent: "#ef4444",
       accent2: "#38bdf8",
       surfaceScrim: "rgba(248, 250, 252, 0.94)",
       shadowColor: "rgba(0, 0, 0, 0.42)"
-    }
+    },
+    status: { success: "#86efac", info: "#7dd3fc", warning: "#facc15", danger: "#ff6b6b" }
   }),
   defineTheme({
     id: "clog-net",
@@ -1101,6 +1306,7 @@ const themeSeeds = [
       surfaceScrim: "rgba(8, 8, 8, 0.96)",
       shadowColor: "rgba(0, 0, 0, 0.5)"
     },
+    status: { success: "#86efac", info: "#93c5fd", warning: "#facc15", danger: "#ff6b6b" },
     spacing: { shellGap: "1px", panelPadding: "18px", cardPadding: "14px", controlMinHeight: "40px" },
     layout: { density: "compact", cardMinHeight: "74px" }
   }),
@@ -1178,8 +1384,8 @@ const themeSeeds = [
       mutedText: "#5d6b75",
       inverseText: "#ffffff",
       border: "#84a59d",
-      borderStrong: "#f28482",
-      accent: "#f28482",
+      borderStrong: "#b6403d",
+      accent: "#b6403d",
       accent2: "#2a9d8f",
       surfaceScrim: "rgba(247, 237, 226, 0.96)",
       shadowColor: "rgba(40, 75, 99, 0.2)"
@@ -1216,12 +1422,37 @@ const themeSeeds = [
 const themes = Object.fromEntries(themeSeeds.map((theme) => [theme.id, theme])) as Record<ThemeId, OpenClogTheme>;
 
 export const themeGroups = [
-  { label: "Core", family: "core", themeIds: ["openclog-journal", "captains-log", "a-hearty-tale", "blackbeards-log"] },
-  { label: "News / Media", family: "news-media", themeIds: ["clog-news", "clog-news-network", "the-clog-street-journal", "clog-net", "clogdot"] },
-  { label: "Social / Community", family: "social-community", themeIds: ["cloggit", "clogspace", "clogbook", "instaclog", "x-clog", "clogsky", "clogeads"] },
-  { label: "OS / Desktop", family: "os-desktop", themeIds: ["clogdos", "clogos", "clogbuntu", "cloggyos", "cloginal"] },
-  { label: "Accessibility", family: "accessibility", themeIds: ["accessibility", "accessibility-dark", "low-stimulus", "large-print", "dyslexia-friendly", "keyboard-first"] }
-] as const satisfies readonly { family: ThemeFamily; label: string; themeIds: readonly ThemeId[] }[];
+  {
+    label: "Core Daily Modes",
+    practicalGroup: "core-daily",
+    shortcutLabel: "Core",
+    themeIds: ["openclog-journal", "captains-log", "accessibility", "accessibility-dark", "low-stimulus", "large-print", "dyslexia-friendly", "keyboard-first"]
+  },
+  {
+    label: "Narrative / Character Modes",
+    practicalGroup: "narrative-character",
+    shortcutLabel: "Narrative",
+    themeIds: ["a-hearty-tale", "blackbeards-log"]
+  },
+  {
+    label: "News / Analysis Modes",
+    practicalGroup: "news-analysis",
+    shortcutLabel: "News",
+    themeIds: ["clog-news", "clog-news-network", "the-clog-street-journal", "clog-net", "clogdot"]
+  },
+  {
+    label: "Social / Feed Modes",
+    practicalGroup: "social-feed",
+    shortcutLabel: "Social",
+    themeIds: ["cloggit", "clogspace", "clogbook", "instaclog", "x-clog", "clogsky", "clogeads"]
+  },
+  {
+    label: "OS / Console Modes",
+    practicalGroup: "os-console",
+    shortcutLabel: "OS",
+    themeIds: ["clogdos", "clogos", "clogbuntu", "cloggyos", "cloginal"]
+  }
+] as const satisfies readonly { label: string; practicalGroup: ThemePracticalGroup; shortcutLabel: string; themeIds: readonly ThemeId[] }[];
 
 export function resolveThemeId(id: ThemeInputId): ThemeId {
   if (isThemeId(id)) return id;
@@ -1240,6 +1471,7 @@ export function getThemes(): OpenClogTheme[] {
 export function defineTheme(seed: ThemeSeed): OpenClogTheme {
   const preset = familyPresets[seed.family];
   const overlay: ThemeOverlay = seed.accessibilityOverlay ? accessibilityOverlays[seed.accessibilityOverlay] : emptyOverlay;
+  const intent = themeIntentRegistry[seed.id];
   const density = seed.density ?? overlay.density ?? preset.density;
   const label = seed.label;
   const labels: OpenClogTheme["labels"] = {
@@ -1264,6 +1496,10 @@ export function defineTheme(seed: ThemeSeed): OpenClogTheme {
     useCase: seed.useCase ?? useCaseFor(seed.id),
     timelineLayoutMode: seed.timelineLayoutMode ?? timelineLayoutModeFor(seed.id),
     diagnosticsDensity: seed.diagnosticsDensity ?? diagnosticsDensityFor(seed.id),
+    practicalGroup: seed.practicalGroup ?? intent.practicalGroup,
+    inspiration: seed.inspiration ?? intent.inspiration,
+    designIntent: seed.designIntent ?? intent.designIntent,
+    interactionEmphasis: seed.interactionEmphasis ?? intent.interactionEmphasis,
     labels,
     palette: { ...preset.palette, ...overlay.palette, ...seed.palette },
     typography: { ...preset.typography, ...overlay.typography, ...seed.typography },

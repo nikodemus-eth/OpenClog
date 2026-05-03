@@ -9,7 +9,7 @@ import {
   type ApprovalView,
   type JournalDay,
   type JournalEntry,
-  type ThemeFamily,
+  type ThemePracticalGroup,
   type ThemeId
 } from "@openclog/core";
 import {
@@ -262,11 +262,11 @@ export function App() {
     focusShellTarget(toolFilterRef.current, "Tool filter focused.");
   }
 
-  function handleThemeFamilySelect(family: ThemeFamily): void {
-    const group = themeGroups.find((item) => item.family === family);
+  function handleThemeGroupSelect(practicalGroup: ThemePracticalGroup): void {
+    const group = themeGroups.find((item) => item.practicalGroup === practicalGroup);
     const nextThemeId = group?.themeIds[0] ?? "openclog-journal";
     setThemeId(resolveThemeId(nextThemeId));
-    setShellActionStatus(`${group?.label ?? "Theme"} theme family selected.`);
+    setShellActionStatus(`${group?.label ?? "Theme group"} selected.`);
     window.setTimeout(() => themeSelectorRef.current?.focus({ preventScroll: true }), 0);
   }
 
@@ -380,7 +380,7 @@ export function App() {
       }}
       onShortcutsClose={() => setShortcutsOpen(false)}
       onThemeChange={(nextThemeId) => setThemeId(resolveThemeId(nextThemeId))}
-      onThemeFamilySelect={handleThemeFamilySelect}
+      onThemeGroupSelect={handleThemeGroupSelect}
       onThemeFocus={handleThemeFocus}
       onTimelineFocus={handleTimelineFocus}
       onToolFilterFocus={handleToolFilterFocus}

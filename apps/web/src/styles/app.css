@@ -45,7 +45,7 @@ button {
   cursor: pointer;
 }
 
-.app-shell {
+.app-shell[data-theme] {
   --stitch-bg: #fdfcfb;
   --stitch-center-bg: #faf9f6;
   --stitch-rail-bg: #fdfcfb;
@@ -328,10 +328,15 @@ button {
 
 .brand-row h1,
 .right-rail h2,
-.day-header h2,
 .shortcuts-panel h2 {
   margin: 0;
   font-family: var(--stitch-ui-font);
+  line-height: 1.12;
+}
+
+.day-header h2 {
+  margin: 0;
+  font-family: var(--display-font);
   line-height: 1.12;
 }
 
@@ -758,24 +763,14 @@ button {
   overflow-wrap: anywhere;
 }
 
-.app-shell[data-theme="openclog-journal"] .day-header h2,
-.app-shell[data-family="news-media"] .day-header h2,
-.app-shell[data-family="social-community"] .day-header h2,
-.app-shell[data-family="os-desktop"] .day-header h2,
-.app-shell[data-family="accessibility"] .day-header h2 {
-  font-family: var(--stitch-ui-font);
-  font-size: clamp(2rem, 3vw, 3rem);
-}
-
 .app-shell[data-card-style="parchment"] .day-header h2 {
   font-size: clamp(2.8rem, 5vw, 4.7rem);
 }
 
 .app-shell[data-card-style="map"] .day-header h2 {
-  font-family: var(--stitch-ui-font);
+  font-family: var(--display-font);
   font-size: clamp(2.8rem, 4vw, 3.8rem);
-  letter-spacing: -0.06em;
-  text-transform: uppercase;
+  letter-spacing: -0.035em;
 }
 
 .day-header p {
@@ -927,6 +922,9 @@ button {
 
 .right-rail {
   gap: 18px;
+  align-content: start;
+  align-items: start;
+  grid-auto-rows: max-content;
   width: 100%;
   min-width: 0;
   padding: 30px;
@@ -1248,134 +1246,8 @@ button {
   padding: 0 18px;
 }
 
-.app-shell[data-theme="openclog-journal"],
-.app-shell[data-theme="accessibility"],
-.app-shell[data-theme="low-stimulus"],
-.app-shell[data-theme="large-print"],
-.app-shell[data-theme="dyslexia-friendly"],
-.app-shell[data-theme="keyboard-first"] {
-  --stitch-bg: #fdfcfb;
-  --stitch-center-bg: #faf9f6;
-  --stitch-rail-bg: #fdfcfb;
-  --stitch-right-bg: #fdfcfb;
-  --stitch-text: #181919;
-  --stitch-muted: #686b70;
-  --stitch-line: #e0dddd;
-  --stitch-card: #ffffff;
-  --stitch-soft: #f4f1f0;
-  --stitch-action: #181919;
-  --stitch-action-text: #ffffff;
-}
-
-.app-shell[data-theme="captains-log"],
-.app-shell[data-theme="accessibility-dark"],
-.app-shell[data-theme="cloginal"] {
-  --stitch-bg: #0d0d0d;
-  --stitch-center-bg: #111111;
-  --stitch-rail-bg: #0d0d0d;
-  --stitch-right-bg: #0d0d0d;
-  --stitch-text: #fdf8f8;
-  --stitch-muted: #9a9a9a;
-  --stitch-line: #2d2d2d;
-  --stitch-card: #171717;
-  --stitch-soft: #202020;
-  --stitch-action: var(--accent);
-  --stitch-action-text: #111111;
-}
-
-.app-shell[data-theme="captains-log"] .composer-shell,
-.app-shell[data-theme="captains-log"] .entry-card,
-.app-shell[data-theme="captains-log"] .diagnostic-card,
-.app-shell[data-theme="captains-log"] .readiness-banner,
-.app-shell[data-theme="cloginal"] .composer-shell,
-.app-shell[data-theme="cloginal"] .entry-card,
-.app-shell[data-theme="cloginal"] .diagnostic-card,
-.app-shell[data-theme="cloginal"] .readiness-banner {
-  border-color: var(--stitch-line);
-  background: var(--stitch-card);
-}
-
-.app-shell[data-theme="blackbeards-log"] {
-  --stitch-bg: #fdfcfb;
-  --stitch-center-bg: #fdf8f8;
-  --stitch-rail-bg: #fdfcfb;
-  --stitch-right-bg: #2e2d2b;
-  --stitch-text: #1c1b1b;
-  --stitch-muted: #65645e;
-  --stitch-line: #d9d4ce;
-  --stitch-card: #fffaf1;
-  --stitch-soft: #e9e2d5;
-  --stitch-action: #191917;
-  --stitch-action-text: #ffffff;
-}
-
-.app-shell[data-theme="blackbeards-log"] .journal-page {
-  background:
-    radial-gradient(circle at 20% 10%, rgba(95, 94, 88, 0.12), transparent 30%),
-    linear-gradient(90deg, rgba(95, 94, 88, 0.11) 0 1px, transparent 1px),
-    var(--stitch-center-bg);
-  background-size: auto, 24px 24px, auto;
-}
-
-.app-shell[data-theme="blackbeards-log"] .right-rail {
-  --stitch-text: #f4f0ef;
-  --stitch-muted: #c9c6bf;
-  --stitch-line: #4b4844;
-  --stitch-card: #191917;
-  --stitch-soft: #2e2d2b;
-  --stitch-action: #f4f0ef;
-  --stitch-action-text: #191917;
-  color: var(--stitch-text);
-}
-
-.app-shell[data-theme="blackbeards-log"] .right-rail .diagnostic-card {
-  background: color-mix(in srgb, var(--stitch-card) 88%, #2e2d2b 12%);
-}
-
-.app-shell[data-family="news-media"] {
-  --stitch-bg: #fdfcfb;
-  --stitch-center-bg: #f7f8fb;
-  --stitch-rail-bg: #fdfcfb;
-  --stitch-right-bg: #fdfcfb;
-  --stitch-text: #151617;
-  --stitch-muted: #5d6570;
-  --stitch-line: #dbe1ea;
-  --stitch-card: #ffffff;
-  --stitch-soft: #eef2f7;
-  --stitch-action: var(--accent);
-  --stitch-action-text: var(--inverse-text);
-}
-
-.app-shell[data-family="social-community"] {
-  --stitch-bg: #fbfcff;
-  --stitch-center-bg: #f7faff;
-  --stitch-rail-bg: #ffffff;
-  --stitch-right-bg: #ffffff;
-  --stitch-text: #15171b;
-  --stitch-muted: #626a76;
-  --stitch-line: #dce4ef;
-  --stitch-card: #ffffff;
-  --stitch-soft: #f0f5ff;
-  --stitch-action: var(--accent);
-  --stitch-action-text: var(--inverse-text);
-}
-
-.app-shell[data-family="os-desktop"]:not([data-theme="cloginal"]) {
-  --stitch-bg: #f6f7f8;
-  --stitch-center-bg: #f2f4f7;
-  --stitch-rail-bg: #ffffff;
-  --stitch-right-bg: #ffffff;
-  --stitch-text: #151719;
-  --stitch-muted: #5f6670;
-  --stitch-line: #d2d8e1;
-  --stitch-card: #ffffff;
-  --stitch-soft: #edf1f6;
-  --stitch-action: var(--accent);
-  --stitch-action-text: var(--inverse-text);
-}
-
 @media (max-width: 1280px) and (min-width: 1101px) {
-  .app-shell {
+  .app-shell[data-theme] {
     grid-template-columns: 260px minmax(0, 1fr) 320px;
   }
 
@@ -1562,15 +1434,34 @@ button {
 }
 
 .app-shell[data-accessibility-profile="dyslexia-friendly"] {
-  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr) minmax(270px, 320px);
-  line-height: 1.55;
+  grid-template-columns: minmax(330px, 380px) minmax(0, 1fr) minmax(340px, 380px);
+  line-height: 1.62;
 }
 
 .app-shell[data-accessibility-profile="dyslexia-friendly"] .theme-picker,
 .app-shell[data-accessibility-profile="dyslexia-friendly"] .day-row,
 .app-shell[data-accessibility-profile="dyslexia-friendly"] .entry-card,
 .app-shell[data-accessibility-profile="dyslexia-friendly"] .diagnostic-card {
-  line-height: 1.55;
+  line-height: 1.62;
+}
+
+.app-shell[data-accessibility-profile="dyslexia-friendly"] .right-rail {
+  gap: 28px;
+}
+
+.app-shell[data-accessibility-profile="dyslexia-friendly"] .diagnostic-card {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  padding: 20px;
+}
+
+.app-shell[data-accessibility-profile="dyslexia-friendly"] .diagnostic-card > svg {
+  width: 24px;
+  height: 24px;
+}
+
+.app-shell[data-accessibility-profile="dyslexia-friendly"] .agent-list {
+  gap: 16px;
 }
 
 .app-shell[data-accessibility-profile="dyslexia-friendly"] .theme-picker,
@@ -1594,6 +1485,230 @@ button {
   max-width: 320px;
 }
 
+/* Theme intent realignment: Stitch supplies structure; OpenClog theme metadata supplies personality. */
+.app-shell[data-theme] {
+  --stitch-bg: var(--app-bg);
+  --stitch-center-bg: var(--page-bg);
+  --stitch-rail-bg: var(--panel-bg);
+  --stitch-right-bg: var(--panel-bg);
+  --stitch-text: var(--shell-text);
+  --stitch-muted: var(--shell-muted);
+  --stitch-line: var(--border);
+  --stitch-card: var(--card-bg);
+  --stitch-soft: color-mix(in srgb, var(--panel-bg) 72%, var(--card-bg) 28%);
+  --stitch-action: var(--accent);
+  --stitch-action-text: var(--inverse-text);
+}
+
+.journal-page {
+  --stitch-text: var(--text);
+  --stitch-muted: var(--muted);
+  --stitch-line: var(--border);
+  --stitch-card: var(--card-bg);
+  --stitch-soft: color-mix(in srgb, var(--page-bg) 78%, var(--accent) 8%, var(--card-bg) 14%);
+  background-color: var(--page-bg);
+  color: var(--text);
+}
+
+.left-rail,
+.right-rail {
+  --stitch-text: var(--rail-text);
+  --stitch-muted: var(--rail-muted);
+  --stitch-line: color-mix(in srgb, var(--border) 68%, var(--panel-bg) 32%);
+  --stitch-card: color-mix(in srgb, var(--panel-bg) 74%, var(--card-bg) 26%);
+  --stitch-soft: color-mix(in srgb, var(--panel-bg) 84%, var(--accent) 16%);
+  --text: var(--stitch-text);
+  --muted: var(--stitch-muted);
+  --card-bg: var(--stitch-card);
+  --border: var(--stitch-line);
+  background-color: var(--panel-bg);
+  color: var(--stitch-text);
+}
+
+.app-shell[data-practical-group="core-daily"] .day-header h2 {
+  letter-spacing: -0.03em;
+}
+
+.app-shell[data-interaction-emphasis="journal"][data-practical-group="core-daily"] .composer-shell,
+.app-shell[data-interaction-emphasis="journal"][data-practical-group="core-daily"] .entry-card,
+.app-shell[data-interaction-emphasis="journal"][data-practical-group="core-daily"] .diagnostic-card {
+  border-color: color-mix(in srgb, var(--border) 70%, var(--accent) 30%);
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--shadow-color) 76%, transparent);
+}
+
+.app-shell[data-interaction-emphasis="operations"] {
+  --stitch-soft: color-mix(in srgb, var(--panel-bg) 78%, var(--accent) 22%);
+  --stitch-action-text: #120d08;
+}
+
+.app-shell[data-interaction-emphasis="operations"] .top-nav button:first-child::after,
+.app-shell[data-interaction-emphasis="operations"] .timeline-toolbar button[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.app-shell[data-interaction-emphasis="operations"] .readiness-banner,
+.app-shell[data-interaction-emphasis="operations"] .entry-card,
+.app-shell[data-interaction-emphasis="operations"] .diagnostic-card {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 12%, transparent), transparent 40%),
+    var(--stitch-card);
+}
+
+.app-shell[data-practical-group="narrative-character"] .left-rail,
+.app-shell[data-practical-group="narrative-character"] .right-rail {
+  --stitch-card: color-mix(in srgb, var(--panel-bg) 82%, var(--accent) 18%);
+  --stitch-soft: color-mix(in srgb, var(--panel-bg) 72%, var(--accent-2) 28%);
+}
+
+.app-shell[data-practical-group="narrative-character"] .entry-card {
+  border-width: 1px 1px 1px 6px;
+}
+
+.app-shell[data-interaction-emphasis="headline"] .journal-page {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 12%, transparent) 0 34px, transparent 34px),
+    var(--stitch-center-bg);
+}
+
+.app-shell[data-interaction-emphasis="headline"] .day-header {
+  border-bottom-width: 4px;
+  border-bottom-color: var(--accent);
+}
+
+.app-shell[data-interaction-emphasis="headline"] .entry-card {
+  border-radius: 2px;
+  border-left-width: 10px;
+  padding-block: 20px;
+}
+
+.app-shell[data-interaction-emphasis="headline"] .entry-card h3 {
+  font-size: clamp(1.18rem, 1.8vw, 1.55rem);
+  letter-spacing: -0.03em;
+}
+
+.app-shell[data-diagnostics-density="expanded"][data-interaction-emphasis="headline"] .diagnostic-card {
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border) 58%);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent 48%),
+    var(--stitch-card);
+}
+
+.app-shell[data-interaction-emphasis="ledger"] .journal-page,
+.app-shell[data-interaction-emphasis="ledger"] .entry-card,
+.app-shell[data-interaction-emphasis="ledger"] .diagnostic-card {
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--border) 36%, transparent) 1px, transparent 1px),
+    linear-gradient(var(--stitch-card), var(--stitch-card));
+  background-size: 100% 30px, auto;
+}
+
+.app-shell[data-interaction-emphasis="ledger"] .entry-card h3,
+.app-shell[data-interaction-emphasis="ledger"] .day-header h2 {
+  font-family: Georgia, ui-serif, serif;
+}
+
+.app-shell[data-interaction-emphasis="review"] .entry-card,
+.app-shell[data-interaction-emphasis="review"] .diagnostic-card {
+  border-top: 4px solid var(--accent-2);
+  border-left-width: 1px;
+}
+
+.app-shell[data-interaction-emphasis="review"] .entry-details,
+.app-shell[data-interaction-emphasis="review"] .diagnostic-card small {
+  font-family: var(--mono-font);
+}
+
+.app-shell[data-interaction-emphasis="feed"] .entry-card {
+  border-left-width: 1px;
+  border-radius: 14px;
+}
+
+.app-shell[data-interaction-emphasis="thread"] .timeline {
+  border-left: 2px solid color-mix(in srgb, var(--accent) 30%, var(--border) 70%);
+  padding-left: 18px;
+}
+
+.app-shell[data-interaction-emphasis="thread"] .entry-card {
+  position: relative;
+}
+
+.app-shell[data-interaction-emphasis="thread"] .entry-card::before {
+  content: "";
+  position: absolute;
+  top: 24px;
+  left: -21px;
+  width: 18px;
+  border-top: 2px solid color-mix(in srgb, var(--accent) 42%, var(--border) 58%);
+}
+
+.app-shell[data-interaction-emphasis="profile"] .day-header {
+  align-items: center;
+  border-radius: 18px;
+  padding: 22px;
+  background:
+    radial-gradient(circle at 90% 20%, color-mix(in srgb, var(--accent-2) 24%, transparent), transparent 28%),
+    var(--stitch-card);
+}
+
+.app-shell[data-interaction-emphasis="story"] .entry-card {
+  grid-template-columns: 84px minmax(0, 1fr);
+  border-radius: 24px;
+  padding: 30px;
+}
+
+.app-shell[data-interaction-emphasis="story"] .entry-icon {
+  width: 54px;
+  height: 54px;
+  border-radius: 18px;
+}
+
+.app-shell[data-interaction-emphasis="story"] .entry-card .status-chip {
+  grid-column: 2;
+  justify-self: start;
+}
+
+.app-shell[data-interaction-emphasis="microfeed"] .journal-page > * {
+  width: min(100%, 720px);
+}
+
+.app-shell[data-interaction-emphasis="microfeed"] .entry-card {
+  border-width: 0 0 1px;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.app-shell[data-interaction-emphasis="desktop"] .composer-shell,
+.app-shell[data-interaction-emphasis="desktop"] .entry-card,
+.app-shell[data-interaction-emphasis="desktop"] .diagnostic-card {
+  border-top-width: 24px;
+  border-top-color: color-mix(in srgb, var(--accent) 18%, var(--panel-bg) 82%);
+  border-radius: 10px 10px 4px 4px;
+}
+
+.app-shell[data-interaction-emphasis="terminal"] .top-nav button,
+.app-shell[data-interaction-emphasis="terminal"] .day-list::before,
+.app-shell[data-interaction-emphasis="terminal"] .theme-picker::before,
+.app-shell[data-interaction-emphasis="terminal"] .right-rail h2 {
+  letter-spacing: 0.08em;
+}
+
+.app-shell[data-interaction-emphasis="terminal"] .journal-page > * {
+  width: min(100%, 860px);
+}
+
+.app-shell[data-interaction-emphasis="accessibility"] .entry-card,
+.app-shell[data-interaction-emphasis="accessibility"] .diagnostic-card,
+.app-shell[data-interaction-emphasis="accessibility"] .composer-shell {
+  background-image: none;
+}
+
+.app-shell[data-accessibility-profile="low-stimulus"] .top-nav button,
+.app-shell[data-accessibility-profile="low-stimulus"] .rail-group-nav button,
+.app-shell[data-accessibility-profile="low-stimulus"] .entry-card,
+.app-shell[data-accessibility-profile="low-stimulus"] .diagnostic-card {
+  transition: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -1606,7 +1721,7 @@ button {
 }
 
 @media (max-width: 1100px) {
-  .app-shell {
+  .app-shell[data-theme] {
     grid-template-areas:
       "header header"
       "left main"
@@ -1635,7 +1750,7 @@ button {
 }
 
 @media (max-width: 820px) {
-  .app-shell {
+  .app-shell[data-theme] {
     grid-template-areas:
       "header"
       "main"

@@ -58,3 +58,10 @@ Capture durable lessons that should shape future OpenClog work.
 - Existing paired devices may negotiate broader scopes than OpenClog requests, so tests must assert requested scopes as well as the negotiated ready state.
 - Visible feedback matters for icon and rail shortcuts: if a click only moves focus, the UI should either show the target clearly or announce the action.
 - Snapshot churn should be reduced by avoiding default transient status text; action feedback should appear after interaction, not in idle baselines.
+
+## 2026-05-03 Theme Intent Realignment And Contrast Pass
+- A large theme catalog needs intent metadata, not just palette metadata; practical group and interaction emphasis make differences testable.
+- Broad family CSS can accidentally make themes feel alike. Archetype-level selectors work better when they are keyed by purpose such as headline, ledger, thread, desktop, or terminal.
+- Contrast should be checked against actual shell and rail surfaces, not only page/card backgrounds.
+- Mobile fixes need selector specificity that can beat desktop base rules; otherwise a visually correct desktop grid can still intercept mobile interactions.
+- Accessibility-adjacent themes like Dyslexia Friendly need layout pressure checks, not just font stack changes.

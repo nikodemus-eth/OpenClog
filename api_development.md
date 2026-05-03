@@ -66,3 +66,9 @@ Track public API contracts and Gateway RPC usage.
 - `createLiveGateway` now waits for `connect.challenge`, attaches a signed device object to the dotted `connect` request, validates `hello-ok`, then runs the existing subscribe/reconcile plan.
 - `scripts/verify-gateway.ts` now distinguishes unavailable Gateway, token mismatch, missing device identity, pairing-required, and missing-scope failures.
 - Frontend shortcut changes did not add routes or change composer, approval, settings, export, day, stream, or session API semantics.
+
+## 2026-05-03 Theme Intent Realignment And Contrast Pass
+- No API routes, Gateway RPC method names, scopes, permissions, composer forwarding, approval semantics, persistence semantics, or delivery behavior changed.
+- Practical theme grouping and interaction emphasis are frontend/core presentation metadata only.
+- Theme switching remains a browser presentation action and does not mutate composer text, selected day, Gateway readiness, approvals, tools, agents, timeline entries, persisted settings beyond the selected theme, or local journal data.
+- Deterministic verification still keeps fixture-driven UI checks separate from live Gateway verification.

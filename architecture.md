@@ -64,3 +64,15 @@ Track OpenClog architecture, component ownership, and authority boundaries.
 - Device identity helpers live in the API package so the web bundle cannot import private keys, tokens, raw connect frames, or auth headers.
 - The shell shortcut architecture now separates family theme selection from system diagnostics navigation: family controls change only presentation, while Network, Monitors, and Security move focus to Gateway, Agent Activity, and Pending approvals.
 - The top utility controls expose visible action feedback through a local shell status line after user action, keeping default visual snapshots free of extra transient state.
+
+## 2026-05-03 Theme Intent Realignment And Contrast Pass
+- `packages/core/src/theme.ts` now treats theme intent as first-class presentation metadata: practical group, generic inspiration, OpenClog design intent, and interaction emphasis.
+- `JournalLayout` emits `data-practical-group` and `data-interaction-emphasis` so CSS can express archetypes without React theme branches or behavior changes.
+- Theme selector structure now follows practical usage groups instead of broad implementation families, while aliases remain centralized compatibility inputs.
+- The styling layer uses computed shell and rail text variables to preserve contrast when light page surfaces sit inside dark or expressive shells.
+- Theme differentiation audit:
+  - Core Daily Modes: daybook, operations console, high-contrast light/dark, low-stimulus, large-print, dyslexia-oriented, and keyboard-first workflows.
+  - Narrative / Character Modes: bardic manuscript and nautical logbook surfaces.
+  - News / Analysis Modes: headline desk, live broadcast desk, financial ledger, tech review desk, and compact old-web tech feed.
+  - Social / Feed Modes: threaded community, profile page, practical cards, story framing, microfeed, airy social, and reply-thread flow.
+  - OS / Console Modes: productivity shell, polished desktop app, Linux workspace, retro desktop geometry, and terminal TUI.

@@ -51,3 +51,8 @@ Track cloud model usage and cloud-boundary decisions.
 - No cloud LLM provider, remote inference endpoint, API key, or hosted model dependency was added for the Gateway auth fix or shortcut repair.
 - Device-auth signing uses local filesystem identity material and the local OpenClaw Gateway token on the backend.
 - Verification remained local plus the explicit live loopback Gateway probe.
+
+## 2026-05-03 Theme Intent Realignment And Contrast Pass
+- No cloud LLM provider, remote inference endpoint, API key, hosted model dependency, remote font, remote image, or generated media fetch was added.
+- The theme-intent realignment uses local TypeScript metadata, local CSS variables, local SVG/CSS assets, and deterministic Playwright snapshots.
+- Fixture-driven visual and E2E tests remain separate from any live OpenClaw activity.

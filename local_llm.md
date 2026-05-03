@@ -51,3 +51,8 @@ Track local model usage, local-only execution boundaries, and future local LLM i
 - The live OpenClaw Gateway verifier now reaches a ready state after backend device-auth signing, enabling real local activity flow without inventing responses.
 - Mutation testing remains disabled for the verifier, so the successful live probe did not fabricate session create/send/abort traffic.
 - UI shortcut changes did not alter local LLM routing, composer forwarding, command blocking, or redacted journal display.
+
+## 2026-05-03 Theme Intent Realignment And Contrast Pass
+- No local LLM runtime was added for theme intent metadata, practical grouping, contrast improvements, Dyslexia Friendly layout work, visual snapshot refreshes, or refactor cleanup.
+- Theme differentiation, contrast checks, redaction checks, and grouped UI behavior remain deterministic local code paths and tests.
+- No fixture, theme, or snapshot is presented as local model activity.
