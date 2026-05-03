@@ -50,3 +50,14 @@ Track OpenClog implementation decisions, verification passes, refactors, and clo
 - Removed stale decorative asset paths and updated desktop/mobile visual snapshots for every theme.
 - Final deterministic closeout verification passed with `npm run verify` before commit.
 - Live Gateway closeout verification failed closed with `device identity required`; no live Gateway activity was fabricated or claimed green.
+
+## 2026-05-03 Stabilization And Refactor
+- Stabilized the existing 27-theme set without adding themes or changing backend, Gateway, permission, composer, persistence, approval, API, or delivery behavior.
+- Cleaned product-facing archive/export/sample display paths so historical source titles render as OpenClog Journal while OpenClaw Gateway wording stays limited to integration/status contexts.
+- Added display-only timeline grouping for adjacent repeated low-value events, a grouped/raw timeline toggle, and target-entry navigation that expands the containing group when needed.
+- Added browser-visible safety metadata with explicit redaction reasons for credentials, token-like values, auth headers, cookies, OAuth, SMTP, env assignments, raw Gateway-looking payloads, unsafe local paths, and long previews.
+- Added theme lifecycle, use-case, timeline layout mode, and diagnostics density metadata for the existing theme catalog.
+- Refactored timeline focus and grouped-entry rendering after the first green verification pass, keeping the behavior token-driven.
+- Refreshed desktop/mobile visual snapshots for every selectable theme after checking diagnostics and status chips remained visible.
+- Ignored local Stitch export artifacts so generated design bundles do not enter the verified source commit.
+- Live Gateway verification failed closed with `device identity required`; no live Gateway activity was fabricated.

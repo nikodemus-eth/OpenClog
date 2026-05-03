@@ -33,3 +33,10 @@ Capture durable lessons that should shape future OpenClog work.
 - Accessibility overlays work best when they change real interaction traits, not just colors.
 - Browser-visible event text needs its own safety layer because redacted persistence alone does not guarantee safe previews.
 - Visual snapshot breadth can be large, but stable theme IDs and grouped fixtures make the coverage manageable.
+
+## 2026-05-03 Stabilization And Refactor
+- Product-copy compatibility helpers should not leave stale product phrases in source; construct compatibility guards without keeping forbidden visible strings around.
+- Timeline grouping needs explainable metadata and navigation support, or it becomes harder to search and debug than raw entries.
+- Browser-visible redaction is more useful when every replacement carries a reason that tests and users can inspect without exposing the value.
+- Dyslexia-friendly layout work must account for selector width, line-height, weight pressure, and zoom behavior together.
+- Snapshot updates are safest after representative visual inspection plus E2E assertions that operational cards and status chips remain visible.

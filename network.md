@@ -43,3 +43,9 @@ Track network behavior, local Gateway assumptions, and remote deployment boundar
 - All new decorative assets are local and deterministic; no external image, font, script, or stylesheet fetch is required.
 - Live OpenClaw Gateway verification remains separate from deterministic theme verification and must be reported as live only when the Gateway probe actually negotiates.
 - Final live Gateway probe returned failed-closed status with `device identity required`; deterministic UI and API verification remains separate from that unavailable live path.
+
+## 2026-05-03 Stabilization And Refactor
+- No new network calls were added for timeline grouping, product-copy cleanup, browser-visible redaction reasons, theme metadata, Dyslexia Friendly polish, or visual snapshots.
+- Grouped/raw timeline switching, redacted previews, and diagnostics density are local UI/core projections over existing public OpenClog API state.
+- Visual and E2E verification remained fixture-driven and did not fabricate live OpenClaw Gateway activity.
+- `npm run verify:gateway` returned failed-closed status with `device identity required`; no live Gateway path was marked green.

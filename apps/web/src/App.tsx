@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getTheme,
+  displayProductCopy,
   resolveThemeId,
   sampleJournalDay,
   type AgentActivity,
@@ -44,6 +45,7 @@ export function App() {
   const [notice, setNotice] = useState("Gateway degraded: live state will not be invented.");
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null);
+  const [groupedTimeline, setGroupedTimeline] = useState(true);
   const [showToolCalls, setShowToolCalls] = useState(true);
   const [agentActivity, setAgentActivity] = useState<AgentActivity[]>([]);
   const [approvals, setApprovals] = useState<ApprovalView[]>([]);
@@ -265,6 +267,20 @@ export function App() {
     approvalButtonRef.current?.focus();
   }
 
+  function handleJumpToFirstApproval(): void {
+    const firstApproval = approvals[0];
+    const entry = firstApproval
+      ? day.entries.find((item) => item.kind === "approval_requested" && (item.approvalId === firstApproval.id || !item.approvalId))
+      : undefined;
+    if (entry) {
+      setExpandedEntryId(entry.id);
+      setTargetEntryId(entry.id);
+      return;
+    }
+    setApprovalsOpen(true);
+    window.setTimeout(() => document.querySelector<HTMLInputElement>("#pending-approvals-popover input")?.focus(), 0);
+  }
+
   return (
     <AppShell
       day={visibleDay}
@@ -279,6 +295,7 @@ export function App() {
         onApprovalChoiceChange: handleApprovalChoiceChange,
         onApprovalSubmit: handleApprovalSubmit,
         onCloseApprovals: handleCloseApprovals,
+        onJumpToFirstApproval: handleJumpToFirstApproval,
         onShowToolCallsChange: handleShowToolCallsChange,
         onToggleApprovals: () => setApprovalsOpen((current) => !current)
       }}
@@ -298,11 +315,13 @@ export function App() {
       <Composer composer={composer} inputRef={composerRef} notice={notice} theme={theme} onComposerChange={setComposer} onSend={handleSend} />
       <GatewayReadinessBanner gateway={gateway} theme={theme} />
       <DayHeader day={day} theme={theme} onExport={handleExport} />
-      <p className="summary">{day.summary}</p>
+      <p className="summary">{displayProductCopy(day.summary ?? "")}</p>
       <Timeline
         day={visibleDay}
         expandedEntryId={expandedEntryId}
+        grouped={groupedTimeline}
         targetEntryId={targetEntryId}
+        onGroupedChange={setGroupedTimeline}
         onTargetHandled={() => setTargetEntryId(null)}
         onToggleEntry={(entryId) => setExpandedEntryId((current) => (current === entryId ? null : entryId))}
       />

@@ -37,3 +37,10 @@ Track OpenClog architecture, component ownership, and authority boundaries.
 - The frontend emits `data-theme`, `data-family`, `data-density`, `data-card-style`, `data-motion`, `data-diagnostics-style`, `data-timeline-style`, and `data-accessibility-profile` for token-driven styling.
 - Theme backgrounds are managed through a local asset registry and can be removed without changing the three-pane information architecture.
 - Browser-visible event text is normalized through a UI safety helper before rendering in timeline cards.
+
+## 2026-05-03 Stabilization And Refactor
+- `packages/core/src/display.ts` now owns product-copy normalization, browser-visible redaction reason metadata, timeline grouping, group summaries, group membership checks, and stable newest-first ordering.
+- `JournalLayout` renders grouped/raw timeline items from core display helpers, expands groups for target-entry navigation, and keeps raw redacted entries available.
+- Theme metadata now includes lifecycle, use-case, timeline layout mode, and diagnostics density while preserving the same three-pane shell and token-driven styling.
+- Diagnostics density is presentational only; summary modes still render Gateway state, Agent Activity, Recent Tools, Pending approvals, visible status chips, and degraded/blocked warnings.
+- The post-green refactor tightened timeline focus dependencies and grouped-entry index handling without changing data authority.

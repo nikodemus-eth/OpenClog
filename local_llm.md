@@ -31,3 +31,8 @@ Track local model usage, local-only execution boundaries, and future local LLM i
 - No local LLM runtime was added for the 27-theme expansion.
 - Theme labels, tokens, backgrounds, and previews are deterministic code/assets in the repo.
 - Browser-visible event previews are redacted and summarized locally rather than interpreted by a model.
+
+## 2026-05-03 Stabilization And Refactor
+- No local LLM runtime was added for timeline grouping, browser-visible safety metadata, theme metadata, contrast polish, or pending approval actionability.
+- Group summaries and redaction reasons are deterministic local logic, not model-generated interpretations.
+- Agent Activity and OpenClog timeline display continue to rely on sanitized Gateway/journal data rather than a local model.

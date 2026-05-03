@@ -61,3 +61,13 @@ Record deterministic verification, live Gateway verification, coverage policy, a
 - Unit coverage remained 100% statements, 100% branches, 100% functions, and 100% lines for the configured coverage targets.
 - Final Playwright e2e coverage passed 156 tests, visual coverage passed 54 snapshots, and red-team coverage passed 2 tests.
 - Final `npm run verify:gateway` failed closed with `device identity required`; the live integration was not marked green.
+
+## 2026-05-03 Stabilization And Refactor
+- Added unit coverage for theme lifecycle, use-case, timeline layout mode, diagnostics density, product-copy normalization, browser-visible redaction reasons, long previews, grouped/raw timeline construction, group labels, stable ordering, and group membership.
+- Added E2E coverage for product-copy cleanup, grouped timeline expansion, raw timeline redaction, toast navigation into grouped entries, Pending approvals actionability, Dyslexia Friendly layout pressure, keyboard behavior, mobile, and 200 percent zoom.
+- Updated red-team tests for expanded browser-visible secret handling, including disclosure-expanded text.
+- Refreshed desktop and mobile visual snapshots for every selectable theme after representative inspection confirmed diagnostics and status chips remained visible.
+- `npm run verify` passed after implementation and snapshot refresh: forbidden RPC guard, typecheck, lint, build, 100% unit coverage, Playwright e2e, Playwright visual, red-team fixtures, and docs check.
+- Unit coverage is 100% statements, 100% branches, 100% functions, and 100% lines for the configured coverage targets.
+- Focused post-refactor Playwright checks passed for grouped timeline expansion, target-entry focus, raw/grouped redaction, and keyboard affordances.
+- `npm run verify:gateway` failed closed with `device identity required`; live integration was not marked green.

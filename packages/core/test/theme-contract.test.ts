@@ -48,6 +48,70 @@ const expectedThemeIds = [
   "keyboard-first"
 ] as const satisfies readonly ThemeId[];
 
+const coreLifecycleThemes = new Set<ThemeId>(["openclog-journal", "captains-log", "accessibility", "accessibility-dark", "low-stimulus", "large-print", "keyboard-first"]);
+const stableLifecycleThemes = new Set<ThemeId>(["a-hearty-tale", "blackbeards-log", "clog-news", "the-clog-street-journal", "cloginal"]);
+const summaryDiagnosticsThemes = new Set<ThemeId>(["accessibility", "accessibility-dark", "low-stimulus", "large-print", "dyslexia-friendly", "keyboard-first", "cloginal"]);
+
+const expectedUseCases: Record<ThemeId, string> = {
+  "openclog-journal": "daily-journal",
+  "captains-log": "operations",
+  accessibility: "accessibility",
+  "a-hearty-tale": "daily-journal",
+  "blackbeards-log": "daily-journal",
+  "clog-news": "news-monitoring",
+  "the-clog-street-journal": "market-analysis",
+  cloggit: "social-feed",
+  clogdos: "desktop-shell",
+  clogos: "desktop-shell",
+  clogbuntu: "desktop-shell",
+  cloginal: "terminal",
+  "accessibility-dark": "accessibility",
+  "low-stimulus": "accessibility",
+  "large-print": "accessibility",
+  "clog-news-network": "news-monitoring",
+  "clog-net": "news-monitoring",
+  clogdot: "news-monitoring",
+  clogspace: "social-feed",
+  clogbook: "social-feed",
+  instaclog: "social-feed",
+  "x-clog": "social-feed",
+  clogsky: "social-feed",
+  clogeads: "social-feed",
+  cloggyos: "desktop-shell",
+  "dyslexia-friendly": "accessibility",
+  "keyboard-first": "accessibility"
+};
+
+const expectedTimelineModes: Record<ThemeId, string> = {
+  "openclog-journal": "cards",
+  "captains-log": "cards",
+  accessibility: "cards",
+  "a-hearty-tale": "cards",
+  "blackbeards-log": "cards",
+  "clog-news": "headline",
+  "the-clog-street-journal": "ledger",
+  cloggit: "threaded",
+  clogdos: "cards",
+  clogos: "cards",
+  clogbuntu: "cards",
+  cloginal: "terminal",
+  "accessibility-dark": "cards",
+  "low-stimulus": "cards",
+  "large-print": "large-print",
+  "clog-news-network": "headline",
+  "clog-net": "cards",
+  clogdot: "compact-feed",
+  clogspace: "cards",
+  clogbook: "compact-feed",
+  instaclog: "cards",
+  "x-clog": "compact-feed",
+  clogsky: "threaded",
+  clogeads: "threaded",
+  cloggyos: "cards",
+  "dyslexia-friendly": "cards",
+  "keyboard-first": "cards"
+};
+
 const requiredLabels: Record<ThemeId, { archiveTitle: string; diagnosticsTitle: string; mainTitle: string; name: string; prompt: string; subtitle?: string }> = {
   "openclog-journal": {
     name: "OpenClog Journal",
@@ -150,6 +214,11 @@ describe("OpenClog theme contract", () => {
       expect(theme.timelineStyle).toMatch(/^(journal|console|ticker|ledger|thread|feed|desktop|terminal|map|chapter|accessible)$/);
       expect(theme.accessibilityProfile).toMatch(/^(standard|high-contrast-light|high-contrast-dark|low-stimulus|large-print|dyslexia-friendly|keyboard-first)$/);
       expect(theme.motionProfile).toMatch(/^(standard|reduced|minimal)$/);
+      expect(theme.lifecycle).toMatch(/^(core|stable|experimental|deprecated)$/);
+      expect(theme.useCase).toBe(expectedUseCases[themeId]);
+      expect(theme.timelineLayoutMode).toBe(expectedTimelineModes[themeId]);
+      expect(theme.diagnosticsDensity).toBe(themeId === "clog-news-network" ? "expanded" : summaryDiagnosticsThemes.has(themeId) ? "summary" : "standard");
+      expect(theme.lifecycle).toBe(coreLifecycleThemes.has(themeId) ? "core" : stableLifecycleThemes.has(themeId) ? "stable" : "experimental");
       expect(theme.motifs.frame).toMatch(/^(plain|console|book|nautical|publication|feed|desktop|terminal)$/);
       if (theme.background.asset) expect(themeAssetRegistry[theme.background.asset]).toBeDefined();
     }

@@ -43,6 +43,9 @@ describe("browser-visible event safety", () => {
     expect(display.body).toContain("[REDACTED_SECRET]");
     expect(display.body).toContain("[REDACTED_PAYLOAD]");
     expect(display.body).toContain("[LOCAL_PATH]");
+    expect(display.redactions.map((redaction) => redaction.reason)).toEqual(
+      expect.arrayContaining(["auth_header", "cookie", "token_like", "smtp", "oauth", "raw_gateway_payload", "unsafe_local_path"])
+    );
     expect(display.body).not.toMatch(/live-secret-token|oc_token_123456|mail-secret|oauth-secret|raw-cookie|token-file/i);
     expect(display.expanded).toBe(false);
   });
@@ -55,6 +58,7 @@ describe("browser-visible event safety", () => {
 
     expect(preview.body.length).toBeLessThan(expanded.body.length);
     expect(preview.hasMore).toBe(true);
+    expect(preview.redactions.map((redaction) => redaction.reason)).toContain("long_preview");
     expect(preview.body.endsWith("...")).toBe(true);
     expect(expanded.body).toContain("Final sentence.");
     expect(expanded.hasMore).toBe(false);

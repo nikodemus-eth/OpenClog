@@ -33,3 +33,10 @@ Record first-person implementation notes from the builder/operator perspective.
 - I kept the richer parody themes generic and local: no external logos, copied assets, proprietary glyphs, or remote background fetches.
 - I treated the Accessibility variants as real usability modes, with larger targets, stronger focus, reduced motion where appropriate, and visible status text.
 - I kept the operational surface steady while switching themes: the journal, composer text, diagnostics, Gateway readiness, approvals, agents, and tools stay where they are.
+
+## 2026-05-03 Stabilization And Refactor
+- I kept this pass narrow: UI/core presentation stabilization only, with no backend or Gateway behavior changes.
+- I moved the new timeline grouping and browser-visible safety behavior into core helpers so the React layer stays mostly rendering-focused.
+- I treated grouped entries as a visual convenience, not a data rewrite; raw history remains available and redacted in both grouped and raw views.
+- I made the Pending approvals card easier to act on while preserving zero-count visibility.
+- I reran the deterministic gate after the visual snapshot refresh and treated the live Gateway probe as failed closed when device identity was required.

@@ -4,6 +4,8 @@ import type { AgentActivity, JournalDay, JournalEntry } from "@openclog/core";
 export interface ApiFixtureOptions {
   agents?: AgentActivity[];
   approvalCount?: number;
+  dayTitle?: string;
+  extraEntries?: JournalEntry[];
   gatewayStatus?: "ready" | "blocked" | "degraded";
   streamEntry?: JournalEntry;
 }
@@ -26,8 +28,10 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
     dateLabel: "2026-05-03",
     summary: "May 3 log entries from OpenClaw are available.",
     approvalCount,
-    gatewayStatus
+    gatewayStatus,
+    title: options.dayTitle
   });
+  if (options.extraEntries) dayThree.entries.push(...options.extraEntries);
   if (options.streamEntry) dayThree.entries.push(options.streamEntry);
   await page.route("**/api/health", async (route) => {
     await route.fulfill({
@@ -127,10 +131,11 @@ function buildDay(options: {
   dayKey: string;
   gatewayStatus: "ready" | "blocked" | "degraded";
   summary: string;
+  title?: string;
 }): JournalDay {
   return {
     dayKey: options.dayKey,
-    title: "OpenClog Journal",
+    title: options.title ?? "OpenClog Journal",
     dateLabel: options.dateLabel,
     summary: options.summary,
     entries: [

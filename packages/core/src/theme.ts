@@ -45,6 +45,18 @@ export type AccessibilityProfile =
   | "dyslexia-friendly"
   | "keyboard-first";
 export type MotionProfile = "standard" | "reduced" | "minimal";
+export type ThemeLifecycle = "core" | "stable" | "experimental" | "deprecated";
+export type ThemeUseCase =
+  | "daily-journal"
+  | "operations"
+  | "news-monitoring"
+  | "market-analysis"
+  | "social-feed"
+  | "desktop-shell"
+  | "terminal"
+  | "accessibility";
+export type TimelineLayoutMode = "cards" | "compact-feed" | "threaded" | "ledger" | "terminal" | "headline" | "large-print";
+export type DiagnosticsDensity = "summary" | "standard" | "expanded";
 export type IconToken =
   | "accessibility"
   | "approval"
@@ -77,6 +89,10 @@ export interface OpenClogTheme {
   timelineStyle: TimelineStyle;
   accessibilityProfile: AccessibilityProfile;
   motionProfile: MotionProfile;
+  lifecycle: ThemeLifecycle;
+  useCase: ThemeUseCase;
+  timelineLayoutMode: TimelineLayoutMode;
+  diagnosticsDensity: DiagnosticsDensity;
   labels: {
     productTitle: string;
     productSubtitle?: string;
@@ -275,6 +291,10 @@ const foundation: ThemeFoundation = {
   timelineStyle: "journal",
   accessibilityProfile: "standard",
   motionProfile: "standard",
+  lifecycle: "experimental",
+  useCase: "daily-journal",
+  timelineLayoutMode: "cards",
+  diagnosticsDensity: "standard",
   labels: {
     productTitle: "OpenClog",
     exportDay: "Export day",
@@ -518,6 +538,45 @@ export const accessibilityOverlays = {
     accessibility: { disableDecorativeBackgrounds: true, reducedMotion: true, iconsWithText: true, highContrast: true }
   }
 } as const satisfies Record<string, ThemeOverlay>;
+
+const coreLifecycleThemeIds = new Set<ThemeId>(["openclog-journal", "captains-log", "accessibility", "accessibility-dark", "low-stimulus", "large-print", "keyboard-first"]);
+const stableLifecycleThemeIds = new Set<ThemeId>(["a-hearty-tale", "blackbeards-log", "clog-news", "the-clog-street-journal", "cloginal"]);
+const accessibilityThemeIds = new Set<ThemeId>(["accessibility", "accessibility-dark", "low-stimulus", "large-print", "dyslexia-friendly", "keyboard-first"]);
+const socialThemeIds = new Set<ThemeId>(["cloggit", "clogspace", "clogbook", "instaclog", "x-clog", "clogsky", "clogeads"]);
+const desktopThemeIds = new Set<ThemeId>(["clogdos", "clogos", "clogbuntu", "cloggyos"]);
+
+function lifecycleFor(id: ThemeId): ThemeLifecycle {
+  if (coreLifecycleThemeIds.has(id)) return "core";
+  if (stableLifecycleThemeIds.has(id)) return "stable";
+  return "experimental";
+}
+
+function useCaseFor(id: ThemeId): ThemeUseCase {
+  if (accessibilityThemeIds.has(id)) return "accessibility";
+  if (socialThemeIds.has(id)) return "social-feed";
+  if (desktopThemeIds.has(id)) return "desktop-shell";
+  if (id === "captains-log") return "operations";
+  if (id === "the-clog-street-journal") return "market-analysis";
+  if (id === "cloginal") return "terminal";
+  if (id === "clog-news" || id === "clog-news-network" || id === "clog-net" || id === "clogdot") return "news-monitoring";
+  return "daily-journal";
+}
+
+function timelineLayoutModeFor(id: ThemeId): TimelineLayoutMode {
+  if (id === "clog-news" || id === "clog-news-network") return "headline";
+  if (id === "the-clog-street-journal") return "ledger";
+  if (id === "cloggit" || id === "clogsky" || id === "clogeads") return "threaded";
+  if (id === "clogdot" || id === "clogbook" || id === "x-clog") return "compact-feed";
+  if (id === "cloginal") return "terminal";
+  if (id === "large-print") return "large-print";
+  return "cards";
+}
+
+function diagnosticsDensityFor(id: ThemeId): DiagnosticsDensity {
+  if (id === "clog-news-network") return "expanded";
+  if (id === "cloginal" || accessibilityThemeIds.has(id)) return "summary";
+  return "standard";
+}
 
 const emptyOverlay: ThemeOverlay = {};
 
@@ -1201,6 +1260,10 @@ export function defineTheme(seed: ThemeSeed): OpenClogTheme {
     displayName: label,
     family: seed.family,
     density,
+    lifecycle: seed.lifecycle ?? lifecycleFor(seed.id),
+    useCase: seed.useCase ?? useCaseFor(seed.id),
+    timelineLayoutMode: seed.timelineLayoutMode ?? timelineLayoutModeFor(seed.id),
+    diagnosticsDensity: seed.diagnosticsDensity ?? diagnosticsDensityFor(seed.id),
     labels,
     palette: { ...preset.palette, ...overlay.palette, ...seed.palette },
     typography: { ...preset.typography, ...overlay.typography, ...seed.typography },

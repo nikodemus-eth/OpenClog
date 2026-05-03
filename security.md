@@ -46,3 +46,11 @@ Track OpenClog security posture, Gateway authority boundaries, redaction, and fa
 - Long browser-visible event text now renders as a preview with local redaction/summarization for token-like values, auth headers, cookies, OAuth values, SMTP credentials, env-looking values, raw Gateway-looking payloads, and non-operator-facing local paths.
 - Decorative backgrounds are local SVG/CSS-only assets, behind readable surfaces, and contain no external image references, logos, trademark metadata, or copied brand assets.
 - Final asset and browser-visible secret scans found no external background URLs, proprietary asset metadata, stale product title text, or browser-facing credential strings outside the intended redaction/schema guard code.
+
+## 2026-05-03 Stabilization And Refactor
+- Theme switching remains presentation-only and still does not change Gateway scopes, permissions, composer forwarding, approval resolution, persistence, or delivery.
+- Browser-visible event text now reports redaction reasons: `credential`, `token_like`, `auth_header`, `cookie`, `oauth`, `smtp`, `env_assignment`, `raw_gateway_payload`, `unsafe_local_path`, and `long_preview`.
+- Timeline grouping is display-only: grouped entries retain IDs, timestamps, actor/source, event kind, status, sanitized body signature, and grouping reason while raw history remains available.
+- User messages, approvals, warnings, errors, pending/running events, and actionable entries remain ungrouped.
+- The browser-visible secret scan found only redaction/test guard references, not exposed Gateway tokens, auth headers, cookies, OAuth values, SMTP credentials, env assignments, raw Gateway payloads, or unsafe local paths in UI output.
+- Live Gateway verification failed closed with `device identity required`; no live Gateway activity was fabricated.

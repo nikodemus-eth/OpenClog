@@ -79,7 +79,9 @@ test("Pending approvals popover submits approve and disapprove while deferring l
   const fixture = await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 3 });
   await page.goto("/");
 
-  await page.getByRole("button", { name: /Pending approvals/ }).click();
+  await expect(page.getByRole("button", { name: "Review approvals" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Jump to first pending approval" })).toBeVisible();
+  await page.getByRole("button", { name: "Review approvals" }).click();
   await expect(page.getByRole("region", { name: "Pending approvals review" })).toBeVisible();
   await page.getByRole("radio", { name: "Approve approval-1", exact: true }).check();
   await page.getByRole("radio", { name: "Disapprove approval-2", exact: true }).check();
@@ -91,6 +93,62 @@ test("Pending approvals popover submits approve and disapprove while deferring l
     { id: "approval-1", decision: "allow-once" },
     { id: "approval-2", decision: "deny" }
   ]);
+});
+
+test("product-facing archive copy normalizes historical source titles", async ({ page }) => {
+  const historicalTitle = ["OpenClaw", "Journal"].join(" ");
+  await installApiFixtures(page, { dayTitle: historicalTitle, gatewayStatus: "ready", approvalCount: 0 });
+  await page.goto("/");
+
+  await expect(page.locator(".day-row[aria-current='date']")).toContainText("OpenClog Journal");
+  await expect(page.locator(".day-row[aria-current='date']")).not.toContainText(historicalTitle);
+});
+
+test("timeline groups repeated low-value OpenClaw responses and keeps raw view redacted", async ({ page }) => {
+  await installApiFixtures(page, {
+    gatewayStatus: "ready",
+    approvalCount: 0,
+    extraEntries: repeatedResponses()
+  });
+  await page.goto("/");
+
+  await expect(page.getByText(/3 similar OpenClaw responses between/)).toBeVisible();
+  await expect(page.getByText(/display-only/)).toBeVisible();
+  await page.getByRole("button", { name: /Expand grouped events/ }).click();
+  await expect(page.locator("[data-entry-id='repeat-1']")).toBeVisible();
+  await expect(page.locator("[data-entry-id='repeat-2']")).toBeVisible();
+  await expect(page.locator("[data-entry-id='repeat-3']")).toBeVisible();
+
+  await page.getByRole("button", { name: "Raw timeline" }).click();
+  await expect(page.getByText(/3 similar OpenClaw responses between/)).toBeHidden();
+  await expect(page.locator("[data-entry-id='repeat-1']")).toBeVisible();
+  await expect(page.locator("body")).not.toContainText(/Bearer raw-secret/i);
+});
+
+test("clicking a live event inside a group expands the group and focuses the target entry", async ({ page }) => {
+  await installApiFixtures(page, {
+    gatewayStatus: "ready",
+    approvalCount: 0,
+    extraEntries: repeatedResponses().slice(0, 2),
+    streamEntry: {
+      id: "repeat-live",
+      dayKey: "2026-05-03",
+      source: "openclaw",
+      kind: "assistant_message",
+      title: "OpenClaw response",
+      body: "pong Authorization: Bearer grouped-secret",
+      timestamp: "2026-05-03T12:19:00.000Z",
+      status: "info",
+      severity: "info",
+      redacted: true
+    }
+  });
+  await page.goto("/");
+
+  await page.getByRole("button", { name: /Live OpenClaw event received/ }).click();
+
+  await expect(page.locator("[data-entry-id='repeat-live']")).toBeFocused();
+  await expect(page.locator("[data-entry-id='repeat-live']")).not.toContainText("grouped-secret");
 });
 
 test("day archive selection changes the center log", async ({ page }) => {
@@ -156,3 +214,44 @@ test("clicking a live tool-call toast reveals the hidden tool entry and navigate
   await expect(page.locator("[data-entry-id='live-tool-entry']")).toBeFocused();
   await expect(page.getByText("Entry details")).toBeVisible();
 });
+
+function repeatedResponses() {
+  return [
+    {
+      id: "repeat-1",
+      dayKey: "2026-05-03",
+      source: "openclaw" as const,
+      kind: "assistant_message" as const,
+      title: "OpenClaw response",
+      body: "pong Authorization: Bearer raw-secret",
+      timestamp: "2026-05-03T12:18:00.000Z",
+      status: "info" as const,
+      severity: "info" as const,
+      redacted: true
+    },
+    {
+      id: "repeat-2",
+      dayKey: "2026-05-03",
+      source: "openclaw" as const,
+      kind: "assistant_message" as const,
+      title: "OpenClaw response",
+      body: "pong",
+      timestamp: "2026-05-03T12:18:30.000Z",
+      status: "info" as const,
+      severity: "info" as const,
+      redacted: true
+    },
+    {
+      id: "repeat-3",
+      dayKey: "2026-05-03",
+      source: "openclaw" as const,
+      kind: "assistant_message" as const,
+      title: "OpenClaw response",
+      body: "pong",
+      timestamp: "2026-05-03T12:19:00.000Z",
+      status: "info" as const,
+      severity: "info" as const,
+      redacted: true
+    }
+  ];
+}

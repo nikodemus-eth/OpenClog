@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type React from "react";
 import {
   AlertTriangle,
@@ -9,6 +9,10 @@ import {
   Send
 } from "lucide-react";
 import {
+  buildTimelineDisplayItems,
+  displayProductCopy,
+  entryBelongsToGroup,
+  formatTimelineGroupSummary,
   getTheme,
   themeGroups,
   sampleJournalDay,
@@ -18,6 +22,7 @@ import {
   type JournalDay,
   type JournalEntry,
   type OpenClogTheme,
+  type TimelineDisplayItem,
   type ThemeId
 } from "@openclog/core";
 import { iconFor } from "./icons.js";
@@ -67,10 +72,14 @@ export function AppShell(props: AppShellProps) {
       data-accessibility-profile={props.theme.accessibilityProfile}
       data-card-style={props.theme.cardStyle}
       data-density={props.theme.density}
+      data-diagnostics-density={props.theme.diagnosticsDensity}
       data-diagnostics-style={props.theme.diagnosticsStyle}
       data-family={props.theme.family}
+      data-lifecycle={props.theme.lifecycle}
       data-motion={props.theme.motionProfile}
       data-theme={props.themeId}
+      data-theme-use-case={props.theme.useCase}
+      data-timeline-layout={props.theme.timelineLayoutMode}
       data-timeline-style={props.theme.timelineStyle}
       style={themeVars(props.theme)}
     >
@@ -133,17 +142,18 @@ export function DayArchive(props: {
     <nav className="day-list" aria-label={props.theme.labels.archiveTitle}>
       {items.map((item) => {
         const selected = item.dayKey === props.selectedDayKey;
+        const title = displayProductCopy(item.title);
         return (
         <button
           aria-current={selected ? "date" : undefined}
-          aria-label={`${item.dateLabel}. ${item.title}. ${selected ? props.theme.labels.selectedDayStatus : "Archived day"}. ${item.metrics.errorCount > 0 ? "Status: degraded" : "Status: active"}`}
+          aria-label={`${item.dateLabel}. ${title}. ${selected ? props.theme.labels.selectedDayStatus : "Archived day"}. ${item.metrics.errorCount > 0 ? "Status: degraded" : "Status: active"}`}
           className={selected ? "day-row selected" : "day-row"}
           key={item.dayKey}
           onClick={() => props.onDaySelect(item.dayKey)}
           type="button"
         >
           <span>{item.dateLabel}</span>
-          <strong>{item.title}</strong>
+          <strong>{title}</strong>
           <small>
             {selected ? props.theme.labels.selectedDayStatus : "Archived day"} · {item.metrics.errorCount > 0 ? "Status: degraded" : "Status: active"}
           </small>
@@ -246,32 +256,49 @@ export function DayHeader(props: { day: JournalDay; theme: Theme; onExport: () =
 export function Timeline(props: {
   day: JournalDay;
   expandedEntryId: string | null;
+  grouped: boolean;
   targetEntryId: string | null;
+  onGroupedChange: (grouped: boolean) => void;
   onTargetHandled: () => void;
   onToggleEntry: (entryId: string) => void;
 }) {
+  const { day, expandedEntryId, grouped, targetEntryId, onGroupedChange, onTargetHandled, onToggleEntry } = props;
   const refs = useRef(new Map<string, HTMLDivElement>());
-  const orderedEntries = useMemo(
-    () =>
-      props.day.entries
-        .map((entry, index) => ({ entry, index }))
-        .sort((left, right) => {
-          const timestampOrder = Date.parse(right.entry.timestamp) - Date.parse(left.entry.timestamp);
-          return timestampOrder === 0 ? left.index - right.index : timestampOrder;
-        })
-        .map(({ entry }) => entry),
-    [props.day.entries]
-  );
+  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
+  const displayItems = useMemo(() => buildTimelineDisplayItems(day.entries, { grouped }), [day.entries, grouped]);
+  const orderedEntries = useMemo(() => displayItems.flatMap((item) => (item.kind === "group" ? item.entries : [item.entry])), [displayItems]);
   const entryIds = useMemo(() => orderedEntries.map((entry) => entry.id), [orderedEntries]);
+  const entryIndexById = useMemo(() => new Map(entryIds.map((id, index) => [id, index])), [entryIds]);
 
   useEffect(() => {
-    if (!props.targetEntryId) return;
-    const target = refs.current.get(props.targetEntryId);
-    if (!target) return;
-    target.scrollIntoView({ block: "center", behavior: "smooth" });
-    target.focus();
-    props.onTargetHandled();
-  }, [props.targetEntryId, props.onTargetHandled]);
+    if (!targetEntryId) return;
+    const target = refs.current.get(targetEntryId);
+    if (target) {
+      target.scrollIntoView({ block: "center", behavior: "smooth" });
+      target.focus();
+      onTargetHandled();
+      return;
+    }
+    const group = displayItems.find((item) => entryBelongsToGroup(item, targetEntryId));
+    if (group?.kind !== "group") return;
+    setExpandedGroupIds((current) => new Set(current).add(group.id));
+    window.setTimeout(() => {
+      const nestedTarget = refs.current.get(targetEntryId);
+      if (!nestedTarget) return;
+      nestedTarget.scrollIntoView({ block: "center", behavior: "smooth" });
+      nestedTarget.focus();
+      onTargetHandled();
+    }, 0);
+  }, [displayItems, onTargetHandled, targetEntryId]);
+
+  function toggleGroup(groupId: string): void {
+    setExpandedGroupIds((current) => {
+      const next = new Set(current);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  }
 
   function focusEntry(index: number): void {
     const id = entryIds[Math.max(0, Math.min(index, entryIds.length - 1))];
@@ -303,27 +330,114 @@ export function Timeline(props: {
     if (event.key === "Enter") {
       event.stopPropagation();
       event.preventDefault();
-      props.onToggleEntry(entry.id);
+      onToggleEntry(entry.id);
     }
   }
 
   return (
-    <ol className="timeline" aria-label="Timeline entries" tabIndex={0} onKeyDown={handleTimelineKeyDown}>
-      {orderedEntries.map((entry, index) => (
-        <TimelineEntryCard
-          entry={entry}
-          expanded={props.expandedEntryId === entry.id}
-          index={index}
-          key={entry.id}
-          setRef={(node) => {
-            if (node) refs.current.set(entry.id, node);
-            else refs.current.delete(entry.id);
-          }}
-          onKeyDown={(event) => handleEntryKeyDown(event, entry, index)}
-          onToggle={() => props.onToggleEntry(entry.id)}
-        />
-      ))}
-    </ol>
+    <section className="timeline-region" aria-label="Journal timeline">
+      <div className="timeline-toolbar" aria-label="Timeline view">
+        <button aria-pressed={grouped} type="button" onClick={() => onGroupedChange(true)}>
+          Grouped timeline
+        </button>
+        <button aria-pressed={!grouped} type="button" onClick={() => onGroupedChange(false)}>
+          Raw timeline
+        </button>
+      </div>
+      <ol className="timeline" aria-label="Timeline entries" tabIndex={0} onKeyDown={handleTimelineKeyDown}>
+        {displayItems.map((item) =>
+          item.kind === "group" ? (
+            <TimelineGroupCard
+              entryIndexById={entryIndexById}
+              expanded={expandedGroupIds.has(item.id)}
+              expandedEntryId={expandedEntryId}
+              group={item}
+              key={item.id}
+              refs={refs}
+              targetEntryId={targetEntryId}
+              onEntryKeyDown={handleEntryKeyDown}
+              onTargetHandled={onTargetHandled}
+              onToggleEntry={onToggleEntry}
+              onToggleGroup={() => toggleGroup(item.id)}
+            />
+          ) : (
+            <TimelineEntryCard
+              entry={item.entry}
+              expanded={expandedEntryId === item.entry.id}
+              index={entryIndexById.get(item.entry.id) ?? 0}
+              key={item.entry.id}
+              setRef={(node) => {
+                if (node) refs.current.set(item.entry.id, node);
+                else refs.current.delete(item.entry.id);
+              }}
+              onKeyDown={(event) => handleEntryKeyDown(event, item.entry, entryIndexById.get(item.entry.id) ?? 0)}
+              onToggle={() => onToggleEntry(item.entry.id)}
+            />
+          )
+        )}
+      </ol>
+    </section>
+  );
+}
+
+function TimelineGroupCard(props: {
+  group: Extract<TimelineDisplayItem, { kind: "group" }>;
+  expanded: boolean;
+  refs: RefObject<Map<string, HTMLDivElement>>;
+  entryIndexById: Map<string, number>;
+  expandedEntryId: string | null;
+  targetEntryId: string | null;
+  onEntryKeyDown: (event: React.KeyboardEvent<HTMLDivElement>, entry: JournalEntry, index: number) => void;
+  onTargetHandled: () => void;
+  onToggleEntry: (entryId: string) => void;
+  onToggleGroup: () => void;
+}) {
+  return (
+    <li>
+      <section className="entry-group" aria-label={`Grouped timeline entries: ${props.group.count} entries`} data-group-id={props.group.id}>
+        <div className="entry-card grouped info">
+          <time>{new Date(props.group.lastTimestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</time>
+          <div className="entry-icon" aria-hidden="true">
+            <FileText size={20} />
+          </div>
+          <div className="entry-body">
+            <h3>{displayProductCopy(props.group.title)}</h3>
+            <p>{formatTimelineGroupSummary(props.group)}</p>
+            <p className="visually-hidden">{props.group.entries.map((entry) => timelineDisplayText(entry, false).body).join(" ")}</p>
+            <button type="button" onClick={props.onToggleGroup}>
+              {props.expanded ? "Collapse grouped events" : "Expand grouped events"}
+            </button>
+          </div>
+          <StatusChip label="Grouped entries" status={props.group.status} tone="info" />
+        </div>
+        {props.expanded ? (
+          <ol className="grouped-entry-list" aria-label="Expanded grouped entries">
+            {props.group.entries.map((entry) => (
+              <TimelineEntryCard
+                entry={entry}
+                expanded={props.expandedEntryId === entry.id}
+                index={props.entryIndexById.get(entry.id) ?? 0}
+                key={entry.id}
+                setRef={(node) => {
+                  if (node) {
+                    props.refs.current.set(entry.id, node);
+                    if (props.targetEntryId === entry.id) {
+                      window.setTimeout(() => {
+                        node.scrollIntoView({ block: "center", behavior: "smooth" });
+                        node.focus();
+                        props.onTargetHandled();
+                      }, 0);
+                    }
+                  } else props.refs.current.delete(entry.id);
+                }}
+                onKeyDown={(event) => props.onEntryKeyDown(event, entry, props.entryIndexById.get(entry.id) ?? 0)}
+                onToggle={() => props.onToggleEntry(entry.id)}
+              />
+            ))}
+          </ol>
+        ) : null}
+      </section>
+    </li>
   );
 }
 
@@ -341,7 +455,7 @@ export function TimelineEntryCard(props: {
     <li>
       <div
         aria-expanded={props.expanded}
-        aria-label={`Timeline entry ${props.index + 1}: ${props.entry.title}. Status: ${props.entry.status ?? "info"}`}
+        aria-label={`Timeline entry ${props.index + 1}: ${displayProductCopy(props.entry.title)}. Status: ${props.entry.status ?? "info"}`}
         className={`entry-card ${tone}`}
         data-entry-id={props.entry.id}
         onClick={props.onToggle}
@@ -355,9 +469,10 @@ export function TimelineEntryCard(props: {
           {props.entry.severity === "warning" ? <AlertTriangle size={20} /> : <FileText size={20} />}
         </div>
         <div className="entry-body">
-          <h3>{props.entry.title}</h3>
+          <h3>{displayProductCopy(props.entry.title)}</h3>
           <p>{display.body}</p>
           {display.hasMore ? <small>Preview shown. Open this entry for the full redacted text.</small> : null}
+          {display.redactions.length > 0 && props.expanded ? <small>Redacted for: {display.redactions.map((redaction) => redaction.reason).join(", ")}.</small> : null}
           {props.entry.toolName ? <small>Tool: {props.entry.toolName}</small> : null}
           {props.expanded ? <p className="entry-details">Entry details: source {props.entry.source}; redacted {props.entry.redacted ? "yes" : "no"}.</p> : null}
         </div>
@@ -380,6 +495,7 @@ export interface DiagnosticsPanelProps {
   onApprovalChoiceChange: (approvalId: string, choice: ApprovalChoice) => void;
   onApprovalSubmit: () => void;
   onCloseApprovals: () => void;
+  onJumpToFirstApproval: () => void;
   onShowToolCallsChange: (show: boolean) => void;
   onToggleApprovals: () => void;
 }
@@ -409,6 +525,7 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
         pendingCount={props.approvals.length}
         onChoiceChange={props.onApprovalChoiceChange}
         onClose={props.onCloseApprovals}
+        onJumpToFirstApproval={props.onJumpToFirstApproval}
         onSubmit={props.onApprovalSubmit}
         onToggle={props.onToggleApprovals}
       />
@@ -501,6 +618,7 @@ export function PendingApprovalsCard(props: {
   pendingCount: number;
   onChoiceChange: (approvalId: string, choice: ApprovalChoice) => void;
   onClose: () => void;
+  onJumpToFirstApproval: () => void;
   onSubmit: () => void;
   onToggle: () => void;
 }) {
@@ -508,22 +626,24 @@ export function PendingApprovalsCard(props: {
   const tone = props.pendingCount > 0 ? "warning" : "success";
   return (
     <div className="approval-popover-wrap">
-      <button
-        aria-controls="pending-approvals-popover"
-        aria-expanded={props.open}
-        aria-label={`Pending approvals. ${props.pendingCount} pending approvals`}
-        className={`diagnostic-card diagnostic-button ${tone}`}
-        onClick={props.onToggle}
-        ref={props.approvalButtonRef}
-        type="button"
-      >
+      <section aria-label={`Diagnostics card: Pending approvals. Status: ${props.pendingCount > 0 ? "pending" : "info"}`} className={`diagnostic-card ${tone}`} tabIndex={0}>
         <Icon size={22} aria-hidden="true" />
-        <span>
+        <div>
           <h3>Pending approvals</h3>
           <p>{props.pendingCount} pending approvals</p>
           <StatusChip label="Pending approvals" status={props.pendingCount > 0 ? "pending" : "info"} tone={tone} />
-        </span>
-      </button>
+          <div className="approval-actions">
+            <button aria-controls="pending-approvals-popover" aria-expanded={props.open} ref={props.approvalButtonRef} type="button" onClick={props.onToggle}>
+              Review approvals
+            </button>
+            {props.pendingCount > 0 ? (
+              <button type="button" onClick={props.onJumpToFirstApproval}>
+                Jump to first pending approval
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </section>
       <section className="approval-popover" hidden={!props.open} id="pending-approvals-popover" role="region" aria-label="Pending approvals review">
         <header>
           <h3>Pending approvals</h3>

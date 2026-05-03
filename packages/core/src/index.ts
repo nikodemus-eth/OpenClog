@@ -6,4 +6,4 @@ export * from "./theme.js";
 export * from "./normalizer.js";
 export * from "./export.js";
 export * from "./sample-data.js";
-
+export * from "./display.js";

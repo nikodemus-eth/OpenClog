@@ -40,3 +40,10 @@ Track public API contracts and Gateway RPC usage.
 - No public API routes, Gateway RPC method names, permissions, composer behavior, approval behavior, persistence behavior, or delivery behavior were changed for the theme family expansion.
 - Theme metadata exposed to the browser remains UI presentation data only.
 - Public UI fixtures and tests were expanded to cover all selectable themes without adding any browser path to Gateway credentials or raw frames.
+
+## 2026-05-03 Stabilization And Refactor
+- No public API routes, Gateway RPC method names, permissions, composer forwarding, approval resolution semantics, persistence semantics, or delivery behavior were changed.
+- Product-copy cleanup is applied at display/export boundaries and does not mutate preserved source journal data.
+- Timeline grouping is a frontend/core display projection over existing `JournalEntry` data; it does not alter repository persistence or Gateway subscriptions.
+- Pending approvals actionability remains within the existing approval view model and resolution flow; zero-count visibility remains intact.
+- Live Gateway verification failed closed with `device identity required`; deterministic API/UI fixtures remain separate from live Gateway claims.

@@ -134,6 +134,27 @@ test("keyboard and accessibility affordances work", async ({ page }) => {
   expect(results.violations).toEqual([]);
 });
 
+test("Dyslexia Friendly avoids selector clipping, cramped text, and zoom overflow", async ({ page }) => {
+  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
+  await page.goto("/");
+  await page.getByLabel("Theme").selectOption("dyslexia-friendly");
+  await page.addStyleTag({ content: "html { font-size: 200%; }" });
+
+  const shellOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 2);
+  const selectorBox = await page.getByLabel("Theme").boundingBox();
+  const railBox = await page.locator(".left-rail").boundingBox();
+  const lineHeight = await page.locator(".day-row").first().evaluate((element) => Number.parseFloat(getComputedStyle(element).lineHeight));
+  const fontSize = await page.locator(".day-row").first().evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
+  const fontWeight = await page.locator(".theme-picker span").evaluate((element) => getComputedStyle(element).fontWeight);
+
+  expect(shellOverflow).toBe(false);
+  expect(selectorBox && railBox ? selectorBox.x + selectorBox.width <= railBox.x + railBox.width + 1 : false).toBe(true);
+  expect(lineHeight / fontSize).toBeGreaterThanOrEqual(1.45);
+  expect(Number.parseInt(fontWeight, 10)).toBeLessThanOrEqual(800);
+  await expect(page.getByLabel("Theme")).toBeVisible();
+  await expect(page.getByText("Agent Activity")).toBeVisible();
+});
+
 for (const theme of accessibilityThemes) {
   test(`${theme} keeps keyboard and hit-target accessibility guarantees`, async ({ page }) => {
     await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
