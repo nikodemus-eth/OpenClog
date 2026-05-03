@@ -5,8 +5,11 @@ import {
   Download,
   FileText,
   HelpCircle,
+  Plus,
   Search,
-  Send
+  Settings,
+  Send,
+  SlidersHorizontal
 } from "lucide-react";
 import {
   buildTimelineDisplayItems,
@@ -59,9 +62,18 @@ interface AppShellProps {
   theme: Theme;
   themeId: ThemeId;
   themeIds: ThemeId[];
+  mainRef: RefObject<HTMLElement | null>;
+  themeSelectorRef: RefObject<HTMLSelectElement | null>;
+  onComposerFocus: () => void;
   onDaySelect: (dayKey: string) => void;
+  onGatewayFocus: () => void;
+  onMainFocus: () => void;
+  onShortcutsToggle: () => void;
   onShortcutsClose: () => void;
   onThemeChange: (themeId: ThemeId) => void;
+  onThemeFocus: () => void;
+  onTimelineFocus: () => void;
+  onToolFilterFocus: () => void;
   onToastClick: (toast: LiveEventToast) => void;
 }
 
@@ -84,8 +96,17 @@ export function AppShell(props: AppShellProps) {
       style={themeVars(props.theme)}
     >
       <SkipLink />
-      <header className="app-header" aria-label="OpenClog identity">
-        <BrandMark theme={props.theme} />
+      <header className="app-header" aria-label="OpenClog operator shell">
+        <TopAppBar
+          theme={props.theme}
+          onComposerFocus={props.onComposerFocus}
+          onGatewayFocus={props.onGatewayFocus}
+          onMainFocus={props.onMainFocus}
+          onShortcutsToggle={props.onShortcutsToggle}
+          onThemeFocus={props.onThemeFocus}
+          onTimelineFocus={props.onTimelineFocus}
+          onToolFilterFocus={props.onToolFilterFocus}
+        />
       </header>
       <Sidebar
         days={props.days}
@@ -93,10 +114,13 @@ export function AppShell(props: AppShellProps) {
         theme={props.theme}
         themeId={props.themeId}
         themeIds={props.themeIds}
+        themeSelectorRef={props.themeSelectorRef}
         onDaySelect={props.onDaySelect}
+        onNewEntry={props.onComposerFocus}
+        onTimelineFocus={props.onTimelineFocus}
         onThemeChange={props.onThemeChange}
       />
-      <main id="main-content" className="journal-page" aria-label="Daily page" data-theme={props.themeId} tabIndex={-1}>
+      <main id="main-content" className="journal-page" aria-label="Daily page" data-theme={props.themeId} ref={props.mainRef} tabIndex={-1}>
         {props.children}
       </main>
       <DiagnosticsPanel {...props.diagnosticsProps} day={props.day} gateway={props.gateway} theme={props.theme} />
@@ -106,28 +130,101 @@ export function AppShell(props: AppShellProps) {
   );
 }
 
+function TopAppBar(props: {
+  theme: Theme;
+  onComposerFocus: () => void;
+  onGatewayFocus: () => void;
+  onMainFocus: () => void;
+  onShortcutsToggle: () => void;
+  onThemeFocus: () => void;
+  onTimelineFocus: () => void;
+  onToolFilterFocus: () => void;
+}) {
+  const navItems = [
+    { label: "Journal", onClick: props.onMainFocus },
+    { label: "Command", onClick: props.onComposerFocus },
+    { label: "Network", onClick: props.onGatewayFocus },
+    { label: "Logs", onClick: props.onTimelineFocus }
+  ];
+  const utilityItems = [
+    { label: "Settings", icon: Settings, onClick: props.onThemeFocus },
+    { label: "Tool filter settings", icon: SlidersHorizontal, onClick: props.onToolFilterFocus },
+    { label: "Keyboard shortcuts", icon: HelpCircle, onClick: props.onShortcutsToggle }
+  ];
+  return (
+    <div className="top-app-bar">
+      <BrandMark theme={props.theme} compact />
+      <nav aria-label="Primary shell navigation" className="top-nav">
+        {navItems.map((item) => (
+          <button key={item.label} type="button" onClick={item.onClick}>
+            {item.label}
+          </button>
+        ))}
+      </nav>
+      <div className="top-utility" aria-label="Shell utilities">
+        {utilityItems.map((item) => (
+          <button key={item.label} type="button" aria-label={item.label} onClick={item.onClick}>
+            <item.icon size={19} aria-hidden="true" />
+          </button>
+        ))}
+        <OperatorAvatar />
+      </div>
+    </div>
+  );
+}
+
+function OperatorAvatar() {
+  return (
+    <span className="operator-avatar" role="img" aria-label="Local operator avatar">
+      OC
+    </span>
+  );
+}
+
 export function Sidebar(props: {
   days: Array<Omit<JournalDay, "entries">>;
   selectedDayKey: string;
   theme: Theme;
   themeId: ThemeId;
   themeIds: ThemeId[];
+  themeSelectorRef: RefObject<HTMLSelectElement | null>;
   onDaySelect: (dayKey: string) => void;
+  onNewEntry: () => void;
+  onTimelineFocus: () => void;
   onThemeChange: (themeId: ThemeId) => void;
 }) {
   return (
     <aside className="sidebar left-rail" aria-label={props.theme.labels.archiveTitle}>
-      <div className="sidebar-brand">
-        <BrandMark theme={props.theme} />
-      </div>
+      <OperatorConsoleHeader onNewEntry={props.onNewEntry} />
       <label className="search-box">
         <Search size={18} aria-hidden="true" />
         <input aria-label="Search days" placeholder="Search days" />
       </label>
       <DayArchive days={props.days} selectedDayKey={props.selectedDayKey} theme={props.theme} onDaySelect={props.onDaySelect} />
-      <ThemeSelector theme={props.theme} themeId={props.themeId} themeIds={props.themeIds} onThemeChange={props.onThemeChange} />
+      <ThemeSelector selectRef={props.themeSelectorRef} theme={props.theme} themeId={props.themeId} themeIds={props.themeIds} onThemeChange={props.onThemeChange} />
       {props.theme.labels.statusFooter ? <p className="theme-footer">{props.theme.labels.statusFooter}</p> : null}
+      <div className="rail-shortcuts" aria-label="System shortcuts">
+        <button type="button" onClick={props.onNewEntry}>
+          Command
+        </button>
+        <button type="button" onClick={props.onTimelineFocus}>
+          Logs
+        </button>
+      </div>
     </aside>
+  );
+}
+
+function OperatorConsoleHeader(props: { onNewEntry: () => void }) {
+  return (
+    <div className="operator-console">
+      <p>Operator Console</p>
+      <strong>Station 04-B</strong>
+      <button type="button" onClick={props.onNewEntry}>
+        <Plus size={18} aria-hidden="true" />
+        New Entry
+      </button>
+    </div>
   );
 }
 
@@ -165,6 +262,7 @@ export function DayArchive(props: {
 }
 
 export function ThemeSelector(props: {
+  selectRef?: RefObject<HTMLSelectElement | null>;
   theme: Theme;
   themeId: ThemeId;
   themeIds: ThemeId[];
@@ -173,7 +271,7 @@ export function ThemeSelector(props: {
   return (
     <label className="theme-picker">
       <span>Theme picker: {props.theme.labels.themeLabel}</span>
-      <select aria-label="Theme" value={props.themeId} onChange={(event) => props.onThemeChange(event.target.value as ThemeId)}>
+      <select aria-label="Theme" ref={props.selectRef} value={props.themeId} onChange={(event) => props.onThemeChange(event.target.value as ThemeId)}>
         {themeGroups.map((group) => (
           <optgroup key={group.label} label={group.label}>
             {group.themeIds.map((id) => (
@@ -258,11 +356,12 @@ export function Timeline(props: {
   expandedEntryId: string | null;
   grouped: boolean;
   targetEntryId: string | null;
+  timelineRef: RefObject<HTMLOListElement | null>;
   onGroupedChange: (grouped: boolean) => void;
   onTargetHandled: () => void;
   onToggleEntry: (entryId: string) => void;
 }) {
-  const { day, expandedEntryId, grouped, targetEntryId, onGroupedChange, onTargetHandled, onToggleEntry } = props;
+  const { day, expandedEntryId, grouped, targetEntryId, timelineRef, onGroupedChange, onTargetHandled, onToggleEntry } = props;
   const refs = useRef(new Map<string, HTMLDivElement>());
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
   const displayItems = useMemo(() => buildTimelineDisplayItems(day.entries, { grouped }), [day.entries, grouped]);
@@ -344,7 +443,7 @@ export function Timeline(props: {
           Raw timeline
         </button>
       </div>
-      <ol className="timeline" aria-label="Timeline entries" tabIndex={0} onKeyDown={handleTimelineKeyDown}>
+      <ol className="timeline" aria-label="Timeline entries" ref={timelineRef} tabIndex={0} onKeyDown={handleTimelineKeyDown}>
         {displayItems.map((item) =>
           item.kind === "group" ? (
             <TimelineGroupCard
@@ -489,8 +588,10 @@ export interface DiagnosticsPanelProps {
   approvalButtonRef: RefObject<HTMLButtonElement | null>;
   approvalChoices: Record<string, ApprovalChoice>;
   day: JournalDay;
+  gatewayCardRef: RefObject<HTMLElement | null>;
   gateway: GatewayViewState;
   showToolCalls: boolean;
+  toolFilterRef: RefObject<HTMLInputElement | null>;
   theme: Theme;
   onApprovalChoiceChange: (approvalId: string, choice: ApprovalChoice) => void;
   onApprovalSubmit: () => void;
@@ -510,12 +611,13 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
         icon={props.theme.icons.gateway}
         label="Gateway"
         meta={props.gateway.missingScopes.length > 0 ? `Missing scopes: ${props.gateway.missingScopes.join(", ")}` : "All required scopes negotiated"}
+        sectionRef={props.gatewayCardRef}
         status={props.gateway.status}
         title={`Gateway ${props.gateway.status}`}
         tone={gatewayTone}
       />
       <AgentActivityCard agents={props.agentActivity} icon={props.theme.icons.activity} />
-      <RecentToolsCard count={props.day.metrics.toolCallCount} icon={props.theme.icons.tools} showToolCalls={props.showToolCalls} onShowToolCallsChange={props.onShowToolCallsChange} />
+      <RecentToolsCard count={props.day.metrics.toolCallCount} icon={props.theme.icons.tools} inputRef={props.toolFilterRef} showToolCalls={props.showToolCalls} onShowToolCallsChange={props.onShowToolCallsChange} />
       <PendingApprovalsCard
         approvalButtonRef={props.approvalButtonRef}
         approvals={props.approvals}
@@ -591,7 +693,13 @@ function agentLastSeenMs(lastSeenAt: string | undefined): number {
   return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
 }
 
-export function RecentToolsCard(props: { count: number; icon: IconToken; showToolCalls: boolean; onShowToolCallsChange: (show: boolean) => void }) {
+export function RecentToolsCard(props: {
+  count: number;
+  icon: IconToken;
+  inputRef: RefObject<HTMLInputElement | null>;
+  showToolCalls: boolean;
+  onShowToolCallsChange: (show: boolean) => void;
+}) {
   const Icon = iconFor(props.icon);
   return (
     <section aria-label="Diagnostics card: Recent Tools. Status: info" className="diagnostic-card info" tabIndex={0}>
@@ -601,7 +709,7 @@ export function RecentToolsCard(props: { count: number; icon: IconToken; showToo
         <p>{props.count} tool result in today's page.</p>
         <label className="switch-row">
           <span>Show Tool Calls</span>
-          <input aria-label="Show Tool Calls" checked={props.showToolCalls} type="checkbox" onChange={(event) => props.onShowToolCallsChange(event.target.checked)} />
+          <input aria-label="Show Tool Calls" checked={props.showToolCalls} ref={props.inputRef} type="checkbox" onChange={(event) => props.onShowToolCallsChange(event.target.checked)} />
         </label>
         <StatusChip label="Recent Tools" status="info" tone="info" />
       </div>
@@ -686,13 +794,14 @@ export function DiagnosticsCard(props: {
   icon: IconToken;
   label: string;
   meta?: string;
+  sectionRef?: RefObject<HTMLElement | null>;
   status: string;
   title: string;
   tone: "success" | "info" | "warning" | "danger";
 }) {
   const Icon = iconFor(props.icon);
   return (
-    <section aria-label={`Diagnostics card: ${props.label}. Status: ${props.status}`} className={`diagnostic-card ${props.tone}`} tabIndex={0}>
+    <section aria-label={`Diagnostics card: ${props.label}. Status: ${props.status}`} className={`diagnostic-card ${props.tone}`} ref={props.sectionRef} tabIndex={0}>
       <Icon size={22} aria-hidden="true" />
       <div>
         <h3>{props.title}</h3>
@@ -755,14 +864,14 @@ export function VisuallyHidden(props: { children: React.ReactNode }) {
   return <span className="visually-hidden">{props.children}</span>;
 }
 
-function BrandMark(props: { theme: Theme }) {
+function BrandMark(props: { compact?: boolean; theme: Theme }) {
   const Icon = iconFor(props.theme.icons.brand);
   return (
-    <div className="brand-row">
+    <div className={props.compact ? "brand-row compact" : "brand-row"}>
       <Icon size={28} aria-hidden="true" />
       <div>
         <h1>{props.theme.labels.productTitle}</h1>
-        {props.theme.labels.productSubtitle ? <p>{props.theme.labels.productSubtitle}</p> : <p>{props.theme.labels.archiveTitle}</p>}
+        {props.compact ? null : props.theme.labels.productSubtitle ? <p>{props.theme.labels.productSubtitle}</p> : <p>{props.theme.labels.archiveTitle}</p>}
       </div>
     </div>
   );

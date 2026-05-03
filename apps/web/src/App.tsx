@@ -53,7 +53,12 @@ export function App() {
   const [approvalChoices, setApprovalChoices] = useState<Record<string, ApprovalChoice>>({});
   const [liveEventToasts, setLiveEventToasts] = useState<LiveEventToast[]>([]);
   const [targetEntryId, setTargetEntryId] = useState<string | null>(null);
+  const mainRef = useRef<HTMLElement | null>(null);
   const composerRef = useRef<HTMLInputElement | null>(null);
+  const gatewayCardRef = useRef<HTMLElement | null>(null);
+  const themeSelectorRef = useRef<HTMLSelectElement | null>(null);
+  const timelineRef = useRef<HTMLOListElement | null>(null);
+  const toolFilterRef = useRef<HTMLInputElement | null>(null);
   const approvalButtonRef = useRef<HTMLButtonElement | null>(null);
   const theme = useMemo(() => getTheme(themeId), [themeId]);
   const visibleEntries = useMemo(
@@ -291,6 +296,8 @@ export function App() {
         approvalChoices,
         approvals,
         approvalsOpen,
+        gatewayCardRef,
+        toolFilterRef,
         showToolCalls,
         onApprovalChoiceChange: handleApprovalChoiceChange,
         onApprovalSubmit: handleApprovalSubmit,
@@ -305,9 +312,18 @@ export function App() {
       theme={theme}
       themeId={themeId}
       themeIds={selectableThemeIds}
+      mainRef={mainRef}
+      themeSelectorRef={themeSelectorRef}
+      onComposerFocus={() => composerRef.current?.focus()}
       onDaySelect={handleDaySelect}
+      onGatewayFocus={() => gatewayCardRef.current?.focus()}
+      onMainFocus={() => mainRef.current?.focus()}
+      onShortcutsToggle={() => setShortcutsOpen((current) => !current)}
       onShortcutsClose={() => setShortcutsOpen(false)}
       onThemeChange={(nextThemeId) => setThemeId(resolveThemeId(nextThemeId))}
+      onThemeFocus={() => themeSelectorRef.current?.focus()}
+      onTimelineFocus={() => timelineRef.current?.focus()}
+      onToolFilterFocus={() => toolFilterRef.current?.focus()}
       onToastClick={(toast) => {
         void handleToastClick(toast);
       }}
@@ -321,6 +337,7 @@ export function App() {
         expandedEntryId={expandedEntryId}
         grouped={groupedTimeline}
         targetEntryId={targetEntryId}
+        timelineRef={timelineRef}
         onGroupedChange={setGroupedTimeline}
         onTargetHandled={() => setTargetEntryId(null)}
         onToggleEntry={(entryId) => setExpandedEntryId((current) => (current === entryId ? null : entryId))}

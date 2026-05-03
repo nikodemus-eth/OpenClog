@@ -40,3 +40,9 @@ Capture durable lessons that should shape future OpenClog work.
 - Browser-visible redaction is more useful when every replacement carries a reason that tests and users can inspect without exposing the value.
 - Dyslexia-friendly layout work must account for selector width, line-height, weight pressure, and zoom behavior together.
 - Snapshot updates are safest after representative visual inspection plus E2E assertions that operational cards and status chips remain visible.
+
+## 2026-05-03 Stitch Operator Shell Integration
+- Design artifacts are best treated as constraints and references, not imported implementation; rebuilding locally avoided remote scripts, fonts, images, and accidental generated-code behavior.
+- Focus-only navigation needs tests because utility-looking controls can otherwise drift into unsafe settings/admin behavior.
+- Shell geometry tests are useful for visual integrations: rail-width assertions caught the intended 280px/360px operator-console proportions without overfitting every pixel.
+- Visual snapshot refreshes are safe when paired with browser-visible operational checks and an asset-safety red-team scan.

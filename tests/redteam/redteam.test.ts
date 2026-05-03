@@ -1,4 +1,6 @@
 import { describe, expect, test } from "vitest";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { browserVisibleEntryText, classifyComposerInput, redactGatewayPayload, toPersistableRedactedEvent } from "../../packages/core/src/index.js";
 
 describe("red-team fixtures", () => {
@@ -49,4 +51,37 @@ describe("red-team fixtures", () => {
       expect.arrayContaining(["auth_header", "cookie", "smtp", "raw_gateway_payload", "unsafe_local_path"])
     );
   });
+
+  test("native Stitch integration does not import remote generated assets", () => {
+    const scanned = collectSourceFiles(process.cwd(), [
+      "apps/web/src",
+      "packages/core/src",
+      "scripts"
+    ]);
+    const forbidden = /cdn\.tailwindcss|fonts\.googleapis|fonts\.gstatic|lh3\.googleusercontent|Material Symbols|material-symbols|googleapis\.com\/css|<script[^>]+https?:\/\//i;
+    const matches = scanned.flatMap((file) => {
+      const content = readFileSync(file, "utf8");
+      return forbidden.test(content) ? [file] : [];
+    });
+
+    expect(matches).toEqual([]);
+  });
 });
+
+function collectSourceFiles(root: string, relativeDirs: string[]): string[] {
+  const files: string[] = [];
+  for (const relativeDir of relativeDirs) walk(join(root, relativeDir), files);
+  return files.filter((file) => /\.(css|html|js|jsx|mjs|cjs|ts|tsx|svg)$/.test(file));
+}
+
+function walk(path: string, files: string[]): void {
+  const stat = statSync(path);
+  if (stat.isFile()) {
+    files.push(path);
+    return;
+  }
+  for (const child of readdirSync(path)) {
+    if (child === "node_modules" || child === "dist" || child === "coverage" || child === "test-results") continue;
+    walk(join(path, child), files);
+  }
+}

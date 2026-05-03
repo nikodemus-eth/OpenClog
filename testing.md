@@ -71,3 +71,12 @@ Record deterministic verification, live Gateway verification, coverage policy, a
 - Unit coverage is 100% statements, 100% branches, 100% functions, and 100% lines for the configured coverage targets.
 - Focused post-refactor Playwright checks passed for grouped timeline expansion, target-entry focus, raw/grouped redaction, and keyboard affordances.
 - `npm run verify:gateway` failed closed with `device identity required`; live integration was not marked green.
+
+## 2026-05-03 Stitch Operator Shell Integration
+- Added Playwright coverage for the native Stitch-inspired shell: visible top app bar, safe Journal/Command/Network/Logs focus controls, settings/tool/help utilities, local operator avatar, and approved rail proportions.
+- Added browser/source asset-safety checks so generated Stitch dependencies such as Tailwind CDN scripts, Google fonts, Material Symbols, remote profile images, and external asset URLs are not imported.
+- Refreshed desktop and mobile visual snapshots for all 27 selectable themes after inspecting representative Stitch references and confirming diagnostics and status chips remain visible.
+- `npm run verify` passed after implementation and refactor: forbidden RPC guard, typecheck, lint, build, 100% unit coverage, Playwright E2E, Playwright visual, red-team fixtures, and docs check.
+- Unit coverage remained 100% statements, 100% branches, 100% functions, and 100% lines for the configured coverage targets.
+- Playwright E2E passed 170 tests and visual coverage passed 54 snapshots after the Stitch shell refresh.
+- `npm run verify:gateway` failed closed with `device identity required`; live integration was not marked green.

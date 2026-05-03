@@ -49,3 +49,10 @@ Track network behavior, local Gateway assumptions, and remote deployment boundar
 - Grouped/raw timeline switching, redacted previews, and diagnostics density are local UI/core projections over existing public OpenClog API state.
 - Visual and E2E verification remained fixture-driven and did not fabricate live OpenClaw Gateway activity.
 - `npm run verify:gateway` returned failed-closed status with `device identity required`; no live Gateway path was marked green.
+
+## 2026-05-03 Stitch Operator Shell Integration
+- No new network calls were added for the Stitch shell, top navigation, local operator avatar, theme rendering, or visual snapshots.
+- The browser still communicates only with the OpenClog backend HTTP/SSE API and never with OpenClaw Gateway directly.
+- The implementation rejects the generated Stitch pattern of remote scripts, fonts, profile images, and external assets; all shell visuals are local CSS/React/lucide output.
+- E2E and visual verification remain fixture-driven and do not fabricate live OpenClaw Gateway traffic.
+- `npm run verify:gateway` failed closed with `device identity required`; no live Gateway path was marked green.

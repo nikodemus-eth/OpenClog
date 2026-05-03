@@ -47,3 +47,10 @@ Track public API contracts and Gateway RPC usage.
 - Timeline grouping is a frontend/core display projection over existing `JournalEntry` data; it does not alter repository persistence or Gateway subscriptions.
 - Pending approvals actionability remains within the existing approval view model and resolution flow; zero-count visibility remains intact.
 - Live Gateway verification failed closed with `device identity required`; deterministic API/UI fixtures remain separate from live Gateway claims.
+
+## 2026-05-03 Stitch Operator Shell Integration
+- No public API routes, Gateway RPC method names, scopes, permissions, composer forwarding semantics, approval resolution semantics, persistence semantics, or delivery behavior were changed.
+- Top navigation maps only to existing frontend focus/toggle behavior: main journal, composer, diagnostics, timeline, theme selector, tool-call switch, and shortcuts help.
+- The Pending approvals popover keeps the existing approve=`allow-once`, disapprove=`deny`, and defer=no API call behavior.
+- Fixture and visual-test routes remain deterministic and separate from live Gateway verification.
+- `npm run verify:gateway` failed closed with `device identity required`; no live API/Gateway success was claimed.

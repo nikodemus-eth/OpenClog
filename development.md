@@ -61,3 +61,13 @@ Track OpenClog implementation decisions, verification passes, refactors, and clo
 - Refreshed desktop/mobile visual snapshots for every selectable theme after checking diagnostics and status chips remained visible.
 - Ignored local Stitch export artifacts so generated design bundles do not enter the verified source commit.
 - Live Gateway verification failed closed with `device identity required`; no live Gateway activity was fabricated.
+
+## 2026-05-03 Stitch Operator Shell Integration
+- Integrated the approved Stitch visual direction as native React/CSS: a visible OpenClog operator top bar, safe Journal/Command/Network/Logs focus navigation, utility controls, local deterministic operator avatar, fixed 280px left rail, fluid center, 360px diagnostics rail, and structural dividers.
+- Preserved the existing 27 theme IDs, token-driven theme family architecture, three-pane information model, grouped/raw timeline, newest-first ordering, diagnostics visibility, approval semantics, composer behavior, Gateway boundaries, and local-first data flow.
+- Rebuilt the Stitch direction without importing raw generated HTML, Tailwind CDN scripts, Google fonts, Material Symbols, remote profile images, or external assets.
+- Added tests for safe shell navigation, operator shell proportions, local-only asset usage, and source-level remote Stitch asset leakage.
+- Refactored the shell after the first green verification pass by extracting the operator avatar/header helpers and deduplicating top-bar button rendering.
+- Refreshed desktop and mobile visual snapshots for every selectable theme after comparing representative screenshots with the Stitch references.
+- `npm run verify` passed after implementation, snapshot refresh, and refactor; coverage remained 100% statements, branches, functions, and lines for the configured coverage targets.
+- `npm run verify:gateway` failed closed with `device identity required`; no live Gateway activity was fabricated or marked green.

@@ -40,3 +40,10 @@ Record first-person implementation notes from the builder/operator perspective.
 - I treated grouped entries as a visual convenience, not a data rewrite; raw history remains available and redacted in both grouped and raw views.
 - I made the Pending approvals card easier to act on while preserving zero-count visibility.
 - I reran the deterministic gate after the visual snapshot refresh and treated the live Gateway probe as failed closed when device identity was required.
+
+## 2026-05-03 Stitch Operator Shell Integration
+- I treated Stitch as a visual authority, not a source-code authority: I rebuilt the shell in native OpenClog components and left generated HTML, CDN scripts, fonts, and remote images out of the repo.
+- I kept every top-bar action safe. Journal, Command, Network, Logs, settings, tool filters, and help only focus existing UI regions or toggle the existing shortcuts panel.
+- I preserved the operational surfaces across the redesign: Gateway state, Agent Activity, Recent Tools, Pending approvals, degraded/blocked warnings, and status chips stay visible.
+- I refreshed the full desktop/mobile visual baseline only after checking representative Stitch references against the implementation.
+- I reran the deterministic gate after the refactor and recorded the live Gateway probe as failed closed with `device identity required`.

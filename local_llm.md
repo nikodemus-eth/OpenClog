@@ -36,3 +36,8 @@ Track local model usage, local-only execution boundaries, and future local LLM i
 - No local LLM runtime was added for timeline grouping, browser-visible safety metadata, theme metadata, contrast polish, or pending approval actionability.
 - Group summaries and redaction reasons are deterministic local logic, not model-generated interpretations.
 - Agent Activity and OpenClog timeline display continue to rely on sanitized Gateway/journal data rather than a local model.
+
+## 2026-05-03 Stitch Operator Shell Integration
+- No local LLM runtime was added for the Stitch shell integration, visual snapshot refresh, shell navigation, or asset-safety checks.
+- The local operator avatar, backgrounds, and shell controls are deterministic UI assets and focus actions.
+- Timeline and diagnostics content still comes from sanitized OpenClog API state and local fixture data during deterministic tests, not from a local model.

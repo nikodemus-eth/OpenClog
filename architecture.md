@@ -44,3 +44,10 @@ Track OpenClog architecture, component ownership, and authority boundaries.
 - Theme metadata now includes lifecycle, use-case, timeline layout mode, and diagnostics density while preserving the same three-pane shell and token-driven styling.
 - Diagnostics density is presentational only; summary modes still render Gateway state, Agent Activity, Recent Tools, Pending approvals, visible status chips, and degraded/blocked warnings.
 - The post-green refactor tightened timeline focus dependencies and grouped-entry index handling without changing data authority.
+
+## 2026-05-03 Stitch Operator Shell Integration
+- `apps/web/src/App.tsx` now owns focus refs for the main page, composer, Gateway diagnostics, theme selector, timeline, and tool-call switch so the shell can navigate safely without changing data.
+- `JournalLayout` renders the native operator-console shell: top app bar, local avatar, operator rail, day archive, grouped theme selector, journal page, diagnostics rail, shortcuts panel, and live toasts.
+- The shell uses the existing theme CSS variable pipeline and `data-*` metadata; no separate Stitch app, raw generated HTML, remote assets, or theme-specific behavior branch was introduced.
+- Diagnostics and timeline components continue to receive sanitized OpenClog view models and handlers; Gateway state, approvals, Agent Activity, Recent Tools, and status chips remain in the same authority path.
+- The refactor split operator shell helpers while preserving the existing frontend/backend boundary.

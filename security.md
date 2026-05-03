@@ -54,3 +54,11 @@ Track OpenClog security posture, Gateway authority boundaries, redaction, and fa
 - User messages, approvals, warnings, errors, pending/running events, and actionable entries remain ungrouped.
 - The browser-visible secret scan found only redaction/test guard references, not exposed Gateway tokens, auth headers, cookies, OAuth values, SMTP credentials, env assignments, raw Gateway payloads, or unsafe local paths in UI output.
 - Live Gateway verification failed closed with `device identity required`; no live Gateway activity was fabricated.
+
+## 2026-05-03 Stitch Operator Shell Integration
+- The Stitch integration did not change backend credentials, Gateway RPC method names, scopes, permissions, composer forwarding, approval resolution, persistence, APIs, or delivery behavior.
+- Browser controls added for the top shell are focus/toggle affordances only and expose no admin, pairing, config, secret, or broad-scope actions.
+- The local operator avatar is deterministic text/CSS; no remote profile image, Google font, Material Symbols dependency, Tailwind CDN script, or external Stitch asset was imported.
+- Added red-team/source checks for remote Stitch asset leakage and browser checks for local-only script/link/image usage.
+- Gateway tokens, auth headers, cookies, OAuth values, SMTP credentials, env assignments, raw Gateway payloads, and unsafe local paths remain blocked from browser-visible text.
+- `npm run verify:gateway` failed closed with `device identity required`; no live Gateway activity was fabricated.

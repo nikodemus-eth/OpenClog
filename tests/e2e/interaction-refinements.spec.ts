@@ -1,6 +1,76 @@
 import { expect, test } from "@playwright/test";
 import { installApiFixtures } from "./support/api-fixtures.js";
 
+test("Stitch operator shell exposes safe top navigation and utility focus controls", async ({ page }) => {
+  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
+  await page.goto("/");
+
+  await expect(page.getByRole("banner", { name: "OpenClog operator shell" })).toBeVisible();
+  const primaryNav = page.getByRole("navigation", { name: "Primary shell navigation" });
+  await expect(primaryNav).toBeVisible();
+  await expect(primaryNav.getByRole("button", { name: "Journal" })).toBeVisible();
+  await expect(primaryNav.getByRole("button", { name: "Command" })).toBeVisible();
+  await expect(primaryNav.getByRole("button", { name: "Network" })).toBeVisible();
+  await expect(primaryNav.getByRole("button", { name: "Logs" })).toBeVisible();
+  await expect(page.getByRole("img", { name: "Local operator avatar" })).toBeVisible();
+
+  await primaryNav.getByRole("button", { name: "Command" }).click();
+  await expect(page.getByLabel("Composer input")).toBeFocused();
+
+  await primaryNav.getByRole("button", { name: "Network" }).click();
+  await expect(page.getByLabel(/Diagnostics card: Gateway/)).toBeFocused();
+
+  await primaryNav.getByRole("button", { name: "Logs" }).click();
+  await expect(page.getByLabel("Timeline entries")).toBeFocused();
+
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.getByLabel("Theme", { exact: true })).toBeFocused();
+
+  await page.getByRole("button", { name: "Tool filter settings" }).click();
+  await expect(page.getByLabel("Show Tool Calls")).toBeFocused();
+
+  await page.getByRole("button", { name: "Keyboard shortcuts" }).click();
+  await expect(page.getByRole("region", { name: "Keyboard shortcuts" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("region", { name: "Keyboard shortcuts" })).toBeHidden();
+});
+
+test("Stitch operator shell keeps approved desktop proportions without rail overlap", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 2 });
+  await page.goto("/");
+
+  const header = await page.getByRole("banner", { name: "OpenClog operator shell" }).boundingBox();
+  const leftRail = await page.locator(".left-rail").boundingBox();
+  const main = await page.getByLabel("Daily page").boundingBox();
+  const rightRail = await page.locator(".right-rail").boundingBox();
+
+  expect(header?.height).toBeGreaterThanOrEqual(52);
+  expect(header?.height).toBeLessThanOrEqual(72);
+  expect(leftRail?.width).toBeGreaterThanOrEqual(276);
+  expect(leftRail?.width).toBeLessThanOrEqual(284);
+  expect(rightRail?.width).toBeGreaterThanOrEqual(356);
+  expect(rightRail?.width).toBeLessThanOrEqual(364);
+  expect(main).not.toBeNull();
+  expect(leftRail).not.toBeNull();
+  expect(rightRail).not.toBeNull();
+  expect((leftRail?.x ?? 0) + (leftRail?.width ?? 0)).toBeLessThanOrEqual((main?.x ?? 0) + 1);
+  expect((main?.x ?? 0) + (main?.width ?? 0)).toBeLessThanOrEqual((rightRail?.x ?? 0) + 1);
+});
+
+test("Stitch integration uses only local deterministic assets in the browser", async ({ page }) => {
+  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
+  await page.goto("/");
+
+  const remoteAssets = await page.evaluate(() =>
+    Array.from(document.querySelectorAll("script[src], link[href], img[src]"))
+      .map((element) => element.getAttribute("src") ?? element.getAttribute("href") ?? "")
+      .filter((value) => /cdn\.tailwindcss|fonts\.googleapis|lh3\.googleusercontent|material symbols|^https?:\/\//i.test(value))
+  );
+
+  expect(remoteAssets).toEqual([]);
+});
+
 test("Blackbeard's Log keeps timeline content out of the diagnostics rail", async ({ page }) => {
   await page.setViewportSize({ width: 1172, height: 1224 });
   await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 4 });
