@@ -17,7 +17,11 @@ async function probeGateway(options: { gatewayUrl: string; token?: string; timeo
   const calls = buildReconnectPlan("main");
   const results: string[] = [];
   for (const call of calls) {
-    await client.request(call.method, call.params);
+    try {
+      await client.request(call.method, call.params);
+    } catch (error) {
+      throw new Error(`${call.method}: ${error instanceof Error ? error.message : String(error)}`);
+    }
     results.push(call.method);
   }
   if (process.env.OPENCLOG_GATEWAY_MUTATION_TEST === "1") {

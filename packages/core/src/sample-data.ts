@@ -4,39 +4,38 @@ export const sampleJournalDay: JournalDay = {
   dayKey: "2026-05-02",
   title: "OpenClaw Journal",
   dateLabel: "Saturday, May 2, 2026",
-  summary: "OpenClog is watching local activity in degraded mode until Gateway scopes are available.",
+  summary: "OpenClog is watching local OpenClaw activity. Live Gateway readiness appears in diagnostics after the backend handshake.",
   entries: [
     {
       id: "entry-1",
       dayKey: "2026-05-02",
-      source: "gateway",
+      source: "system",
       kind: "system_status",
-      title: "Gateway degraded",
-      body: "Missing operator.approvals scope.",
+      title: "Journal ready",
+      body: "Local persistence, redaction, and export paths are active.",
       timestamp: "2026-05-02T12:00:00.000Z",
-      status: "failed",
-      severity: "warning",
+      status: "success",
+      severity: "info",
       redacted: true
     },
     {
       id: "entry-2",
       dayKey: "2026-05-02",
-      source: "tool",
-      kind: "tool_result",
-      title: "Tool call",
-      body: "Called get_repository_status.",
+      source: "system",
+      kind: "system_status",
+      title: "Gateway boundary",
+      body: "The browser receives only public API state; Gateway tokens stay server-side.",
       timestamp: "2026-05-02T12:02:00.000Z",
-      status: "success",
-      toolName: "get_repository_status",
+      status: "info",
+      severity: "info",
       redacted: true
     }
   ],
   metrics: {
-    sessionCount: 1,
-    messageCount: 2,
-    toolCallCount: 1,
-    approvalCount: 1,
-    errorCount: 1
+    sessionCount: 0,
+    messageCount: 0,
+    toolCallCount: 0,
+    approvalCount: 0,
+    errorCount: 0
   }
 };
-

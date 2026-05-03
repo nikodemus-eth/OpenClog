@@ -16,3 +16,8 @@ Track OpenClog security posture, Gateway authority boundaries, redaction, and fa
 - Gateway control actions require negotiated `operator.read`, `operator.write`, and `operator.approvals`; missing scopes are blocked/degraded state, not a cosmetic warning.
 - Theme tokens can change colors and labels, but the UI state tests require errors, pending approvals, stale Gateway state, blocked auth, and degraded connectivity to stay visible.
 - `npm audit --audit-level=moderate` reported zero vulnerabilities after unused vulnerable packages were removed and Drizzle was pinned to a non-vulnerable version.
+
+## 2026-05-02 Local Gateway Token Follow-Up
+- The local token was consumed only through backend environment/config loading and was not printed, committed, persisted in OpenClog, or sent to the browser.
+- Live Gateway request logs in memory store redacted parameters only.
+- The live adapter refuses remote/non-loopback URLs for backend `gateway-client` auth.

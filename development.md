@@ -15,3 +15,9 @@ Track OpenClog implementation decisions, verification passes, refactors, and clo
 - Added the post-green refactor by splitting the React shell into focused journal layout components while keeping state and side effects in `App.tsx`.
 - `npm run verify` passed after the refactor: dotted-RPC guard, typecheck, lint, build, 100% unit coverage, Playwright e2e, Playwright visual snapshots, red-team fixtures, and log checks.
 - `npm run verify:gateway` failed closed with `device identity required`; no live Gateway activity was fabricated or logged as green.
+
+## 2026-05-02 Local Gateway Token Follow-Up
+- Read the local OpenClaw Gateway token from `/Users/m4/.openclaw/openclaw.json` without printing or storing the secret.
+- Corrected the reconnect presence RPC from the invented `system.presence` name to the installed OpenClaw `system-presence` method.
+- Added a live Gateway adapter for the API startup path; when the local token is present, OpenClog negotiates `operator.read`, `operator.write`, and `operator.approvals`.
+- Restarted the local API and browser surface; `/api/health` now reports Gateway `ready` with no missing scopes.

@@ -129,7 +129,7 @@ describe("Gateway protocol contract", () => {
   test("reconnect plan refreshes and resubscribes because events are not replayed", () => {
     expect(buildReconnectPlan("agent:hugin:main")).toEqual([
       { method: "health", params: {} },
-      { method: "system.presence", params: {} },
+      { method: "system-presence", params: {} },
       { method: "exec.approval.list", params: {} },
       { method: "sessions.list", params: { includeDerivedTitles: true, includeLastMessage: true, limit: 50 } },
       { method: "sessions.subscribe", params: {} },

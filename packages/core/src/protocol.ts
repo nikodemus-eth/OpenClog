@@ -7,7 +7,7 @@ export type RequiredOperatorScope = (typeof requiredOperatorScopes)[number];
 export const GATEWAY_METHODS = [
   "connect",
   "health",
-  "system.presence",
+  "system-presence",
   "sessions.create",
   "sessions.send",
   "sessions.abort",
@@ -27,7 +27,7 @@ export type GatewayMethod = (typeof GATEWAY_METHODS)[number];
 const gatewayMethodMap = {
   connect: "connect",
   health: "health",
-  systemPresence: "system.presence",
+  systemPresence: "system-presence",
   sessionsCreate: "sessions.create",
   sessionsSend: "sessions.send",
   sessionsAbort: "sessions.abort",
@@ -135,7 +135,7 @@ export function evaluateHelloOk(hello: HelloOkLike): GatewayNegotiatedState {
 export function buildReconnectPlan(activeSessionKey: string): GatewayCallPlan[] {
   return [
     { method: "health", params: {} },
-    { method: "system.presence", params: {} },
+    { method: "system-presence", params: {} },
     { method: "exec.approval.list", params: {} },
     { method: "sessions.list", params: { includeDerivedTitles: true, includeLastMessage: true, limit: 50 } },
     { method: "sessions.subscribe", params: {} },

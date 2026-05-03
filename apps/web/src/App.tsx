@@ -23,6 +23,11 @@ export function App() {
         setGateway(health.gateway);
         setDays(fetchedDays);
         setDay(fetchedDay);
+        setNotice(
+          health.gateway.status === "ready"
+            ? "Gateway ready: operator.read, operator.write, and operator.approvals negotiated."
+            : "Gateway degraded: live state will not be invented."
+        );
       })
       .catch(() => {
         setGateway({ status: "degraded", missingScopes: ["operator.approvals"], stale: true });

@@ -65,7 +65,7 @@ describe("normalization, exports, and themes", () => {
     const html = exportDayAsHtml(sampleJournalDay);
 
     expect(markdown).toContain("# OpenClaw Journal");
-    expect(markdown).toContain("Tool call");
+    expect(markdown).toContain("Journal ready");
     expect(markdown).not.toContain("raw_event");
     expect(html).toContain("<article");
     expect(html).toContain("OpenClaw Journal");

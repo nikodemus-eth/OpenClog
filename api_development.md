@@ -12,3 +12,8 @@ Track public API contracts and Gateway RPC usage.
 - Composer `/note` writes locally; ask/command flows use `sessions.create` and `sessions.send`; abort uses `sessions.abort`; approval resolution uses `exec.approval.resolve`.
 - Added `check:forbidden-rpc` so `sessions_create`, `sessions_send`, `sessions_abort`, and `exec_approval_resolve` fail deterministic verification if introduced.
 - `verify:gateway` probes `connect.challenge`, sends `connect`, evaluates `hello-ok.auth.role` and `hello-ok.auth.scopes`, subscribes with `sessions.subscribe` and `sessions.messages.subscribe`, and fails closed when negotiation is unavailable.
+
+## 2026-05-02 Local Gateway Token Follow-Up
+- The live adapter reads the local token from environment, token file, or the machine-local OpenClaw config path. It never sends the token to the browser.
+- Reconnect probing now uses `health`, `system-presence`, `exec.approval.list`, `sessions.list`, `sessions.subscribe`, and `sessions.messages.subscribe`.
+- `npm run verify:gateway` passed live after token injection, negotiating only `operator.read`, `operator.write`, and `operator.approvals`.
