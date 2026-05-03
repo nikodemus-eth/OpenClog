@@ -1,0 +1,16 @@
+{
+  "name": "@openclog/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/server.js",
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsx src/server.ts",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@openclog/core": "0.1.0"
+  }
+}
+

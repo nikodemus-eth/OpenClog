@@ -1,0 +1,15 @@
+node_modules/
+dist/
+dist-types/
+*.tsbuildinfo
+coverage/
+test-results/
+playwright-report/
+output/playwright/
+.playwright-mcp/
+.env
+.env.*
+*.db
+*.db-shm
+*.db-wal
+.DS_Store

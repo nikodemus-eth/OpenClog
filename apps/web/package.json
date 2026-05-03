@@ -1,0 +1,17 @@
+{
+  "name": "@openclog/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b && vite build",
+    "dev": "vite --host 127.0.0.1",
+    "preview": "vite preview",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@openclog/core": "0.1.0"
+  },
+  "devDependencies": {}
+}
+

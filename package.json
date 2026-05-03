@@ -1,0 +1,53 @@
+{
+  "name": "openclog",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "check:forbidden-rpc": "tsx scripts/check-forbidden-rpc.ts",
+    "dev": "npm run dev -w @openclog/web",
+    "dev:api": "npm run dev -w @openclog/api",
+    "docs:check": "tsx scripts/check-docs.ts",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test tests/e2e/openclog.spec.ts",
+    "test:visual": "playwright test tests/e2e/visual.spec.ts",
+    "test:redteam": "vitest run tests/redteam",
+    "typecheck": "tsc -b tsconfig.json",
+    "verify": "npm run check:forbidden-rpc && npm run typecheck && npm run lint && npm run build && npm run test:coverage && npm run test:e2e && npm run test:visual && npm run test:redteam && npm run docs:check",
+    "verify:gateway": "tsx scripts/verify-gateway.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.1.0",
+    "drizzle-orm": "^0.45.2",
+    "fastify": "^5.6.2",
+    "lucide-react": "^0.552.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "ws": "^8.18.3",
+    "zod": "^4.1.12",
+    "zustand": "^5.0.8"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^5.1.0",
+    "@vitest/coverage-v8": "^4.0.13",
+    "eslint": "^9.39.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.4",
+    "vite": "^7.2.4",
+    "vitest": "^4.0.13"
+  }
+}
