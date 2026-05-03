@@ -65,3 +65,9 @@ Capture durable lessons that should shape future OpenClog work.
 - Contrast should be checked against actual shell and rail surfaces, not only page/card backgrounds.
 - Mobile fixes need selector specificity that can beat desktop base rules; otherwise a visually correct desktop grid can still intercept mobile interactions.
 - Accessibility-adjacent themes like Dyslexia Friendly need layout pressure checks, not just font stack changes.
+
+## 2026-05-03 Durable Gateway Connection
+- A green one-shot Gateway verifier does not prove the long-lived API socket will recover after the Gateway restarts.
+- The durable boundary is the API connection lifecycle: reconnect, reauthenticate, resubscribe, and reconcile before asking the user to touch services.
+- Service restart should be a last resort with failure classification, cooldown, and an explicit refusal path for auth and scope problems.
+- Public health needs enough detail to explain stale/reconnecting state without leaking the auth material that made the connection possible.

@@ -23,6 +23,97 @@ describe("API routes", () => {
     await app.close();
   });
 
+  test("serves safe Gateway reconnect and service-recovery health metadata", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    const gateway = createMemoryGateway({ ready: true });
+    gateway.getState = () => ({
+      canIssueControlActions: false,
+      connectionStatus: "connecting",
+      lastConnectedAt: "2026-05-03T16:00:00.000Z",
+      lastDisconnectedAt: "2026-05-03T16:01:00.000Z",
+      lastErrorReason: "gateway unavailable: Gateway connect.challenge timeout",
+      missingScopes: [],
+      nextReconnectAt: "2026-05-03T16:01:05.000Z",
+      reconnectAttempt: 3,
+      role: "operator",
+      scopes: ["operator.read", "operator.write", "operator.approvals"],
+      serviceRecovery: {
+        enabled: true,
+        lastAttemptAt: "2026-05-03T16:01:02.000Z",
+        lastReason: "gateway unavailable: Gateway connect.challenge timeout",
+        lastResult: "success",
+        nextAllowedAt: "2026-05-03T16:06:02.000Z",
+        restartCount: 1
+      },
+      stale: true,
+      status: "degraded"
+    });
+    const app = createApiApp({ repo, gateway });
+
+    const response = await app.inject({ method: "GET", url: "/api/health" });
+
+    expect(response.json()).toEqual({
+      ok: true,
+      gateway: {
+        canIssueControlActions: false,
+        connectionStatus: "connecting",
+        lastConnectedAt: "2026-05-03T16:00:00.000Z",
+        lastDisconnectedAt: "2026-05-03T16:01:00.000Z",
+        lastErrorReason: "gateway unavailable: Gateway connect.challenge timeout",
+        missingScopes: [],
+        nextReconnectAt: "2026-05-03T16:01:05.000Z",
+        reconnectAttempt: 3,
+        role: "operator",
+        scopes: ["operator.read", "operator.write", "operator.approvals"],
+        serviceRecovery: {
+          enabled: true,
+          lastAttemptAt: "2026-05-03T16:01:02.000Z",
+          lastReason: "gateway unavailable: Gateway connect.challenge timeout",
+          lastResult: "success",
+          nextAllowedAt: "2026-05-03T16:06:02.000Z",
+          restartCount: 1
+        },
+        stale: true,
+        status: "degraded"
+      }
+    });
+    expect(response.body).not.toMatch(/gateway-token|privateKey|signature|connect"/i);
+    await app.close();
+  });
+
+  test("omits absent optional Gateway service-recovery health fields", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    const gateway = createMemoryGateway({ ready: true });
+    gateway.getState = () => ({
+      canIssueControlActions: false,
+      missingScopes: [],
+      role: "operator",
+      scopes: ["operator.read", "operator.write", "operator.approvals"],
+      serviceRecovery: { enabled: true, restartCount: 0 },
+      stale: true,
+      status: "degraded"
+    });
+    const app = createApiApp({ repo, gateway });
+
+    const response = await app.inject({ method: "GET", url: "/api/health" });
+
+    expect(response.json()).toEqual({
+      ok: true,
+      gateway: {
+        canIssueControlActions: false,
+        missingScopes: [],
+        role: "operator",
+        scopes: ["operator.read", "operator.write", "operator.approvals"],
+        serviceRecovery: { enabled: true, restartCount: 0 },
+        stale: true,
+        status: "degraded"
+      }
+    });
+    await app.close();
+  });
+
   test("stores notes locally and blocks admin-class composer commands", async () => {
     const repo = createSqliteRepository(":memory:");
     cleanup.push(() => repo.close());

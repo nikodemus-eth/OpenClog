@@ -76,3 +76,9 @@ Track network behavior, local Gateway assumptions, and remote deployment boundar
 - Browser-to-Gateway isolation remains unchanged: the browser never connects to the OpenClaw Gateway and never receives Gateway token, device identity, auth header, cookie, env value, or raw frame data.
 - Live `npm run verify:gateway` passed against the loopback Gateway after device auth; the verifier did not run mutation testing or fabricate session traffic.
 - The live probe reported `hello-ok` readiness and probed `health`, `system-presence`, `exec.approval.list`, `sessions.list`, `sessions.subscribe`, and `sessions.messages.subscribe`.
+
+## 2026-05-03 Durable Gateway Connection
+- OpenClog now treats Gateway close/error/timeout as a recoverable backend socket lifecycle event instead of a terminal degraded state.
+- Reconnect attempts stay on loopback Gateway URLs and re-read token/device identity from the backend source each time.
+- Auto-restart uses `launchctl kickstart -k gui/$(id -u)/ai.openclaw.gateway` only after repeated eligible reconnect failures and a cooldown window.
+- Browser networking remains unchanged: the web app uses OpenClog HTTP/SSE routes and never connects directly to the OpenClaw Gateway.

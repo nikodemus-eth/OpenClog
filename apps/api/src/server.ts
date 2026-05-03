@@ -19,7 +19,14 @@ async function resolveGateway(): Promise<GatewayPort> {
   const token = readGatewayToken();
   if (!token) return createMemoryGateway();
   try {
-    return await createLiveGateway({ url, token, deviceIdentity: readOpenClawDeviceIdentity(), timeoutMs: Number(process.env.OPENCLOG_GATEWAY_TIMEOUT_MS ?? 5000) });
+    return await createLiveGateway({
+      url,
+      tokenProvider: readGatewayToken,
+      deviceIdentityProvider: readOpenClawDeviceIdentity,
+      heartbeatMs: Number(process.env.OPENCLOG_GATEWAY_HEARTBEAT_MS ?? 30_000),
+      serviceRecovery: { enabled: process.env.OPENCLOG_GATEWAY_AUTO_RESTART !== "0" },
+      timeoutMs: Number(process.env.OPENCLOG_GATEWAY_TIMEOUT_MS ?? 5000)
+    });
   } catch (error) {
     console.error(`OpenClog Gateway degraded: ${classifyGatewayConnectionError(error)}`);
     return createMemoryGateway();

@@ -56,3 +56,8 @@ Track cloud model usage and cloud-boundary decisions.
 - No cloud LLM provider, remote inference endpoint, API key, hosted model dependency, remote font, remote image, or generated media fetch was added.
 - The theme-intent realignment uses local TypeScript metadata, local CSS variables, local SVG/CSS assets, and deterministic Playwright snapshots.
 - Fixture-driven visual and E2E tests remain separate from any live OpenClaw activity.
+
+## 2026-05-03 Durable Gateway Connection
+- No cloud LLM provider, remote inference endpoint, API key, hosted model dependency, remote asset, or cloud fallback was added for Gateway durability.
+- The fix is local backend WebSocket lifecycle management plus the explicit live loopback Gateway verifier.
+- Fixture-based reconnect tests do not claim live model activity.

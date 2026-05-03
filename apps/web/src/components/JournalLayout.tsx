@@ -40,8 +40,22 @@ import { themeVars } from "./theme-style.js";
 export type Theme = OpenClogTheme;
 
 export interface GatewayViewState {
+  connectionStatus?: "connected" | "connecting" | "disconnected";
+  lastConnectedAt?: string;
+  lastDisconnectedAt?: string;
+  lastErrorReason?: string;
   status: "ready" | "blocked" | "degraded";
   missingScopes: string[];
+  nextReconnectAt?: string;
+  reconnectAttempt?: number;
+  serviceRecovery?: {
+    enabled: boolean;
+    lastAttemptAt?: string;
+    lastReason?: string;
+    lastResult?: "success" | "failed" | "skipped";
+    nextAllowedAt?: string;
+    restartCount: number;
+  };
   stale: boolean;
 }
 
@@ -403,7 +417,9 @@ export function GatewayReadinessBanner(props: { gateway: GatewayViewState; theme
     <section className={`readiness-banner ${status}`} aria-label={`Gateway readiness: ${props.gateway.status}`} aria-live="polite">
       <StatusChip label="Gateway readiness" status={props.gateway.status} tone={status} />
       <p>
-        {props.gateway.status === "ready"
+        {props.gateway.connectionStatus === "connecting"
+          ? "OpenClaw Gateway is reconnecting; control actions are paused."
+          : props.gateway.status === "ready"
           ? "OpenClaw Gateway ready with required operator scopes."
           : props.gateway.stale
             ? "OpenClaw Gateway state is stale or degraded."
@@ -683,14 +699,21 @@ export interface DiagnosticsPanelProps {
 
 export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
   const gatewayTone = props.gateway.status === "ready" && !props.gateway.stale ? "success" : props.gateway.status === "blocked" ? "danger" : "warning";
+  const recovery = props.gateway.serviceRecovery;
   return (
     <aside className="sidebar right-rail" aria-label={props.theme.labels.diagnosticsTitle}>
       <h2>{props.theme.labels.diagnosticsTitle}</h2>
       <DiagnosticsCard
-        body={props.gateway.stale ? "OpenClaw Gateway state is stale until reconnect." : "OpenClaw Gateway state is current."}
+        body={gatewayDiagnosticBody(props.gateway)}
         icon={props.theme.icons.gateway}
         label="Gateway"
-        meta={props.gateway.missingScopes.length > 0 ? `Missing scopes: ${props.gateway.missingScopes.join(", ")}` : "All required scopes negotiated"}
+        meta={
+          props.gateway.missingScopes.length > 0
+            ? `Missing scopes: ${props.gateway.missingScopes.join(", ")}`
+            : recovery && recovery.restartCount > 0
+              ? `Service recovery attempted ${String(recovery.restartCount)} time${recovery.restartCount === 1 ? "" : "s"}`
+              : "All required scopes negotiated"
+        }
         sectionRef={props.gatewayCardRef}
         status={props.gateway.status}
         title={`Gateway ${props.gateway.status}`}
@@ -714,6 +737,18 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
       />
     </aside>
   );
+}
+
+function gatewayDiagnosticBody(gateway: GatewayViewState): string {
+  if (gateway.connectionStatus === "connecting") return gateway.nextReconnectAt ? `Reconnecting; next attempt at ${formatTime(gateway.nextReconnectAt)}.` : "Reconnecting to OpenClaw Gateway.";
+  if (gateway.stale) return gateway.lastErrorReason ? `OpenClaw Gateway stale: ${gateway.lastErrorReason}.` : "OpenClaw Gateway state is stale until reconnect.";
+  return "OpenClaw Gateway state is current.";
+}
+
+function formatTime(value: string): string {
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return value;
+  return new Date(parsed).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
 }
 
 export function AgentActivityCard(props: { agents: AgentActivity[]; icon: IconToken; sectionRef?: RefObject<HTMLElement | null> }) {

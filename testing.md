@@ -109,3 +109,10 @@ Record deterministic verification, live Gateway verification, coverage policy, a
 - Stale-copy scan found no stale historical product-title references outside preserved `Instructions.md`.
 - Asset safety scan found only documentation guard wording and the red-team forbidden-pattern assertion; no shipped external Stitch/Tailwind/font/image/script asset was introduced.
 - Browser-visible secret scan found only redaction code and test fixtures; no UI source path intentionally exposes tokens, auth headers, cookies, OAuth values, SMTP credentials, env assignments, raw Gateway payloads, or unsafe local paths.
+
+## 2026-05-03 Durable Gateway Connection
+- Added failing-first live Gateway tests for stale socket reconnect, token/device re-read on reconnect, subscription replay, request fail-closed behavior while reconnecting, guarded service restart, and non-restart for non-recoverable auth failures.
+- Added API health tests for safe reconnect metadata and service-recovery summaries without credential leakage.
+- Added Playwright coverage for visible reconnecting state and service-recovery status on desktop and mobile.
+- Coverage returned to 100% statements, branches, functions, and lines after adding public-health branch coverage.
+- The first full `npm run verify` after implementation passed with 85 unit tests, 178 E2E/UI tests, 54 visual snapshots, and 4 red-team tests.

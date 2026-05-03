@@ -66,3 +66,9 @@ Record first-person implementation notes from the builder/operator perspective.
 - I used practical group and interaction-emphasis metadata so the UI can express daybook, operations, news, social, desktop, terminal, and accessibility mental models without one-off behavior branches.
 - I audited the non-accessibility themes for readable text and status contrast, especially the dark and sidebar-heavy surfaces that were easiest to under-light.
 - I kept the Gateway and safety boundaries steady: this pass changes presentation and test coverage, not authority.
+
+## 2026-05-03 Durable Gateway Connection
+- I reproduced the important split before changing code: `npm run verify:gateway` could connect live, but the already-running OpenClog API stayed degraded after the Gateway process restarted.
+- I fixed the lifetime problem inside OpenClog instead of leaning on another manual restart.
+- I kept auto-restart narrow and grudging: OpenClog first heals its own socket, then restarts only the local LaunchAgent after repeated eligible failures and never for auth, pairing, scope, or remote-deployment problems.
+- I kept the browser on public status data only; reconnect details are useful, but secrets and raw frames still stay backend-only.

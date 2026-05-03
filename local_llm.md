@@ -56,3 +56,8 @@ Track local model usage, local-only execution boundaries, and future local LLM i
 - No local LLM runtime was added for theme intent metadata, practical grouping, contrast improvements, Dyslexia Friendly layout work, visual snapshot refreshes, or refactor cleanup.
 - Theme differentiation, contrast checks, redaction checks, and grouped UI behavior remain deterministic local code paths and tests.
 - No fixture, theme, or snapshot is presented as local model activity.
+
+## 2026-05-03 Durable Gateway Connection
+- No local LLM runtime was added for Gateway reconnection, service recovery, health reporting, or UI reconnect state.
+- Reconnect events, health metadata, and service recovery summaries are deterministic backend state, not model-generated interpretations.
+- Live Gateway verification remains separate from any local model activity.

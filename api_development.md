@@ -72,3 +72,9 @@ Track public API contracts and Gateway RPC usage.
 - Practical theme grouping and interaction emphasis are frontend/core presentation metadata only.
 - Theme switching remains a browser presentation action and does not mutate composer text, selected day, Gateway readiness, approvals, tools, agents, timeline entries, persisted settings beyond the selected theme, or local journal data.
 - Deterministic verification still keeps fixture-driven UI checks separate from live Gateway verification.
+
+## 2026-05-03 Durable Gateway Connection
+- No public route names, Gateway RPC method names, requested scopes, composer forwarding semantics, approval decisions, persistence schema, or delivery behavior changed.
+- `/api/health.gateway` now includes safe reconnect metadata: connection status, last connection/disconnection timestamps, last error reason, next reconnect time, reconnect attempt, and service-recovery summary.
+- Gateway control requests still use dotted method names and fail closed while the backend is reconnecting or missing required negotiated scopes.
+- The backend re-runs `health`, `system-presence`, `exec.approval.list`, `sessions.list`, `sessions.subscribe`, and `sessions.messages.subscribe` after successful reconnect.

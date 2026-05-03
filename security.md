@@ -83,3 +83,10 @@ Track OpenClog security posture, Gateway authority boundaries, redaction, and fa
 - Asset-safety scanning found no shipped external image, font, script, Tailwind CDN, Google font, Material Symbols remote dependency, or copied proprietary asset reference.
 - Browser-visible secret scanning found only redaction/test guard references, not exposed token-like values, auth headers, cookies, OAuth values, SMTP credentials, env assignments, raw Gateway payloads, or unsafe local paths.
 - Live Gateway verification negotiated a local operator device with broader existing paired scopes, but OpenClog's request path remains limited to `operator.read`, `operator.write`, and `operator.approvals` and no admin, pairing, or secrets UI was added.
+
+## 2026-05-03 Durable Gateway Connection
+- Gateway tokens, device identity, private keys, signatures, auth headers, raw connect frames, cookies, env values, and raw Gateway payloads remain backend-only.
+- Public Gateway health exposes only redacted connection state and service-recovery summaries.
+- Auto-restart is guarded: loopback and macOS only, repeated eligible failures only, cooldown-bound, and blocked for token mismatch, missing device identity, pairing-required, missing-scope, and remote Gateway failures.
+- Composer and approval behavior remain fail-closed while the Gateway is stale or reconnecting; no fake local success path was added.
+- The browser-visible secret checks were extended through the reconnecting UI state and continue to reject token-like or raw-frame leakage.

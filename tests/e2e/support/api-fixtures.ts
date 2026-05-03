@@ -6,6 +6,7 @@ export interface ApiFixtureOptions {
   approvalCount?: number;
   dayTitle?: string;
   extraEntries?: JournalEntry[];
+  gatewayDetails?: Record<string, unknown>;
   gatewayStatus?: "ready" | "blocked" | "degraded";
   streamEntry?: JournalEntry;
 }
@@ -42,7 +43,8 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
           role: "operator",
           scopes: gatewayStatus === "ready" ? ["operator.read", "operator.write", "operator.approvals"] : ["operator.read", "operator.write"],
           missingScopes,
-          stale: gatewayStatus !== "ready"
+          stale: gatewayStatus !== "ready",
+          ...options.gatewayDetails
         }
       }
     });

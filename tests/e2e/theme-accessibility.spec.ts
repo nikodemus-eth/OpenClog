@@ -87,6 +87,27 @@ test("theme switching is presentation-only", async ({ page }) => {
   await expect(page.getByText("2 pending approvals")).toBeVisible();
 });
 
+test("UI shows Gateway reconnecting and guarded service recovery state", async ({ page }) => {
+  await installApiFixtures(page, {
+    approvalCount: 0,
+    gatewayStatus: "degraded",
+    gatewayDetails: {
+      connectionStatus: "connecting",
+      lastErrorReason: "gateway unavailable: Gateway connect.challenge timeout",
+      missingScopes: [],
+      nextReconnectAt: "2026-05-03T16:01:05.000Z",
+      reconnectAttempt: 3,
+      serviceRecovery: { enabled: true, lastResult: "success", restartCount: 1 }
+    }
+  });
+  await page.goto("/");
+
+  await expect(page.getByText("OpenClaw Gateway is reconnecting; control actions are paused.")).toBeVisible();
+  await expect(page.getByText(/Reconnecting; next attempt at/i)).toBeVisible();
+  await expect(page.getByText("Service recovery attempted 1 time")).toBeVisible();
+  await expect(page.locator("body")).not.toContainText(/gateway-token|privateKey|signature|raw connect/i);
+});
+
 test("keyboard and accessibility affordances work", async ({ page }) => {
   await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
   await page.goto("/");

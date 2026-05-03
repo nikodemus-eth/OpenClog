@@ -100,3 +100,12 @@ Track OpenClog implementation decisions, verification passes, refactors, and clo
 - Refactored the theme/style pass into token-driven metadata and CSS data attributes: `data-practical-group` and `data-interaction-emphasis`; no backend, Gateway, permission, composer, approval, persistence, API, or delivery behavior changed.
 - Refreshed all 54 desktop/mobile Playwright visual snapshots after representative inspection of Blackbeard's Log, Clog News, Clog News Network, Clog-Net, Clogbuntu, Cloginal, Accessibility Dark, Dyslexia Friendly, and mobile OpenClog Journal.
 - Final deterministic verification and live Gateway verification passed after the log update; live mutation testing remained disabled.
+
+## 2026-05-03 Durable Gateway Connection
+- Fixed the recurring stale Gateway condition by replacing the one-shot backend socket lifecycle with a resilient live Gateway manager.
+- The root cause was an OpenClog API process surviving an OpenClaw Gateway restart: the existing socket marked itself stale/degraded but never reconnected, while fresh live verifier connections succeeded.
+- The backend now reconnects automatically after socket close, socket error, heartbeat/request timeout, sequence gap, or startup unavailability; every reconnect re-reads Gateway token and device identity, signs a fresh connect challenge, validates `hello-ok`, and reruns the reconnect subscription plan.
+- Added guarded backend-only auto-restart for the local loopback LaunchAgent after repeated eligible reconnect failures; it is cooldown-bound, macOS/loopback-only, and never runs for token mismatch, missing device identity, pairing-required, missing-scope, or remote Gateway failures.
+- Added safe public health fields for reconnect status, last connection/disconnection times, last error reason, next reconnect, reconnect attempt, and redacted service-recovery summary.
+- Added visible UI copy for reconnecting/stale service recovery states without adding admin, pairing, config, secret, or broad-scope controls.
+- Refactored timeout handling so connect-timeout failures are counted once, while ordinary request timeouts still stale the socket and schedule recovery.

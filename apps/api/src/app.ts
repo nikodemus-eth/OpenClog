@@ -30,6 +30,7 @@ export function createApiApp(services: ApiServices): FastifyInstance {
   });
   app.addHook("onClose", (_instance, done) => {
     removeGatewayListener();
+    services.gateway.close?.();
     for (const client of streamClients) client.end();
     streamClients.clear();
     done();
@@ -144,6 +145,7 @@ function shouldJournalGatewayEvent(event: GatewayEventLike): boolean {
     "session.tool",
     "exec.approval.requested",
     "exec.approval.resolved",
+    "gateway.reconnected",
     "sequence.gap"
   ].includes(event.event);
 }
@@ -310,6 +312,24 @@ function publicGatewayState(state: ReturnType<GatewayPort["getState"]>): Record<
     scopes: state.scopes,
     missingScopes: state.missingScopes,
     stale: state.stale === true,
-    canIssueControlActions: state.canIssueControlActions
+    canIssueControlActions: state.canIssueControlActions,
+    ...(state.connectionStatus ? { connectionStatus: state.connectionStatus } : {}),
+    ...(state.lastConnectedAt ? { lastConnectedAt: state.lastConnectedAt } : {}),
+    ...(state.lastDisconnectedAt ? { lastDisconnectedAt: state.lastDisconnectedAt } : {}),
+    ...(state.lastErrorReason ? { lastErrorReason: state.lastErrorReason } : {}),
+    ...(state.nextReconnectAt ? { nextReconnectAt: state.nextReconnectAt } : {}),
+    ...(typeof state.reconnectAttempt === "number" ? { reconnectAttempt: state.reconnectAttempt } : {}),
+    ...(state.serviceRecovery
+      ? {
+          serviceRecovery: {
+            enabled: state.serviceRecovery.enabled,
+            ...(state.serviceRecovery.lastAttemptAt ? { lastAttemptAt: state.serviceRecovery.lastAttemptAt } : {}),
+            ...(state.serviceRecovery.lastReason ? { lastReason: state.serviceRecovery.lastReason } : {}),
+            ...(state.serviceRecovery.lastResult ? { lastResult: state.serviceRecovery.lastResult } : {}),
+            ...(state.serviceRecovery.nextAllowedAt ? { nextAllowedAt: state.serviceRecovery.nextAllowedAt } : {}),
+            restartCount: state.serviceRecovery.restartCount
+          }
+        }
+      : {})
   };
 }

@@ -76,3 +76,9 @@ Track OpenClog architecture, component ownership, and authority boundaries.
   - News / Analysis Modes: headline desk, live broadcast desk, financial ledger, tech review desk, and compact old-web tech feed.
   - Social / Feed Modes: threaded community, profile page, practical cards, story framing, microfeed, airy social, and reply-thread flow.
   - OS / Console Modes: productivity shell, polished desktop app, Linux workspace, retro desktop geometry, and terminal TUI.
+
+## 2026-05-03 Durable Gateway Connection
+- `LiveGateway` is now a resilient Gateway port with explicit connection status, reconnect attempts, stale timestamps, last error reason, and service-recovery state.
+- `GatewayPort.getState()` returns a safe runtime state used by `/api/health`; `close()` lets the API shut down timers and sockets cleanly.
+- Reconnect owns reauthentication and subscription replay; repository and UI layers continue to consume normalized public events and health state.
+- Service recovery is isolated behind an injectable backend restart function so tests use a fake restart and production uses the local LaunchAgent path only after guarded thresholds.

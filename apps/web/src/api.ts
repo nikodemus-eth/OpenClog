@@ -3,10 +3,24 @@ import { themeIds, type AgentActivity, type ApprovalView, type JournalDay, type 
 export interface HealthResponse {
   ok: boolean;
   gateway: {
+    connectionStatus?: "connected" | "connecting" | "disconnected";
+    lastConnectedAt?: string;
+    lastDisconnectedAt?: string;
+    lastErrorReason?: string;
     status: "ready" | "blocked" | "degraded";
     role: string;
     scopes: string[];
     missingScopes: string[];
+    nextReconnectAt?: string;
+    reconnectAttempt?: number;
+    serviceRecovery?: {
+      enabled: boolean;
+      lastAttemptAt?: string;
+      lastReason?: string;
+      lastResult?: "success" | "failed" | "skipped";
+      nextAllowedAt?: string;
+      restartCount: number;
+    };
     stale: boolean;
   };
 }
