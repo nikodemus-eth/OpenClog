@@ -1,19 +1,33 @@
-import { assertDottedGatewayMethod, type GatewayNegotiatedState, requiredOperatorScopes } from "@openclog/core";
+import { assertDottedGatewayMethod, type GatewayEventLike, type GatewayNegotiatedState, requiredOperatorScopes } from "@openclog/core";
 import type { GatewayCall, GatewayPort } from "./gateway.js";
 
 export interface MemoryGatewayOptions {
   ready?: boolean;
 }
 
-export function createMemoryGateway(options: MemoryGatewayOptions = {}): GatewayPort {
+export interface MemoryGateway extends GatewayPort {
+  emit(event: GatewayEventLike): void;
+}
+
+export function createMemoryGateway(options: MemoryGatewayOptions = {}): MemoryGateway {
   const calls: GatewayCall[] = [];
+  const listeners = new Set<(event: GatewayEventLike) => void>();
   const state: GatewayNegotiatedState & { stale?: boolean } = options.ready
     ? { status: "ready", role: "operator", scopes: [...requiredOperatorScopes], missingScopes: [], canIssueControlActions: true, stale: false }
     : { status: "degraded", role: "operator", scopes: ["operator.read", "operator.write"], missingScopes: ["operator.approvals"], canIssueControlActions: false, stale: true };
   return {
     calls,
+    emit(event) {
+      for (const listener of listeners) listener(event);
+    },
     getState() {
       return { ...state };
+    },
+    onEvent(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
     },
     async request(method, params) {
       assertDottedGatewayMethod(method);

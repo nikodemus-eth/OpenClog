@@ -5,8 +5,11 @@ import {
   exportDayAsHtml,
   exportDayAsMarkdown,
   getThemes,
+  normalizeGatewayEvent,
   sampleJournalDay
 } from "@openclog/core";
+import type { GatewayEventLike, JournalEntry } from "@openclog/core";
+import type { ServerResponse } from "node:http";
 import type { GatewayPort } from "./gateway.js";
 import type { OpenClogRepository } from "./repository.js";
 
@@ -17,7 +20,19 @@ export interface ApiServices {
 
 export function createApiApp(services: ApiServices): FastifyInstance {
   const app = Fastify({ logger: false });
+  const streamClients = new Set<ServerResponse>();
   void app.register(cors, { origin: true });
+  const removeGatewayListener = services.gateway.onEvent((event) => {
+    if (!shouldJournalGatewayEvent(event)) return;
+    const entry = services.repo.addEntry(normalizeGatewayEvent(event), event);
+    publishJournalEvent(streamClients, entry, services.repo.getDay(entry.dayKey));
+  });
+  app.addHook("onClose", (_instance, done) => {
+    removeGatewayListener();
+    for (const client of streamClients) client.end();
+    streamClients.clear();
+    done();
+  });
 
   app.get("/api/health", async () => ({
     ok: true,
@@ -55,10 +70,17 @@ export function createApiApp(services: ApiServices): FastifyInstance {
       const entry = services.repo.addNote(classified.body);
       return { ...classified, entry };
     }
-    const created = (await services.gateway.request("sessions.create", { label: "OpenClog", message: classified.body })) as { key?: string };
-    await services.gateway.request("sessions.send", { key: created.key ?? "main", message: classified.body });
+    const created = (await services.gateway.request("sessions.create", {})) as { key?: string };
+    const sessionKey = created.key ?? "main";
+    await services.gateway.request("sessions.messages.subscribe", { key: sessionKey });
+    await services.gateway.request("sessions.send", { key: sessionKey, message: classified.body });
     services.repo.addAudit("composer.gateway_send", { target_type: "gateway", method: "sessions.send" });
-    return classified;
+    return {
+      ...classified,
+      sessionKey,
+      day: services.repo.getDay(todayKey()) ?? services.repo.getDay(sampleJournalDay.dayKey),
+      message: "Sent to OpenClaw. Waiting for live response."
+    };
   });
 
   app.post<{ Params: { key: string } }>("/api/sessions/:key/abort", async (request) => {
@@ -86,17 +108,44 @@ export function createApiApp(services: ApiServices): FastifyInstance {
       .send(body);
   });
 
-  app.get("/api/stream", async (_request, reply) => {
+  app.get<{ Querystring: { once?: string } }>("/api/stream", (request, reply) => {
+    reply.hijack();
     reply.raw.writeHead(200, {
       "content-type": "text/event-stream",
       "cache-control": "no-cache",
       connection: "keep-alive"
     });
     reply.raw.write(`event: heartbeat\ndata: ${JSON.stringify({ ok: true })}\n\n`);
-    reply.raw.end();
+    if (request.query.once === "1") {
+      reply.raw.end();
+      return;
+    }
+    streamClients.add(reply.raw);
+    request.raw.on("close", () => {
+      streamClients.delete(reply.raw);
+    });
   });
 
   return app;
+}
+
+function shouldJournalGatewayEvent(event: GatewayEventLike): boolean {
+  return [
+    "session.message",
+    "session.tool",
+    "exec.approval.requested",
+    "exec.approval.resolved",
+    "sequence.gap"
+  ].includes(event.event);
+}
+
+function publishJournalEvent(clients: Set<ServerResponse>, entry: JournalEntry, day: unknown): void {
+  const body = JSON.stringify({ entry, day });
+  for (const client of clients) client.write(`event: journal\ndata: ${body}\n\n`);
+}
+
+function todayKey(now = new Date()): string {
+  return now.toISOString().slice(0, 10);
 }
 
 function publicGatewayState(state: ReturnType<GatewayPort["getState"]>): Record<string, unknown> {
@@ -109,4 +158,3 @@ function publicGatewayState(state: ReturnType<GatewayPort["getState"]>): Record<
     canIssueControlActions: state.canIssueControlActions
   };
 }
-

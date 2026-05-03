@@ -18,25 +18,56 @@ export function App() {
   }, [themeId]);
 
   useEffect(() => {
-    void Promise.all([fetchHealth(), fetchDays(), fetchDay(sampleJournalDay.dayKey)])
-      .then(([health, fetchedDays, fetchedDay]) => {
-        setGateway(health.gateway);
-        setDays(fetchedDays);
-        setDay(fetchedDay);
-        setNotice(
-          health.gateway.status === "ready"
+    let active = true;
+    let currentDayKey = sampleJournalDay.dayKey;
+    async function refresh() {
+      const [health, fetchedDays] = await Promise.all([fetchHealth(), fetchDays()]);
+      const targetDayKey = fetchedDays[0]?.dayKey ?? currentDayKey;
+      const fetchedDay = await fetchDay(targetDayKey);
+      if (!active) return;
+      currentDayKey = fetchedDay.dayKey;
+      setGateway(health.gateway);
+      setDays(fetchedDays);
+      setDay(fetchedDay);
+      setNotice((current) =>
+        current === "Sent to OpenClaw. Waiting for live response." || current === "Entry recorded." || current === "Live OpenClaw event received."
+          ? current
+          : health.gateway.status === "ready"
             ? "Gateway ready: operator.read, operator.write, and operator.approvals negotiated."
             : "Gateway degraded: live state will not be invented."
-        );
-      })
-      .catch(() => {
-        setGateway({ status: "degraded", missingScopes: ["operator.approvals"], stale: true });
+      );
+    }
+    void refresh().catch(() => {
+      if (active) setGateway({ status: "degraded", missingScopes: ["operator.approvals"], stale: true });
+    });
+    const timer = window.setInterval(() => {
+      void refresh().catch(() => {
+        if (active) setGateway({ status: "degraded", missingScopes: ["operator.approvals"], stale: true });
       });
+    }, 1500);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    const source = new EventSource("/api/stream");
+    source.addEventListener("journal", (event) => {
+      const parsed = JSON.parse((event as MessageEvent).data) as { day?: JournalDay };
+      if (parsed.day) setDay(parsed.day);
+      setNotice("Live OpenClaw event received.");
+    });
+    source.onerror = () => {
+      setGateway((current) => ({ ...current, stale: true }));
+    };
+    return () => source.close();
   }, []);
 
   async function handleSend() {
     try {
       const result = await sendComposer(composer);
+      if (result.day) setDay(result.day);
       if (result.mode === "note" && result.body) {
         setDay((current) => ({
           ...current,
@@ -58,7 +89,7 @@ export function App() {
         }));
       }
       setComposer("");
-      setNotice("Entry recorded.");
+      setNotice(result.message ?? "Entry recorded.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Command blocked");
     }

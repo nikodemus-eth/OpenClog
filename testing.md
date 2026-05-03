@@ -28,3 +28,10 @@ Record deterministic verification, live Gateway verification, coverage policy, a
 - `npm run verify:gateway` passed live with the local OpenClaw token.
 - Live probe result: negotiated role `operator`, scopes `operator.read`, `operator.write`, and `operator.approvals`, with no missing scopes.
 - Mutation testing remained disabled, so no create/send/abort test session was fabricated or performed.
+
+## 2026-05-02 Live Flow Follow-Up
+- Added failing-first tests for session-message event ingestion, stream publishing, composer subscribe-before-send behavior, and Gateway message deduplication.
+- `npm run verify` passed after the event-flow changes, including 100% statements, branches, functions, and lines.
+- Live browser smoke passed against `http://127.0.0.1:5173/`; it showed Gateway ready and visible `pong` content from the real OpenClaw response.
+- Live screenshot evidence: `output/playwright/live-openclog-pong.png`.
+- `npm run verify:gateway` passed live after the event-flow fix; mutation testing remained disabled, so the live probe did not fabricate create/send/abort activity.

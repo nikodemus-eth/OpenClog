@@ -53,7 +53,7 @@ describe("API routes", () => {
     const approvals = await app.inject({ method: "GET", url: "/api/approvals" });
     const markdown = await app.inject({ method: "GET", url: "/api/days/2026-05-02/export" });
     const html = await app.inject({ method: "GET", url: "/api/days/missing-day/export?format=html" });
-    const stream = await app.inject({ method: "GET", url: "/api/stream" });
+    const stream = await app.inject({ method: "GET", url: "/api/stream?once=1" });
 
     expect(days.json().days).toHaveLength(1);
     expect(day.json().day).toMatchObject({ dayKey: "2026-05-02" });
@@ -71,6 +71,35 @@ describe("API routes", () => {
     await app.close();
   });
 
+  test("keeps stream clients open until the browser disconnects", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    const gateway = createMemoryGateway({ ready: true });
+    const app = createApiApp({ repo, gateway });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const address = app.server.address();
+    if (address === null || typeof address === "string") throw new Error("Expected TCP server address");
+    const controller = new AbortController();
+
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/stream`, { signal: controller.signal });
+    const reader = response.body?.getReader();
+    const heartbeat = await reader?.read();
+    gateway.emit({
+      event: "session.message",
+      payload: {
+        sessionKey: "agent:hugin:dashboard:stream",
+        message: { role: "assistant", content: "stream pong", timestamp: "2026-05-02T13:05:00.000Z" }
+      }
+    });
+    const journal = await reader?.read();
+    controller.abort();
+
+    expect(response.status).toBe(200);
+    expect(new TextDecoder().decode(heartbeat?.value)).toContain("event: heartbeat");
+    expect(new TextDecoder().decode(journal?.value)).toContain("event: journal");
+    await app.close();
+  });
+
   test("uses dotted Gateway methods for ask, abort, and approval resolution", async () => {
     const repo = createSqliteRepository(":memory:");
     cleanup.push(() => repo.close());
@@ -83,6 +112,7 @@ describe("API routes", () => {
 
     expect(gateway.calls.map((call) => call.method)).toEqual([
       "sessions.create",
+      "sessions.messages.subscribe",
       "sessions.send",
       "sessions.abort",
       "exec.approval.resolve"
@@ -105,7 +135,8 @@ describe("API routes", () => {
     await app.inject({ method: "POST", url: "/api/approvals/approval-2/resolve", payload: {} });
 
     expect(gateway.calls).toEqual([
-      { method: "sessions.create", params: { label: "OpenClog", message: "Summarize today" } },
+      { method: "sessions.create", params: {} },
+      { method: "sessions.messages.subscribe", params: { key: "main" } },
       { method: "sessions.send", params: { key: "main", message: "Summarize today" } },
       { method: "exec.approval.resolve", params: { id: "approval-2", decision: "deny" } }
     ]);
@@ -122,9 +153,48 @@ describe("API routes", () => {
 
     expect(response.statusCode).toBe(200);
     expect(gateway.calls).toEqual([
-      { method: "sessions.create", params: { label: "OpenClog", message: "" } },
+      { method: "sessions.create", params: {} },
+      { method: "sessions.messages.subscribe", params: { key: "agent:hugin:main" } },
       { method: "sessions.send", params: { key: "agent:hugin:main", message: "" } }
     ]);
+    await app.close();
+  });
+
+  test("journals live Gateway session message events without leaking raw frames", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    const gateway = createMemoryGateway({ ready: true });
+    const app = createApiApp({ repo, gateway });
+
+    gateway.emit({ event: "health", payload: { ok: true } });
+    gateway.emit({
+      event: "session.message",
+      payload: {
+        sessionKey: "agent:hugin:dashboard:1",
+        message: {
+          role: "assistant",
+          content: "pong with token=[REDACTED_SECRET]",
+          timestamp: "2026-05-02T13:00:00.000Z"
+        },
+        messageSeq: 2
+      }
+    });
+    const day = await app.inject({ method: "GET", url: "/api/days/2026-05-02" });
+
+    expect(day.json().day.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "assistant_message",
+          source: "openclaw",
+          body: "pong with token=[REDACTED_SECRET]",
+          sessionId: "agent:hugin:dashboard:1",
+          rawEventHash: expect.stringMatching(/^fnv1a-/),
+          redacted: true
+        })
+      ])
+    );
+    expect(repo.countRedactedEvents()).toBeGreaterThan(0);
+    expect(JSON.stringify(day.json())).not.toContain("raw_event_redacted_json");
     await app.close();
   });
 });

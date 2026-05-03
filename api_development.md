@@ -17,3 +17,10 @@ Track public API contracts and Gateway RPC usage.
 - The live adapter reads the local token from environment, token file, or the machine-local OpenClaw config path. It never sends the token to the browser.
 - Reconnect probing now uses `health`, `system-presence`, `exec.approval.list`, `sessions.list`, `sessions.subscribe`, and `sessions.messages.subscribe`.
 - `npm run verify:gateway` passed live after token injection, negotiating only `operator.read`, `operator.write`, and `operator.approvals`.
+
+## 2026-05-02 Live Flow Follow-Up
+- `POST /api/composer` now creates a session, subscribes to that session's message stream, sends exactly one message, and returns the created session key plus a waiting notice.
+- `GET /api/stream` now keeps browser SSE clients open and publishes `journal` events when OpenClaw session messages, tool events, approval events, or sequence gaps are journaled.
+- Gateway event ingestion filters out noisy health/tick traffic and journals only user-visible operational events.
+- Live correction: `sessions.create` is called without a reused label because the installed Gateway enforces label uniqueness.
+- `verify:gateway` mutation mode was aligned with the same flow: `sessions.create`, `sessions.messages.subscribe`, `sessions.send`, and `sessions.abort` only when explicitly enabled.

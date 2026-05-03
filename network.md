@@ -19,3 +19,8 @@ Track network behavior, local Gateway assumptions, and remote deployment boundar
 - With the machine-local token, `verify:gateway` passed live and subscribed to session index plus active session messages/tools.
 - OpenClog API is running on `http://127.0.0.1:8787` and the Vite frontend is running on `http://127.0.0.1:5173`.
 - Remote/non-loopback Gateway backend mode remains blocked.
+
+## 2026-05-02 Live Flow Follow-Up
+- Confirmed live Gateway event traffic includes `session.message`, `sessions.changed`, `chat`, `agent`, `health`, and `tick`; OpenClog journals only the operational event families it can safely normalize.
+- Confirmed `ping` sent through OpenClog's API produced `pong` from OpenClaw and appeared in the browser through the local HTTP/SSE path.
+- The API remains token-backed and local-only at `http://127.0.0.1:8787`; the browser continues to use only proxied `/api/*` routes from `http://127.0.0.1:5173`.

@@ -9,6 +9,7 @@ import {
   type GatewayNegotiatedState,
   type HelloOkLike
 } from "@openclog/core";
+import type { GatewayEventLike } from "@openclog/core";
 import type { GatewayCall, GatewayPort } from "./gateway.js";
 
 export interface LiveGatewayOptions {
@@ -28,6 +29,8 @@ class LiveGateway implements GatewayPort {
   readonly calls: GatewayCall[] = [];
   private counter = 0;
   private pending = new Map<string, { reject: (error: Error) => void; resolve: (value: unknown) => void; timer: NodeJS.Timeout }>();
+  private eventListeners = new Set<(event: GatewayEventLike) => void>();
+  private lastEventSeq: number | null = null;
   private state: GatewayNegotiatedState & { stale?: boolean } = {
     status: "degraded",
     role: "operator",
@@ -69,6 +72,13 @@ class LiveGateway implements GatewayPort {
     return { ...this.state, scopes: [...this.state.scopes], missingScopes: [...this.state.missingScopes] };
   }
 
+  onEvent(listener: (event: GatewayEventLike) => void): () => void {
+    this.eventListeners.add(listener);
+    return () => {
+      this.eventListeners.delete(listener);
+    };
+  }
+
   async request(method: string, params: Record<string, unknown>, id = `req-${++this.counter}`, allowWhileConnecting = false): Promise<unknown> {
     assertDottedGatewayMethod(method);
     if (!allowWhileConnecting && !this.state.canIssueControlActions) throw new Error("Gateway control actions blocked until required scopes are negotiated");
@@ -86,7 +96,11 @@ class LiveGateway implements GatewayPort {
   }
 
   private handleFrame(raw: WebSocket.RawData): void {
-    const frame = JSON.parse(String(raw)) as { error?: { message?: string }; id?: string; ok?: boolean; payload?: unknown; type?: string };
+    const frame = JSON.parse(String(raw)) as { error?: { message?: string }; event?: string; id?: string; ok?: boolean; payload?: unknown; seq?: number; type?: string };
+    if (frame.type === "event" && frame.event) {
+      this.emitEvent({ event: frame.event, payload: frame.payload, seq: frame.seq });
+      return;
+    }
     if (frame.type !== "res" || !frame.id) return;
     const pending = this.pending.get(frame.id);
     if (!pending) return;
@@ -94,6 +108,27 @@ class LiveGateway implements GatewayPort {
     this.pending.delete(frame.id);
     if (frame.ok) pending.resolve(frame.payload);
     else pending.reject(new Error(frame.error?.message ?? "Gateway request failed"));
+  }
+
+  private emitEvent(event: GatewayEventLike): void {
+    if (typeof event.seq === "number") {
+      if (this.lastEventSeq !== null && event.seq !== this.lastEventSeq + 1) {
+        this.notifyListeners({
+          event: "sequence.gap",
+          payload: {
+            expected: this.lastEventSeq + 1,
+            received: event.seq,
+            ts: Date.now()
+          }
+        });
+      }
+      this.lastEventSeq = event.seq;
+    }
+    this.notifyListeners(event);
+  }
+
+  private notifyListeners(event: GatewayEventLike): void {
+    for (const listener of this.eventListeners) listener(event);
   }
 
   private markStale(): void {

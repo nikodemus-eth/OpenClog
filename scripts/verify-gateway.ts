@@ -25,11 +25,12 @@ async function probeGateway(options: { gatewayUrl: string; token?: string; timeo
     results.push(call.method);
   }
   if (process.env.OPENCLOG_GATEWAY_MUTATION_TEST === "1") {
-    const created = (await client.request("sessions.create", { label: "OpenClog verification", message: "OpenClog live verification" })) as { key?: string };
+    const created = (await client.request("sessions.create", {})) as { key?: string };
     const key = created.key ?? "main";
+    await client.request("sessions.messages.subscribe", { key });
     await client.request("sessions.send", { key, message: "OpenClog live verification" });
     await client.request("sessions.abort", { key });
-    results.push("sessions.create", "sessions.send", "sessions.abort");
+    results.push("sessions.create", "sessions.messages.subscribe", "sessions.send", "sessions.abort");
   }
   await client.close();
   return { status: "ready", negotiated, probedMethods: results, mutationTestEnabled: process.env.OPENCLOG_GATEWAY_MUTATION_TEST === "1" };

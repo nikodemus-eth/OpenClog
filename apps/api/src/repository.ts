@@ -1,9 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
-import type { JournalDay, JournalEntry, PersistableRedactedEvent } from "@openclog/core";
-import { sampleJournalDay } from "@openclog/core";
+import type { GatewayEventLike, JournalDay, JournalEntry, PersistableRedactedEvent } from "@openclog/core";
+import { sampleJournalDay, toPersistableRedactedEvent } from "@openclog/core";
 
 export interface OpenClogRepository {
   addAudit(action: string, metadata: Record<string, unknown>): void;
+  addEntry(entry: JournalEntry, sourceEvent?: GatewayEventLike): JournalEntry;
   addNote(body: string, now?: Date): JournalEntry;
   close(): void;
   countRedactedEvents(): number;
@@ -29,6 +30,18 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
         JSON.stringify(metadata)
       );
     },
+    addEntry(entry, sourceEvent) {
+      const day = repo.getDay(entry.dayKey) ?? emptyDay(entry.dayKey);
+      const entries = [...day.entries.filter((existing) => existing.id !== entry.id), entry].sort((left, right) =>
+        left.timestamp.localeCompare(right.timestamp)
+      );
+      repo.upsertDay({ ...day, metrics: metricsFor(entries), entries });
+      if (sourceEvent) {
+        const event = toPersistableRedactedEvent(sourceEvent);
+        updateRedactedEventColumns(db, entry.id, event);
+      }
+      return entry;
+    },
     addNote(body, now = new Date("2026-05-02T12:30:00.000Z")) {
       const dayKey = formatDay(now);
       const day = repo.getDay(dayKey) ?? emptyDay(dayKey);
@@ -44,7 +57,7 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
         severity: "info",
         redacted: true
       };
-      repo.upsertDay({ ...day, entries: [...day.entries, entry] });
+      repo.addEntry(entry);
       repo.addAudit("note.created", { target_type: "entry", target_id: entry.id });
       return entry;
     },
@@ -90,24 +103,8 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
         .map((row) => String(row.name));
     },
     storeRedactedEvent(entryId, event) {
-      db.prepare(
-        `INSERT INTO journal_entries (
-          id, day_key, session_id, source, kind, title, body, timestamp, status, severity,
-          actor_label, tool_name, approval_id, raw_event_redacted_json, raw_event_hash,
-          redaction_report_json, redacted, entry_json
-        ) VALUES (?, ?, NULL, 'gateway', 'system_status', 'Redacted event', NULL, ?, 'info', 'info', NULL, NULL, NULL, ?, ?, ?, 1, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          raw_event_redacted_json = excluded.raw_event_redacted_json,
-          raw_event_hash = excluded.raw_event_hash,
-          redaction_report_json = excluded.redaction_report_json`
-      ).run(
-        entryId,
-        "2026-05-02",
-        "2026-05-02T12:00:00.000Z",
-        event.raw_event_redacted_json,
-        event.raw_event_hash,
-        event.redaction_report_json,
-        JSON.stringify({
+      repo.addEntry(
+        {
           id: entryId,
           dayKey: "2026-05-02",
           source: "gateway",
@@ -118,8 +115,10 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
           severity: "info",
           rawEventHash: event.raw_event_hash,
           redacted: true
-        } satisfies JournalEntry)
+        },
+        { event: "redacted.persisted", payload: JSON.parse(event.raw_event_redacted_json) }
       );
+      updateRedactedEventColumns(db, entryId, event);
     },
     upsertDay(day) {
       db.prepare(
@@ -158,6 +157,14 @@ function upsertEntry(db: DatabaseSync, entry: JournalEntry): void {
     entry.redacted ? 1 : 0,
     JSON.stringify(entry)
   );
+}
+
+function updateRedactedEventColumns(db: DatabaseSync, entryId: string, event: PersistableRedactedEvent): void {
+  db.prepare(
+    `UPDATE journal_entries
+      SET raw_event_redacted_json = ?, raw_event_hash = ?, redaction_report_json = ?
+      WHERE id = ?`
+  ).run(event.raw_event_redacted_json, event.raw_event_hash, event.redaction_report_json, entryId);
 }
 
 function migrate(db: DatabaseSync): void {
@@ -214,5 +221,15 @@ function emptyDay(dayKey: string): JournalDay {
     summary: "",
     entries: [],
     metrics: { sessionCount: 0, messageCount: 0, toolCallCount: 0, approvalCount: 0, errorCount: 0 }
+  };
+}
+
+function metricsFor(entries: JournalEntry[]): JournalDay["metrics"] {
+  return {
+    sessionCount: new Set(entries.map((entry) => entry.sessionId).filter(Boolean)).size,
+    messageCount: entries.filter((entry) => entry.kind === "user_message" || entry.kind === "assistant_message").length,
+    toolCallCount: entries.filter((entry) => entry.kind === "tool_call" || entry.kind === "tool_result").length,
+    approvalCount: entries.filter((entry) => entry.kind === "approval_requested" || entry.kind === "approval_resolved").length,
+    errorCount: entries.filter((entry) => entry.severity === "error" || entry.status === "failed").length
   };
 }

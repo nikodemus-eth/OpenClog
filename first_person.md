@@ -11,3 +11,8 @@ Record first-person implementation notes from the builder/operator perspective.
 - I kept the browser on the safe side of the boundary: it receives public health, journal, approval, and export data, but no Gateway token, cookie, auth header, env value, or raw secret-looking payload.
 - I treated the Gateway live probe honestly. The local Gateway path did not negotiate because device identity was required, so I recorded the result as failed closed.
 - I refactored after the first green verification pass, then reran the complete deterministic gate.
+
+## 2026-05-02 Live Flow Follow-Up
+- I chased the user's real `ping` failure instead of treating Gateway readiness as enough.
+- The missing piece was not auth; the backend was ignoring Gateway `event` frames after request responses.
+- I verified the fix through OpenClog itself: composer `ping` now produces a visible OpenClaw `pong`.

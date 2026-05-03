@@ -13,3 +13,9 @@ Track OpenClog architecture, component ownership, and authority boundaries.
 - `apps/api` exposes the public REST/SSE API, keeps Gateway state behind a backend port, persists the local SQLite journal, and declares the Drizzle table schema contract for all required journal tables.
 - `apps/web` owns the usable journal screen with left archive, top composer, daily timeline, right diagnostics, export, and four theme variants.
 - Gateway events are treated as non-replayable: reconnect plans refresh health, presence, approvals, active sessions, session index subscription, and active session message/tool subscription.
+
+## 2026-05-02 Live Flow Follow-Up
+- Added the missing event bridge between the live Gateway WebSocket adapter and the repository-backed journal.
+- Repository ownership now includes `addEntry(entry, sourceEvent)` so normalized entries and redacted Gateway payload columns are written together.
+- Browser state updates through both polling and SSE, so a live OpenClaw response appears without exposing Gateway credentials or raw frames.
+- Normalization now handles the installed Gateway's `payload.sessionKey` plus nested `payload.message.role/content/timestamp` shape.

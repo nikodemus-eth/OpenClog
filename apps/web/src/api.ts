@@ -25,13 +25,13 @@ export async function fetchDay(dayKey: string): Promise<JournalDay> {
   return result.day;
 }
 
-export async function sendComposer(text: string): Promise<{ mode?: string; body?: string; message?: string }> {
+export async function sendComposer(text: string): Promise<{ day?: JournalDay | null; mode?: string; body?: string; message?: string; sessionKey?: string }> {
   const response = await fetch("/api/composer", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ text })
   });
-  const json = (await response.json()) as { mode?: string; body?: string; message?: string };
+  const json = (await response.json()) as { day?: JournalDay | null; mode?: string; body?: string; message?: string; sessionKey?: string };
   if (!response.ok) throw new Error(json.message ?? "Composer failed");
   return json;
 }
@@ -49,4 +49,3 @@ async function fetchJson<T>(url: string): Promise<T> {
   if (!response.ok) throw new Error(`Request failed: ${url}`);
   return (await response.json()) as T;
 }
-

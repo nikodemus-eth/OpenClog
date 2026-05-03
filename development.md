@@ -21,3 +21,9 @@ Track OpenClog implementation decisions, verification passes, refactors, and clo
 - Corrected the reconnect presence RPC from the invented `system.presence` name to the installed OpenClaw `system-presence` method.
 - Added a live Gateway adapter for the API startup path; when the local token is present, OpenClog negotiates `operator.read`, `operator.write`, and `operator.approvals`.
 - Restarted the local API and browser surface; `/api/health` now reports Gateway `ready` with no missing scopes.
+
+## 2026-05-02 Live Flow Follow-Up
+- Fixed the missing data flow from OpenClaw into OpenClog: live Gateway `event` frames are now emitted through the backend port, normalized, redacted, persisted in SQLite, and pushed to browsers over `/api/stream`.
+- Changed composer ask/command flow to `sessions.create` with no duplicate initial message, then `sessions.messages.subscribe`, then one `sessions.send`.
+- Removed the optional reused `OpenClog` session label after live Gateway rejected it as already in use.
+- Verified a real OpenClog composer `ping` produced a real OpenClaw `pong` journal entry in the running app.

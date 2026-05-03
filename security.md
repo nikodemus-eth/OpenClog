@@ -21,3 +21,9 @@ Track OpenClog security posture, Gateway authority boundaries, redaction, and fa
 - The local token was consumed only through backend environment/config loading and was not printed, committed, persisted in OpenClog, or sent to the browser.
 - Live Gateway request logs in memory store redacted parameters only.
 - The live adapter refuses remote/non-loopback URLs for backend `gateway-client` auth.
+
+## 2026-05-02 Live Flow Follow-Up
+- Live event persistence writes only normalized journal entries plus redacted Gateway payload columns, stable hashes, and redaction reports.
+- The browser receives journal entries and public Gateway state, not Gateway tokens, auth headers, cookies, env values, or raw Gateway frames.
+- Normalized message bodies are passed through redaction before being persisted or displayed.
+- Gateway health/tick frames are not journaled as user activity, which keeps closeout evidence tied to real message flow instead of background noise.
