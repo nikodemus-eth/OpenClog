@@ -201,6 +201,22 @@ button {
   padding-inline: 16px 30px;
 }
 
+.shell-action-status {
+  margin: 0;
+  max-width: 230px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--stitch-line) 72%, transparent);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: var(--stitch-soft);
+  color: var(--stitch-text);
+  font-family: var(--mono-font);
+  font-size: 0.72rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .top-utility button {
   width: 38px;
   min-height: 38px;
@@ -417,6 +433,10 @@ button {
 .rail-group-nav button.active {
   border-left-color: var(--stitch-action);
   background: var(--stitch-soft);
+  color: var(--stitch-text);
+}
+
+.rail-group-nav button[aria-pressed="true"] {
   color: var(--stitch-text);
 }
 

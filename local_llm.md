@@ -46,3 +46,8 @@ Track local model usage, local-only execution boundaries, and future local LLM i
 - No local LLM runtime was added for the fidelity correction.
 - The revised shell, rail styling, composer treatment, approval panel placement, and visual baselines are deterministic frontend code and Playwright artifacts.
 - No model-generated local activity is presented as OpenClog or OpenClaw activity.
+
+## 2026-05-03 Gateway Device Auth And Shell Shortcuts
+- The live OpenClaw Gateway verifier now reaches a ready state after backend device-auth signing, enabling real local activity flow without inventing responses.
+- Mutation testing remains disabled for the verifier, so the successful live probe did not fabricate session create/send/abort traffic.
+- UI shortcut changes did not alter local LLM routing, composer forwarding, command blocking, or redacted journal display.

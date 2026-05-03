@@ -35,6 +35,54 @@ test("Stitch operator shell exposes safe top navigation and utility focus contro
   await expect(page.getByRole("region", { name: "Keyboard shortcuts" })).toBeHidden();
 });
 
+test("shell family and system shortcuts perform visible safe navigation", async ({ page }) => {
+  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
+  await page.goto("/");
+
+  const familyNav = page.getByRole("navigation", { name: "Family shortcuts" });
+  await familyNav.getByRole("button", { name: "News" }).click();
+  await expect(page.getByRole("main")).toHaveAttribute("data-theme", "clog-news");
+  await expect(page.getByText("News / Media theme family selected.")).toBeVisible();
+
+  await familyNav.getByRole("button", { name: "Social" }).click();
+  await expect(page.getByRole("main")).toHaveAttribute("data-theme", "cloggit");
+
+  await familyNav.getByRole("button", { name: "OS" }).click();
+  await expect(page.getByRole("main")).toHaveAttribute("data-theme", "clogdos");
+
+  await familyNav.getByRole("button", { name: "Accessibility" }).click();
+  await expect(page.getByRole("main")).toHaveAttribute("data-theme", "accessibility");
+
+  await familyNav.getByRole("button", { name: "Core" }).click();
+  await expect(page.getByRole("main")).toHaveAttribute("data-theme", "openclog-journal");
+
+  const systemNav = page.getByRole("navigation", { name: "System shortcuts" });
+  await systemNav.getByRole("button", { name: "Network" }).click();
+  await expect(page.getByLabel(/Diagnostics card: Gateway/)).toBeFocused();
+  await expect(page.getByText("Network diagnostics focused.")).toBeVisible();
+
+  await systemNav.getByRole("button", { name: "Monitors" }).click();
+  await expect(page.getByLabel(/Diagnostics card: Agent Activity/)).toBeFocused();
+  await expect(page.getByText("Monitor diagnostics focused.")).toBeVisible();
+
+  await systemNav.getByRole("button", { name: "Security" }).click();
+  await expect(page.getByLabel(/Diagnostics card: Pending approvals/)).toBeFocused();
+  await expect(page.getByText("Security approvals focused.")).toBeVisible();
+});
+
+test("settings and filter utility icons announce their focused controls", async ({ page }) => {
+  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.getByLabel("Theme", { exact: true })).toBeFocused();
+  await expect(page.getByText("Theme picker focused.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Tool filter settings" }).click();
+  await expect(page.getByLabel("Show Tool Calls")).toBeFocused();
+  await expect(page.getByText("Tool filter focused.")).toBeVisible();
+});
+
 test("Stitch operator shell keeps approved desktop proportions without rail overlap", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 2 });

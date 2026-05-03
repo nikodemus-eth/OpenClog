@@ -73,6 +73,40 @@ describe("Gateway protocol contract", () => {
     expect(JSON.stringify(redactConnectFrameForReport(passwordFrame))).not.toContain("server-only-password");
   });
 
+  test("builds connect with signed device auth and redacts device fields", () => {
+    const frame = buildConnectRequest({
+      id: "connect-device",
+      nonce: "nonce",
+      token: "server-only-token",
+      platform: "darwin",
+      instanceId: "test-instance",
+      device: {
+        id: "device-id",
+        publicKey: "public-key",
+        signature: "signature",
+        signedAt: 1777816800000,
+        nonce: "nonce"
+      }
+    });
+
+    expect(frame.params).toMatchObject({
+      auth: { token: "server-only-token" },
+      device: {
+        id: "device-id",
+        publicKey: "public-key",
+        signature: "signature",
+        signedAt: 1777816800000,
+        nonce: "nonce"
+      },
+      scopes: requiredOperatorScopes
+    });
+    const redacted = JSON.stringify(redactConnectFrameForReport(frame));
+    expect(redacted).not.toContain("server-only-token");
+    expect(redacted).not.toContain("signature");
+    expect(redacted).not.toContain("public-key");
+    expect(redacted).toContain("[REDACTED_DEVICE_AUTH]");
+  });
+
   test("blocks backend Gateway mode outside loopback URLs", () => {
     expect(isLoopbackGatewayUrl("ws://127.0.0.1:18789")).toBe(true);
     expect(isLoopbackGatewayUrl("ws://localhost:18789")).toBe(true);

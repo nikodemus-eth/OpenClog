@@ -1,13 +1,17 @@
 import WebSocket from "ws";
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { buildConnectRequest, buildReconnectPlan, evaluateHelloOk, isLoopbackGatewayUrl, requiredOperatorScopes } from "../packages/core/src/index.js";
+import { buildSignedGatewayDevice, classifyGatewayConnectionError, readOpenClawDeviceIdentity, type OpenClawDeviceIdentity } from "../apps/api/src/device-auth.js";
 
 const gatewayUrl = process.env.OPENCLAW_GATEWAY_URL ?? "ws://127.0.0.1:18789";
-const token = process.env.OPENCLAW_GATEWAY_TOKEN ?? readTokenFile(process.env.OPENCLAW_GATEWAY_TOKEN_FILE);
+const token = readGatewayToken();
+const deviceIdentity = readOpenClawDeviceIdentity();
 const timeoutMs = Number(process.env.OPENCLOG_GATEWAY_TIMEOUT_MS ?? 5000);
 
-async function probeGateway(options: { gatewayUrl: string; token?: string; timeoutMs: number }) {
-  const client = new LiveProbeClient(options.gatewayUrl, options.token, options.timeoutMs);
+async function probeGateway(options: { deviceIdentity?: OpenClawDeviceIdentity; gatewayUrl: string; token?: string; timeoutMs: number }) {
+  const client = new LiveProbeClient(options.gatewayUrl, options.token, options.deviceIdentity, options.timeoutMs);
   const hello = await client.connect();
   const negotiated = evaluateHelloOk(hello);
   if (negotiated.status !== "ready") {
@@ -41,7 +45,12 @@ class LiveProbeClient {
   private ws: WebSocket | null = null;
   private pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
 
-  constructor(private readonly url: string, private readonly token: string | undefined, private readonly timeoutMs: number) {}
+  constructor(
+    private readonly url: string,
+    private readonly token: string | undefined,
+    private readonly deviceIdentity: OpenClawDeviceIdentity | undefined,
+    private readonly timeoutMs: number
+  ) {}
 
   async connect(): Promise<{ type: "hello-ok"; protocol: number; auth: { role: string; scopes: string[] } }> {
     this.ws = new WebSocket(this.url);
@@ -59,7 +68,22 @@ class LiveProbeClient {
         reject(error);
       });
     });
-    const frame = buildConnectRequest({ id: "connect", nonce: challenge, token: this.token, platform: process.platform, instanceId: "openclog-verify" });
+    const frame = buildConnectRequest({
+      id: "connect",
+      nonce: challenge,
+      token: this.token,
+      device:
+        this.deviceIdentity && this.token
+          ? buildSignedGatewayDevice({
+              identity: this.deviceIdentity,
+              nonce: challenge,
+              platform: process.platform,
+              token: this.token
+            })
+          : undefined,
+      platform: process.platform,
+      instanceId: "openclog-verify"
+    });
     return (await this.request(frame.method, frame.params, frame.id)) as { type: "hello-ok"; protocol: number; auth: { role: string; scopes: string[] } };
   }
 
@@ -105,16 +129,29 @@ function readTokenFile(path: string | undefined): string | undefined {
   return readFileSync(path, "utf8").trim();
 }
 
+function readGatewayToken(): string | undefined {
+  if (process.env.OPENCLAW_GATEWAY_TOKEN) return process.env.OPENCLAW_GATEWAY_TOKEN;
+  const tokenFromFile = readTokenFile(process.env.OPENCLAW_GATEWAY_TOKEN_FILE);
+  if (tokenFromFile) return tokenFromFile;
+  try {
+    const configPath = process.env.OPENCLAW_CONFIG_PATH ?? join(homedir(), ".openclaw", "openclaw.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8")) as { gateway?: { auth?: { token?: string } } };
+    return config.gateway?.auth?.token?.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function main(): Promise<void> {
   try {
     if (!isLoopbackGatewayUrl(gatewayUrl)) {
       throw new Error(`fail-closed: ${gatewayUrl} is not loopback; gateway-client backend mode is blocked for remote/non-loopback deployments`);
     }
-    const report = await probeGateway({ gatewayUrl, token, timeoutMs });
+    const report = await probeGateway({ gatewayUrl, token, deviceIdentity, timeoutMs });
     console.log(JSON.stringify(report, null, 2));
     if (report.status !== "ready") process.exit(2);
   } catch (error) {
-    console.error(JSON.stringify({ status: "failed_closed", reason: error instanceof Error ? error.message : String(error) }, null, 2));
+    console.error(JSON.stringify({ status: "failed_closed", reason: classifyGatewayConnectionError(error) }, null, 2));
     process.exit(2);
   }
 }

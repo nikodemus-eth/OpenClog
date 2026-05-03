@@ -80,3 +80,12 @@ Track OpenClog implementation decisions, verification passes, refactors, and clo
 - Added a browser fidelity regression for Stitch shell vocabulary and flagship rail colors, then refreshed all 54 desktop/mobile visual snapshots.
 - Fixed the mobile Pending approvals review panel placement so the Stitch-style approval surface remains actionable on narrow viewports.
 - Final `npm run verify` passed on the logged tree; `npm run verify:gateway` failed closed with `device identity required`.
+
+## 2026-05-03 Gateway Device Auth And Shell Shortcut Fix
+- Added backend-only OpenClaw device-identity authentication for the Gateway handshake, including challenge handling, v3 payload signing, connect-frame redaction, and classified verifier failures.
+- Kept Gateway token ownership in the backend and continued requesting only `operator.read`, `operator.write`, and `operator.approvals`; no browser credential, secret, pairing, or admin surface was added.
+- Fixed inert-looking shell controls: family shortcuts now select the default theme for Core, News, Social, OS, and Accessibility; Network, Monitors, and Security focus their corresponding diagnostics; settings and filter icons announce the focused control.
+- Refactored the shortcut wiring into focused shell-target handlers and diagnostics refs while preserving presentation-only theme switching and existing Gateway/composer/approval behavior.
+- Refreshed desktop/mobile visual snapshots after confirming the family shortcut chrome remained readable and diagnostics/status chips stayed visible.
+- The first final live probe timed out waiting for `connect.challenge`; `openclaw gateway restart` restored the local Gateway listener before the final live probe.
+- Live `npm run verify:gateway` passed after device auth, reaching `hello-ok` and probing health, presence, approval list, session list, and session subscriptions without mutation testing.

@@ -46,3 +46,8 @@ Track cloud model usage and cloud-boundary decisions.
 - No cloud LLM API calls were added for the fidelity correction.
 - Stitch screenshots remained local visual references only; no remote image, font, script, or generated asset URL was fetched or embedded.
 - Deterministic Playwright fixtures remain separate from any live OpenClaw Gateway activity.
+
+## 2026-05-03 Gateway Device Auth And Shell Shortcuts
+- No cloud LLM provider, remote inference endpoint, API key, or hosted model dependency was added for the Gateway auth fix or shortcut repair.
+- Device-auth signing uses local filesystem identity material and the local OpenClaw Gateway token on the backend.
+- Verification remained local plus the explicit live loopback Gateway probe.

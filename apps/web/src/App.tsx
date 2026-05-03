@@ -4,10 +4,12 @@ import {
   displayProductCopy,
   resolveThemeId,
   sampleJournalDay,
+  themeGroups,
   type AgentActivity,
   type ApprovalView,
   type JournalDay,
   type JournalEntry,
+  type ThemeFamily,
   type ThemeId
 } from "@openclog/core";
 import {
@@ -53,9 +55,12 @@ export function App() {
   const [approvalChoices, setApprovalChoices] = useState<Record<string, ApprovalChoice>>({});
   const [liveEventToasts, setLiveEventToasts] = useState<LiveEventToast[]>([]);
   const [targetEntryId, setTargetEntryId] = useState<string | null>(null);
+  const [shellActionStatus, setShellActionStatus] = useState("");
   const mainRef = useRef<HTMLElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const gatewayCardRef = useRef<HTMLElement | null>(null);
+  const agentActivityCardRef = useRef<HTMLElement | null>(null);
+  const approvalsCardRef = useRef<HTMLElement | null>(null);
   const themeSelectorRef = useRef<HTMLSelectElement | null>(null);
   const timelineRef = useRef<HTMLOListElement | null>(null);
   const toolFilterRef = useRef<HTMLInputElement | null>(null);
@@ -219,6 +224,52 @@ export function App() {
     });
   }
 
+  function focusShellTarget(element: HTMLElement | null, message: string): void {
+    element?.scrollIntoView({ block: "center", inline: "nearest" });
+    element?.focus({ preventScroll: true });
+    setShellActionStatus(message);
+  }
+
+  function handleMainFocus(): void {
+    focusShellTarget(mainRef.current, "Journal workspace focused.");
+  }
+
+  function handleComposerFocus(): void {
+    focusShellTarget(composerRef.current, "Command composer focused.");
+  }
+
+  function handleGatewayFocus(): void {
+    focusShellTarget(gatewayCardRef.current, "Network diagnostics focused.");
+  }
+
+  function handleAgentActivityFocus(): void {
+    focusShellTarget(agentActivityCardRef.current, "Monitor diagnostics focused.");
+  }
+
+  function handleApprovalsFocus(): void {
+    focusShellTarget(approvalsCardRef.current, "Security approvals focused.");
+  }
+
+  function handleThemeFocus(): void {
+    focusShellTarget(themeSelectorRef.current, "Theme picker focused.");
+  }
+
+  function handleTimelineFocus(): void {
+    focusShellTarget(timelineRef.current, "Timeline logs focused.");
+  }
+
+  function handleToolFilterFocus(): void {
+    focusShellTarget(toolFilterRef.current, "Tool filter focused.");
+  }
+
+  function handleThemeFamilySelect(family: ThemeFamily): void {
+    const group = themeGroups.find((item) => item.family === family);
+    const nextThemeId = group?.themeIds[0] ?? "openclog-journal";
+    setThemeId(resolveThemeId(nextThemeId));
+    setShellActionStatus(`${group?.label ?? "Theme"} theme family selected.`);
+    window.setTimeout(() => themeSelectorRef.current?.focus({ preventScroll: true }), 0);
+  }
+
   function addLiveEventToast(entry: JournalEntry): void {
     const toast: LiveEventToast = {
       dayKey: entry.dayKey,
@@ -292,10 +343,12 @@ export function App() {
       days={days}
       diagnosticsProps={{
         agentActivity,
+        agentActivityCardRef,
         approvalButtonRef,
         approvalChoices,
         approvals,
         approvalsOpen,
+        approvalsCardRef,
         gatewayCardRef,
         toolFilterRef,
         showToolCalls,
@@ -313,17 +366,24 @@ export function App() {
       themeId={themeId}
       themeIds={selectableThemeIds}
       mainRef={mainRef}
+      shellActionStatus={shellActionStatus}
       themeSelectorRef={themeSelectorRef}
-      onComposerFocus={() => composerRef.current?.focus()}
+      onAgentActivityFocus={handleAgentActivityFocus}
+      onApprovalsFocus={handleApprovalsFocus}
+      onComposerFocus={handleComposerFocus}
       onDaySelect={handleDaySelect}
-      onGatewayFocus={() => gatewayCardRef.current?.focus()}
-      onMainFocus={() => mainRef.current?.focus()}
-      onShortcutsToggle={() => setShortcutsOpen((current) => !current)}
+      onGatewayFocus={handleGatewayFocus}
+      onMainFocus={handleMainFocus}
+      onShortcutsToggle={() => {
+        setShellActionStatus("Keyboard shortcuts toggled.");
+        setShortcutsOpen((current) => !current);
+      }}
       onShortcutsClose={() => setShortcutsOpen(false)}
       onThemeChange={(nextThemeId) => setThemeId(resolveThemeId(nextThemeId))}
-      onThemeFocus={() => themeSelectorRef.current?.focus()}
-      onTimelineFocus={() => timelineRef.current?.focus()}
-      onToolFilterFocus={() => toolFilterRef.current?.focus()}
+      onThemeFamilySelect={handleThemeFamilySelect}
+      onThemeFocus={handleThemeFocus}
+      onTimelineFocus={handleTimelineFocus}
+      onToolFilterFocus={handleToolFilterFocus}
       onToastClick={(toast) => {
         void handleToastClick(toast);
       }}

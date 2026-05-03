@@ -52,3 +52,9 @@ Capture durable lessons that should shape future OpenClog work.
 - A visual authority can require global shell vocabulary changes, not just themed cards inside the old layout.
 - Fixed-position approval surfaces need explicit mobile viewport rules, or they can be visible to accessibility APIs while still unreachable by pointer tests.
 - Fidelity tests should assert design vocabulary such as top-bar height, flat background, uppercase nav treatment, composer size, rail contrast, and center measure without freezing every pixel.
+
+## 2026-05-03 Gateway Device Auth And Shell Shortcuts
+- A healthy OpenClaw Gateway can still reject OpenClog until the client satisfies device identity; `Connectivity probe: ok` and `hello-ok` are different gates.
+- Existing paired devices may negotiate broader scopes than OpenClog requests, so tests must assert requested scopes as well as the negotiated ready state.
+- Visible feedback matters for icon and rail shortcuts: if a click only moves focus, the UI should either show the target clearly or announce the action.
+- Snapshot churn should be reduced by avoiding default transient status text; action feedback should appear after interaction, not in idle baselines.

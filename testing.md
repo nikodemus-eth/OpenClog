@@ -88,3 +88,12 @@ Record deterministic verification, live Gateway verification, coverage policy, a
 - `npm run verify` passed after the correction with 100% configured unit coverage, 172 Playwright E2E/UI tests, 54 visual snapshots, 4 red-team tests, and docs check.
 - Final `npm run verify` passed on the logged tree with 100% configured unit coverage, 172 Playwright E2E/UI tests, 54 visual snapshots, 4 red-team tests, and docs check.
 - `npm run verify:gateway` failed closed with `device identity required`; live integration was not marked green.
+
+## 2026-05-03 Gateway Device Auth And Shell Shortcuts
+- Added unit coverage for device identity validation, public-key derivation, exact v3 payload construction, Ed25519 signature verification, redaction, and Gateway failure classification.
+- Added live-Gateway mock coverage proving connect includes a signed `device` object when identity exists, fails closed without identity, never requests forbidden scopes, preserves dotted RPC method names, and redacts auth calls.
+- Added Playwright UI coverage for family shortcut selection, Network/Monitors/Security diagnostics focus, and settings/filter utility action announcements.
+- Refreshed visual snapshots for the intentional family shortcut chrome change after representative screenshot inspection.
+- Focused checks passed for the new shell interactions; final full verification is tracked in this tranche closeout.
+- A final live probe initially failed closed with a Gateway challenge timeout; after the approved `openclaw gateway restart` recovery step, the live verifier passed.
+- Live `npm run verify:gateway` passed after the device-auth fix; mutation testing remained disabled, so no create/send/abort test session was fabricated.

@@ -51,7 +51,16 @@ export interface GatewayRequestFrame {
   params: Record<string, unknown>;
 }
 
+export interface GatewayDeviceAuth {
+  id: string;
+  nonce: string;
+  publicKey: string;
+  signature: string;
+  signedAt: number;
+}
+
 export interface ConnectRequestInput {
+  device?: GatewayDeviceAuth;
   id: string;
   nonce: string;
   token?: string;
@@ -86,6 +95,7 @@ export function buildConnectRequest(input: ConnectRequestInput): GatewayRequestF
     input.token === undefined && input.password === undefined
       ? {}
       : { auth: { token: input.token, password: input.password } };
+  const device = input.device === undefined ? {} : { device: input.device };
   return {
     type: "req",
     id: input.id,
@@ -104,6 +114,7 @@ export function buildConnectRequest(input: ConnectRequestInput): GatewayRequestF
       role: "operator",
       scopes: [...requiredOperatorScopes],
       caps: [],
+      ...device,
       ...auth
     }
   };
@@ -112,6 +123,7 @@ export function buildConnectRequest(input: ConnectRequestInput): GatewayRequestF
 export function redactConnectFrameForReport(frame: GatewayRequestFrame): GatewayRequestFrame {
   const params = { ...frame.params };
   if ("auth" in params) params.auth = "[REDACTED_AUTH]";
+  if ("device" in params) params.device = "[REDACTED_DEVICE_AUTH]";
   return { ...frame, params };
 }
 

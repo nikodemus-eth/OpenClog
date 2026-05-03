@@ -68,3 +68,10 @@ Track OpenClog security posture, Gateway authority boundaries, redaction, and fa
 - Shell utilities and rail shortcuts still perform safe focus/toggle actions only; no admin, config, pairing, secret, or broad-scope controls were added.
 - Browser-visible diagnostics, Gateway degraded state, pending approvals, Agent Activity, Recent Tools, and status chips remain visible in every selectable theme.
 - The asset-safety posture remains unchanged: no Tailwind CDN, Google font, Material Symbols remote dependency, remote profile image, or Stitch external asset URL is shipped.
+
+## 2026-05-03 Gateway Device Auth And Shell Shortcuts
+- Device identity, private keys, Gateway tokens, auth headers, and raw connect frames remain backend-only and are redacted from diagnostic reports.
+- The signed device payload uses the existing Gateway token as the signature token and does not use the broader stored device token from `device-auth.json`.
+- OpenClog still requests only `operator.read`, `operator.write`, and `operator.approvals`; the local already-paired Gateway may negotiate broader existing device scopes, but no admin, pairing, or secrets UI behavior was added.
+- Family shortcuts are presentation-only theme selection; Network, Monitors, Security, settings, and filter controls only focus existing safe surfaces or show local status feedback.
+- Browser-visible secret and red-team checks remain part of `npm run verify`, and no token-like values or raw Gateway payloads are intentionally exposed.

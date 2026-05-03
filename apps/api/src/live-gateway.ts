@@ -11,9 +11,11 @@ import {
 } from "@openclog/core";
 import type { GatewayEventLike } from "@openclog/core";
 import type { GatewayCall, GatewayPort } from "./gateway.js";
+import { buildSignedGatewayDevice, type OpenClawDeviceIdentity } from "./device-auth.js";
 
 export interface LiveGatewayOptions {
   activeSessionKey?: string;
+  deviceIdentity?: OpenClawDeviceIdentity;
   timeoutMs?: number;
   token?: string;
   url: string;
@@ -57,6 +59,15 @@ class LiveGateway implements GatewayPort {
       id: "connect",
       nonce: challenge,
       token: this.options.token,
+      device:
+        this.options.deviceIdentity && this.options.token
+          ? buildSignedGatewayDevice({
+              identity: this.options.deviceIdentity,
+              nonce: challenge,
+              platform: process.platform,
+              token: this.options.token
+            })
+          : undefined,
       platform: process.platform,
       instanceId: "openclog-api"
     });

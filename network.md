@@ -62,3 +62,10 @@ Track network behavior, local Gateway assumptions, and remote deployment boundar
 - Browser-to-Gateway isolation remains unchanged: the browser uses only OpenClog HTTP/SSE API state and never receives Gateway credentials or direct Gateway access.
 - The correction continues to avoid external fonts, images, scripts, profile assets, and remote Stitch URLs.
 - Live Gateway verification remains separate from deterministic UI verification; `npm run verify:gateway` failed closed with `device identity required`.
+
+## 2026-05-03 Gateway Device Auth And Shell Shortcuts
+- Live Gateway probing now succeeds from OpenClog using the local loopback Gateway, backend token loading, and backend device identity signing.
+- The browser still talks only to the OpenClog API and SSE stream; it never connects directly to the OpenClaw Gateway or receives device auth material.
+- `openclaw gateway status` reports the Gateway listener on `127.0.0.1:18789` with connectivity probe `ok`; service PATH hygiene warnings remain OpenClaw service configuration notes, not OpenClog network blockers.
+- During final closeout, a transient Gateway challenge timeout was recovered with `openclaw gateway restart`; the follow-up status probe returned connectivity `ok`.
+- UI shortcut fixes added no network calls; they only select themes, move focus, or update local action status.

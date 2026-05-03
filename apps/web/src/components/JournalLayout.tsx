@@ -28,6 +28,7 @@ import {
   type JournalDay,
   type JournalEntry,
   type OpenClogTheme,
+  type ThemeFamily,
   type TimelineDisplayItem,
   type ThemeId
 } from "@openclog/core";
@@ -62,11 +63,14 @@ interface AppShellProps {
   gateway: GatewayViewState;
   liveEventToasts: LiveEventToast[];
   shortcutsOpen: boolean;
+  shellActionStatus: string;
   theme: Theme;
   themeId: ThemeId;
   themeIds: ThemeId[];
   mainRef: RefObject<HTMLElement | null>;
   themeSelectorRef: RefObject<HTMLSelectElement | null>;
+  onAgentActivityFocus: () => void;
+  onApprovalsFocus: () => void;
   onComposerFocus: () => void;
   onDaySelect: (dayKey: string) => void;
   onGatewayFocus: () => void;
@@ -74,6 +78,7 @@ interface AppShellProps {
   onShortcutsToggle: () => void;
   onShortcutsClose: () => void;
   onThemeChange: (themeId: ThemeId) => void;
+  onThemeFamilySelect: (family: ThemeFamily) => void;
   onThemeFocus: () => void;
   onTimelineFocus: () => void;
   onToolFilterFocus: () => void;
@@ -109,6 +114,7 @@ export function AppShell(props: AppShellProps) {
           onThemeFocus={props.onThemeFocus}
           onTimelineFocus={props.onTimelineFocus}
           onToolFilterFocus={props.onToolFilterFocus}
+          shellActionStatus={props.shellActionStatus}
         />
       </header>
       <Sidebar
@@ -119,11 +125,11 @@ export function AppShell(props: AppShellProps) {
         themeIds={props.themeIds}
         themeSelectorRef={props.themeSelectorRef}
         onDaySelect={props.onDaySelect}
+        onAgentActivityFocus={props.onAgentActivityFocus}
+        onApprovalsFocus={props.onApprovalsFocus}
         onGatewayFocus={props.onGatewayFocus}
-        onMainFocus={props.onMainFocus}
         onNewEntry={props.onComposerFocus}
-        onTimelineFocus={props.onTimelineFocus}
-        onThemeFocus={props.onThemeFocus}
+        onThemeFamilySelect={props.onThemeFamilySelect}
         onThemeChange={props.onThemeChange}
       />
       <main id="main-content" className="journal-page" aria-label="Daily page" data-theme={props.themeId} ref={props.mainRef} tabIndex={-1}>
@@ -145,6 +151,7 @@ function TopAppBar(props: {
   onThemeFocus: () => void;
   onTimelineFocus: () => void;
   onToolFilterFocus: () => void;
+  shellActionStatus: string;
 }) {
   const navItems = [
     { label: "Journal", onClick: props.onMainFocus },
@@ -168,6 +175,11 @@ function TopAppBar(props: {
         ))}
       </nav>
       <div className="top-utility" aria-label="Shell utilities">
+        {props.shellActionStatus ? (
+          <p className="shell-action-status" aria-live="polite">
+            {props.shellActionStatus}
+          </p>
+        ) : null}
         {utilityItems.map((item) => (
           <button key={item.label} type="button" aria-label={item.label} onClick={item.onClick}>
             <item.icon size={19} aria-hidden="true" />
@@ -194,18 +206,18 @@ export function Sidebar(props: {
   themeId: ThemeId;
   themeIds: ThemeId[];
   themeSelectorRef: RefObject<HTMLSelectElement | null>;
+  onAgentActivityFocus: () => void;
+  onApprovalsFocus: () => void;
   onDaySelect: (dayKey: string) => void;
   onGatewayFocus: () => void;
-  onMainFocus: () => void;
   onNewEntry: () => void;
-  onTimelineFocus: () => void;
-  onThemeFocus: () => void;
+  onThemeFamilySelect: (family: ThemeFamily) => void;
   onThemeChange: (themeId: ThemeId) => void;
 }) {
   return (
     <aside className="sidebar left-rail" aria-label={props.theme.labels.archiveTitle}>
       <OperatorConsoleHeader onNewEntry={props.onNewEntry} />
-      <RailGroupNav onThemeFocus={props.onThemeFocus} onTimelineFocus={props.onTimelineFocus} />
+      <RailGroupNav activeFamily={props.theme.family} onThemeFamilySelect={props.onThemeFamilySelect} />
       <label className="search-box">
         <Search size={18} aria-hidden="true" />
         <input aria-label="Search days" placeholder="Search days" />
@@ -213,7 +225,7 @@ export function Sidebar(props: {
       <DayArchive days={props.days} selectedDayKey={props.selectedDayKey} theme={props.theme} onDaySelect={props.onDaySelect} />
       <ThemeSelector selectRef={props.themeSelectorRef} theme={props.theme} themeId={props.themeId} themeIds={props.themeIds} onThemeChange={props.onThemeChange} />
       {props.theme.labels.statusFooter ? <p className="theme-footer">{props.theme.labels.statusFooter}</p> : null}
-      <RailSystemShortcuts onGatewayFocus={props.onGatewayFocus} onMainFocus={props.onMainFocus} onTimelineFocus={props.onTimelineFocus} />
+      <RailSystemShortcuts onAgentActivityFocus={props.onAgentActivityFocus} onApprovalsFocus={props.onApprovalsFocus} onGatewayFocus={props.onGatewayFocus} />
     </aside>
   );
 }
@@ -231,35 +243,54 @@ function OperatorConsoleHeader(props: { onNewEntry: () => void }) {
   );
 }
 
-function RailGroupNav(props: { onThemeFocus: () => void; onTimelineFocus: () => void }) {
-  const groups = [
-    { label: "Archive", icon: FileText, onClick: props.onTimelineFocus, active: true },
-    { label: "News", icon: Hash, onClick: props.onThemeFocus },
-    { label: "Social", icon: AtSign, onClick: props.onThemeFocus },
-    { label: "OS", icon: Settings, onClick: props.onThemeFocus },
-    { label: "Accessibility", icon: HelpCircle, onClick: props.onThemeFocus }
-  ];
+const familyShortcutIcons = {
+  accessibility: HelpCircle,
+  core: FileText,
+  "news-media": Hash,
+  "os-desktop": Settings,
+  "social-community": AtSign
+} satisfies Record<ThemeFamily, typeof FileText>;
+
+function RailGroupNav(props: { activeFamily: ThemeFamily; onThemeFamilySelect: (family: ThemeFamily) => void }) {
   return (
     <nav className="rail-group-nav" aria-label="Family shortcuts">
       <p>Groups</p>
-      {groups.map((group) => (
-        <button key={group.label} className={group.active ? "active" : undefined} type="button" onClick={group.onClick}>
-          <group.icon size={18} aria-hidden="true" />
-          {group.label}
-        </button>
-      ))}
+      {themeGroups.map((group) => {
+        const Icon = familyShortcutIcons[group.family];
+        const active = group.family === props.activeFamily;
+        return (
+          <button
+            aria-pressed={active}
+            key={group.label}
+            className={active ? "active" : undefined}
+            type="button"
+            onClick={() => props.onThemeFamilySelect(group.family)}
+          >
+            <Icon size={18} aria-hidden="true" />
+            {familyShortcutLabel(group.family)}
+          </button>
+        );
+      })}
     </nav>
   );
 }
 
-function RailSystemShortcuts(props: { onGatewayFocus: () => void; onMainFocus: () => void; onTimelineFocus: () => void }) {
+function familyShortcutLabel(family: ThemeFamily): string {
+  if (family === "news-media") return "News";
+  if (family === "social-community") return "Social";
+  if (family === "os-desktop") return "OS";
+  if (family === "accessibility") return "Accessibility";
+  return "Core";
+}
+
+function RailSystemShortcuts(props: { onAgentActivityFocus: () => void; onApprovalsFocus: () => void; onGatewayFocus: () => void }) {
   const shortcuts = [
-    { label: "Core", icon: FileText, onClick: props.onMainFocus },
-    { label: "Monitors", icon: SlidersHorizontal, onClick: props.onGatewayFocus },
-    { label: "Security", icon: AlertTriangle, onClick: props.onGatewayFocus }
+    { label: "Network", icon: Hash, onClick: props.onGatewayFocus },
+    { label: "Monitors", icon: SlidersHorizontal, onClick: props.onAgentActivityFocus },
+    { label: "Security", icon: AlertTriangle, onClick: props.onApprovalsFocus }
   ];
   return (
-    <div className="rail-shortcuts" aria-label="System shortcuts">
+    <nav className="rail-shortcuts" aria-label="System shortcuts">
       <p>System</p>
       {shortcuts.map((shortcut) => (
         <button key={shortcut.label} type="button" onClick={shortcut.onClick}>
@@ -267,7 +298,7 @@ function RailSystemShortcuts(props: { onGatewayFocus: () => void; onMainFocus: (
           {shortcut.label}
         </button>
       ))}
-    </div>
+    </nav>
   );
 }
 
@@ -636,7 +667,9 @@ export function TimelineEntryCard(props: {
 
 export interface DiagnosticsPanelProps {
   agentActivity: AgentActivity[];
+  agentActivityCardRef: RefObject<HTMLElement | null>;
   approvals: ApprovalView[];
+  approvalsCardRef: RefObject<HTMLElement | null>;
   approvalsOpen: boolean;
   approvalButtonRef: RefObject<HTMLButtonElement | null>;
   approvalChoices: Record<string, ApprovalChoice>;
@@ -669,7 +702,7 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
         title={`Gateway ${props.gateway.status}`}
         tone={gatewayTone}
       />
-      <AgentActivityCard agents={props.agentActivity} icon={props.theme.icons.activity} />
+      <AgentActivityCard agents={props.agentActivity} icon={props.theme.icons.activity} sectionRef={props.agentActivityCardRef} />
       <RecentToolsCard count={props.day.metrics.toolCallCount} icon={props.theme.icons.tools} inputRef={props.toolFilterRef} showToolCalls={props.showToolCalls} onShowToolCallsChange={props.onShowToolCallsChange} />
       <PendingApprovalsCard
         approvalButtonRef={props.approvalButtonRef}
@@ -677,6 +710,7 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
         choices={props.approvalChoices}
         icon={props.theme.icons.approvals}
         open={props.approvalsOpen}
+        sectionRef={props.approvalsCardRef}
         pendingCount={props.approvals.length}
         onChoiceChange={props.onApprovalChoiceChange}
         onClose={props.onCloseApprovals}
@@ -688,11 +722,11 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
   );
 }
 
-export function AgentActivityCard(props: { agents: AgentActivity[]; icon: IconToken }) {
+export function AgentActivityCard(props: { agents: AgentActivity[]; icon: IconToken; sectionRef?: RefObject<HTMLElement | null> }) {
   const Icon = iconFor(props.icon);
   const agents = useMemo(() => sortAgentsForDisplay(props.agents), [props.agents]);
   return (
-    <section aria-label="Diagnostics card: Agent Activity. Status: info" className="diagnostic-card info" tabIndex={0}>
+    <section aria-label="Diagnostics card: Agent Activity. Status: info" className="diagnostic-card info" ref={props.sectionRef} tabIndex={0}>
       <Icon size={22} aria-hidden="true" />
       <div>
         <h3>Agent Activity</h3>
@@ -776,6 +810,7 @@ export function PendingApprovalsCard(props: {
   choices: Record<string, ApprovalChoice>;
   icon: IconToken;
   open: boolean;
+  sectionRef?: RefObject<HTMLElement | null>;
   pendingCount: number;
   onChoiceChange: (approvalId: string, choice: ApprovalChoice) => void;
   onClose: () => void;
@@ -787,7 +822,7 @@ export function PendingApprovalsCard(props: {
   const tone = props.pendingCount > 0 ? "warning" : "success";
   return (
     <div className="approval-popover-wrap">
-      <section aria-label={`Diagnostics card: Pending approvals. Status: ${props.pendingCount > 0 ? "pending" : "info"}`} className={`diagnostic-card ${tone}`} tabIndex={0}>
+      <section aria-label={`Diagnostics card: Pending approvals. Status: ${props.pendingCount > 0 ? "pending" : "info"}`} className={`diagnostic-card ${tone}`} ref={props.sectionRef} tabIndex={0}>
         <Icon size={22} aria-hidden="true" />
         <div>
           <h3>Pending approvals</h3>

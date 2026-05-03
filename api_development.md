@@ -60,3 +60,9 @@ Track public API contracts and Gateway RPC usage.
 - The corrected shell navigation still maps only to safe frontend focus/toggle actions.
 - Pending approval review remains on the existing public approval view model and existing `exec.approval.resolve` backend path for approve/disapprove choices.
 - Deterministic tests use fixtures only and do not imply live Gateway success.
+
+## 2026-05-03 Gateway Device Auth And Shell Shortcuts
+- Added API-internal helpers for reading `OPENCLAW_DEVICE_IDENTITY_FILE` or `~/.openclaw/identity/device.json`, validating identity material, deriving raw public keys, signing Gateway challenge payloads, and redacting auth/device diagnostics.
+- `createLiveGateway` now waits for `connect.challenge`, attaches a signed device object to the dotted `connect` request, validates `hello-ok`, then runs the existing subscribe/reconcile plan.
+- `scripts/verify-gateway.ts` now distinguishes unavailable Gateway, token mismatch, missing device identity, pairing-required, and missing-scope failures.
+- Frontend shortcut changes did not add routes or change composer, approval, settings, export, day, stream, or session API semantics.

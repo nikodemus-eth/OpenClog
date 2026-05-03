@@ -58,3 +58,9 @@ Track OpenClog architecture, component ownership, and authority boundaries.
 - The composer is now a larger journal-entry surface with native textarea input, local icons, and the same submit path.
 - Theme-specific fidelity is still token/data-attribute driven: Blackbeard and Captain change shell surfaces through CSS variables, not behavior branches.
 - The approval review surface keeps the existing non-admin approval model while using a Stitch-like centered panel with mobile-safe bounds.
+
+## 2026-05-03 Gateway Device Auth And Shell Shortcuts
+- The Gateway client now includes a backend-only device-auth layer between token loading and `connect`, signing the Gateway challenge without changing public API contracts.
+- Device identity helpers live in the API package so the web bundle cannot import private keys, tokens, raw connect frames, or auth headers.
+- The shell shortcut architecture now separates family theme selection from system diagnostics navigation: family controls change only presentation, while Network, Monitors, and Security move focus to Gateway, Agent Activity, and Pending approvals.
+- The top utility controls expose visible action feedback through a local shell status line after user action, keeping default visual snapshots free of extra transient state.

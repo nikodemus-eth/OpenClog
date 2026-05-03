@@ -6,6 +6,7 @@ import type { GatewayPort } from "./gateway.js";
 import { createLiveGateway } from "./live-gateway.js";
 import { createMemoryGateway } from "./memory-gateway.js";
 import { createSqliteRepository } from "./repository.js";
+import { classifyGatewayConnectionError, readOpenClawDeviceIdentity } from "./device-auth.js";
 
 const repo = createSqliteRepository(process.env.OPENCLOG_DB_PATH ?? "openclog.db");
 const app = createApiApp({ repo, gateway: await resolveGateway() });
@@ -18,9 +19,9 @@ async function resolveGateway(): Promise<GatewayPort> {
   const token = readGatewayToken();
   if (!token) return createMemoryGateway();
   try {
-    return await createLiveGateway({ url, token, timeoutMs: Number(process.env.OPENCLOG_GATEWAY_TIMEOUT_MS ?? 5000) });
+    return await createLiveGateway({ url, token, deviceIdentity: readOpenClawDeviceIdentity(), timeoutMs: Number(process.env.OPENCLOG_GATEWAY_TIMEOUT_MS ?? 5000) });
   } catch (error) {
-    console.error(`OpenClog Gateway degraded: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`OpenClog Gateway degraded: ${classifyGatewayConnectionError(error)}`);
     return createMemoryGateway();
   }
 }

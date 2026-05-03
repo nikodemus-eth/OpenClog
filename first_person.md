@@ -53,3 +53,9 @@ Record first-person implementation notes from the builder/operator perspective.
 - I compared the OpenClog Journal, Captain's Log, Blackbeard's Log, grouped-events, approval-dialog, mobile, and Dyslexia Friendly Stitch screenshots against the browser output with `view_image`.
 - I pushed the interface closer to the accepted mockups through native CSS and component-safe markup instead of importing generated HTML or external assets.
 - I kept the live and security boundaries steady while changing only presentation.
+
+## 2026-05-03 Gateway Device Auth And Shell Shortcuts
+- I traced the Gateway failure to the missing device-identity handshake rather than restarting services that were already healthy.
+- I kept the token and device identity path backend-only and verified the live Gateway path after implementing the signed challenge response.
+- When the shell controls looked inert, I treated it as an interaction bug: the controls were technically focusing elements but lacked visible feedback or concrete family selection.
+- I added failing UI tests first, made the shortcuts visibly useful, refreshed snapshots only for intentional chrome changes, and kept the behavior bounded.
