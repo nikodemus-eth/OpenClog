@@ -47,3 +47,9 @@ Record first-person implementation notes from the builder/operator perspective.
 - I preserved the operational surfaces across the redesign: Gateway state, Agent Activity, Recent Tools, Pending approvals, degraded/blocked warnings, and status chips stay visible.
 - I refreshed the full desktop/mobile visual baseline only after checking representative Stitch references against the implementation.
 - I reran the deterministic gate after the refactor and recorded the live Gateway probe as failed closed with `device identity required`.
+
+## 2026-05-03 Stitch Fidelity Correction
+- I agreed with the visual critique and treated the first Stitch pass as insufficient, not as done.
+- I compared the OpenClog Journal, Captain's Log, Blackbeard's Log, grouped-events, approval-dialog, mobile, and Dyslexia Friendly Stitch screenshots against the browser output with `view_image`.
+- I pushed the interface closer to the accepted mockups through native CSS and component-safe markup instead of importing generated HTML or external assets.
+- I kept the live and security boundaries steady while changing only presentation.

@@ -41,3 +41,8 @@ Track cloud model usage and cloud-boundary decisions.
 - No cloud LLM API calls were added for the Stitch shell integration, visual inspection, snapshot refresh, or refactor.
 - Stitch-provided remote-looking design assets were not fetched or embedded; the implementation uses local CSS, lucide icons, and deterministic UI markup.
 - Deterministic verification remains fixture-based, and the live OpenClaw Gateway probe failed closed with `device identity required`.
+
+## 2026-05-03 Stitch Fidelity Correction
+- No cloud LLM API calls were added for the fidelity correction.
+- Stitch screenshots remained local visual references only; no remote image, font, script, or generated asset URL was fetched or embedded.
+- Deterministic Playwright fixtures remain separate from any live OpenClaw Gateway activity.

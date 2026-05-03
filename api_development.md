@@ -54,3 +54,9 @@ Track public API contracts and Gateway RPC usage.
 - The Pending approvals popover keeps the existing approve=`allow-once`, disapprove=`deny`, and defer=no API call behavior.
 - Fixture and visual-test routes remain deterministic and separate from live Gateway verification.
 - `npm run verify:gateway` failed closed with `device identity required`; no live API/Gateway success was claimed.
+
+## 2026-05-03 Stitch Fidelity Correction
+- No API route, Gateway RPC method, scope, permission, composer forwarding, approval resolution, persistence, or delivery behavior changed.
+- The corrected shell navigation still maps only to safe frontend focus/toggle actions.
+- Pending approval review remains on the existing public approval view model and existing `exec.approval.resolve` backend path for approve/disapprove choices.
+- Deterministic tests use fixtures only and do not imply live Gateway success.

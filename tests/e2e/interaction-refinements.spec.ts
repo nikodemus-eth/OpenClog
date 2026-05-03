@@ -58,6 +58,47 @@ test("Stitch operator shell keeps approved desktop proportions without rail over
   expect((main?.x ?? 0) + (main?.width ?? 0)).toBeLessThanOrEqual((rightRail?.x ?? 0) + 1);
 });
 
+test("Stitch visual vocabulary is present in the shell chrome and flagship theme rails", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
+  await page.goto("/");
+
+  const headerStyle = await page.getByRole("banner", { name: "OpenClog operator shell" }).evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { background: style.backgroundColor, height: element.getBoundingClientRect().height };
+  });
+  expect(headerStyle.height).toBeGreaterThanOrEqual(54);
+  expect(headerStyle.height).toBeLessThanOrEqual(58);
+  expect(headerStyle.background).toMatch(/(253|0\.992157).*(252|0\.988235).*(251|0\.984314)/);
+
+  const navStyle = await page.getByRole("navigation", { name: "Primary shell navigation" }).getByRole("button", { name: "Journal" }).evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { letterSpacing: Number.parseFloat(style.letterSpacing), textTransform: style.textTransform };
+  });
+  expect(navStyle.textTransform).toBe("uppercase");
+  expect(navStyle.letterSpacing).toBeGreaterThan(1);
+
+  const composerBox = await page.locator(".composer-shell").boundingBox();
+  const mainChildWidth = await page.locator(".journal-page > *").first().evaluate((element) => element.getBoundingClientRect().width);
+  expect(composerBox?.height).toBeGreaterThanOrEqual(220);
+  expect(composerBox?.height).toBeLessThanOrEqual(280);
+  expect(mainChildWidth).toBeLessThanOrEqual(804);
+  await expect(page.getByRole("navigation", { name: "Family shortcuts" })).toContainText("Groups");
+
+  await page.getByLabel("Theme", { exact: true }).selectOption("blackbeards-log");
+  const blackbeardRails = await page.evaluate(() => {
+    const left = getComputedStyle(document.querySelector(".left-rail") as Element).backgroundColor;
+    const right = getComputedStyle(document.querySelector(".right-rail") as Element).backgroundColor;
+    return { left, right };
+  });
+  expect(blackbeardRails.left).toMatch(/(253|0\.992157).*(252|0\.988235).*(251|0\.984314)/);
+  expect(blackbeardRails.right).toMatch(/rgba?\(46,\s*45,\s*43/);
+
+  await page.getByLabel("Theme", { exact: true }).selectOption("captains-log");
+  const captainHeader = await page.getByRole("banner", { name: "OpenClog operator shell" }).evaluate((element) => getComputedStyle(element).backgroundColor);
+  expect(captainHeader).toMatch(/(13|0\.05098).*(13|0\.05098).*(13|0\.05098)/);
+});
+
 test("Stitch integration uses only local deterministic assets in the browser", async ({ page }) => {
   await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
   await page.goto("/");

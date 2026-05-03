@@ -80,3 +80,11 @@ Record deterministic verification, live Gateway verification, coverage policy, a
 - Unit coverage remained 100% statements, 100% branches, 100% functions, and 100% lines for the configured coverage targets.
 - Playwright E2E passed 170 tests and visual coverage passed 54 snapshots after the Stitch shell refresh.
 - `npm run verify:gateway` failed closed with `device identity required`; live integration was not marked green.
+
+## 2026-05-03 Stitch Fidelity Correction
+- Added a Playwright fidelity regression for the Stitch shell vocabulary: flat 56px header, uppercase nav, large composer shell, 800px content measure, Blackbeard light/dark rail split, and Captain dark chrome.
+- Refreshed all 54 desktop/mobile visual snapshots after direct `view_image` comparison against representative Stitch references.
+- Fixed and retested the mobile Pending approvals popover so approve/disapprove/defer controls remain reachable.
+- `npm run verify` passed after the correction with 100% configured unit coverage, 172 Playwright E2E/UI tests, 54 visual snapshots, 4 red-team tests, and docs check.
+- Final `npm run verify` passed on the logged tree with 100% configured unit coverage, 172 Playwright E2E/UI tests, 54 visual snapshots, 4 red-team tests, and docs check.
+- `npm run verify:gateway` failed closed with `device identity required`; live integration was not marked green.

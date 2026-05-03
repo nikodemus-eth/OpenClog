@@ -51,3 +51,10 @@ Track OpenClog architecture, component ownership, and authority boundaries.
 - The shell uses the existing theme CSS variable pipeline and `data-*` metadata; no separate Stitch app, raw generated HTML, remote assets, or theme-specific behavior branch was introduced.
 - Diagnostics and timeline components continue to receive sanitized OpenClog view models and handlers; Gateway state, approvals, Agent Activity, Recent Tools, and status chips remain in the same authority path.
 - The refactor split operator shell helpers while preserving the existing frontend/backend boundary.
+
+## 2026-05-03 Stitch Fidelity Correction
+- The shell CSS now treats the Stitch operator-console frame as the outer architecture: fixed 56px top bar, fixed 280px left rail, constrained center measure, fixed 360px diagnostics rail, and 1px structural dividers.
+- `JournalLayout` gained rail family/system shortcut helpers while keeping the same data and focus handlers.
+- The composer is now a larger journal-entry surface with native textarea input, local icons, and the same submit path.
+- Theme-specific fidelity is still token/data-attribute driven: Blackbeard and Captain change shell surfaces through CSS variables, not behavior branches.
+- The approval review surface keeps the existing non-admin approval model while using a Stitch-like centered panel with mobile-safe bounds.

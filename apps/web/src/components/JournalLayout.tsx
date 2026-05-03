@@ -2,9 +2,12 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type React from "react";
 import {
   AlertTriangle,
+  AtSign,
   Download,
   FileText,
+  Hash,
   HelpCircle,
+  Paperclip,
   Plus,
   Search,
   Settings,
@@ -116,8 +119,11 @@ export function AppShell(props: AppShellProps) {
         themeIds={props.themeIds}
         themeSelectorRef={props.themeSelectorRef}
         onDaySelect={props.onDaySelect}
+        onGatewayFocus={props.onGatewayFocus}
+        onMainFocus={props.onMainFocus}
         onNewEntry={props.onComposerFocus}
         onTimelineFocus={props.onTimelineFocus}
+        onThemeFocus={props.onThemeFocus}
         onThemeChange={props.onThemeChange}
       />
       <main id="main-content" className="journal-page" aria-label="Daily page" data-theme={props.themeId} ref={props.mainRef} tabIndex={-1}>
@@ -189,13 +195,17 @@ export function Sidebar(props: {
   themeIds: ThemeId[];
   themeSelectorRef: RefObject<HTMLSelectElement | null>;
   onDaySelect: (dayKey: string) => void;
+  onGatewayFocus: () => void;
+  onMainFocus: () => void;
   onNewEntry: () => void;
   onTimelineFocus: () => void;
+  onThemeFocus: () => void;
   onThemeChange: (themeId: ThemeId) => void;
 }) {
   return (
     <aside className="sidebar left-rail" aria-label={props.theme.labels.archiveTitle}>
       <OperatorConsoleHeader onNewEntry={props.onNewEntry} />
+      <RailGroupNav onThemeFocus={props.onThemeFocus} onTimelineFocus={props.onTimelineFocus} />
       <label className="search-box">
         <Search size={18} aria-hidden="true" />
         <input aria-label="Search days" placeholder="Search days" />
@@ -203,14 +213,7 @@ export function Sidebar(props: {
       <DayArchive days={props.days} selectedDayKey={props.selectedDayKey} theme={props.theme} onDaySelect={props.onDaySelect} />
       <ThemeSelector selectRef={props.themeSelectorRef} theme={props.theme} themeId={props.themeId} themeIds={props.themeIds} onThemeChange={props.onThemeChange} />
       {props.theme.labels.statusFooter ? <p className="theme-footer">{props.theme.labels.statusFooter}</p> : null}
-      <div className="rail-shortcuts" aria-label="System shortcuts">
-        <button type="button" onClick={props.onNewEntry}>
-          Command
-        </button>
-        <button type="button" onClick={props.onTimelineFocus}>
-          Logs
-        </button>
-      </div>
+      <RailSystemShortcuts onGatewayFocus={props.onGatewayFocus} onMainFocus={props.onMainFocus} onTimelineFocus={props.onTimelineFocus} />
     </aside>
   );
 }
@@ -218,12 +221,52 @@ export function Sidebar(props: {
 function OperatorConsoleHeader(props: { onNewEntry: () => void }) {
   return (
     <div className="operator-console">
-      <p>Operator Console</p>
-      <strong>Station 04-B</strong>
+      <strong>Operator Console</strong>
+      <p>Station 04-B</p>
       <button type="button" onClick={props.onNewEntry}>
         <Plus size={18} aria-hidden="true" />
         New Entry
       </button>
+    </div>
+  );
+}
+
+function RailGroupNav(props: { onThemeFocus: () => void; onTimelineFocus: () => void }) {
+  const groups = [
+    { label: "Archive", icon: FileText, onClick: props.onTimelineFocus, active: true },
+    { label: "News", icon: Hash, onClick: props.onThemeFocus },
+    { label: "Social", icon: AtSign, onClick: props.onThemeFocus },
+    { label: "OS", icon: Settings, onClick: props.onThemeFocus },
+    { label: "Accessibility", icon: HelpCircle, onClick: props.onThemeFocus }
+  ];
+  return (
+    <nav className="rail-group-nav" aria-label="Family shortcuts">
+      <p>Groups</p>
+      {groups.map((group) => (
+        <button key={group.label} className={group.active ? "active" : undefined} type="button" onClick={group.onClick}>
+          <group.icon size={18} aria-hidden="true" />
+          {group.label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function RailSystemShortcuts(props: { onGatewayFocus: () => void; onMainFocus: () => void; onTimelineFocus: () => void }) {
+  const shortcuts = [
+    { label: "Core", icon: FileText, onClick: props.onMainFocus },
+    { label: "Monitors", icon: SlidersHorizontal, onClick: props.onGatewayFocus },
+    { label: "Security", icon: AlertTriangle, onClick: props.onGatewayFocus }
+  ];
+  return (
+    <div className="rail-shortcuts" aria-label="System shortcuts">
+      <p>System</p>
+      {shortcuts.map((shortcut) => (
+        <button key={shortcut.label} type="button" onClick={shortcut.onClick}>
+          <shortcut.icon size={17} aria-hidden="true" />
+          {shortcut.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -288,7 +331,7 @@ export function ThemeSelector(props: {
 
 export function Composer(props: {
   composer: string;
-  inputRef: React.RefObject<HTMLInputElement | null>;
+  inputRef: React.RefObject<HTMLTextAreaElement | null>;
   notice: string;
   theme: Theme;
   onComposerChange: (value: string) => void;
@@ -296,22 +339,32 @@ export function Composer(props: {
 }) {
   return (
     <section className="composer" aria-label="Composer">
-      <label>
-        <span>{props.theme.labels.composerPrompt}</span>
-        <div className="composer-row">
-          <input
+      <div className="composer-shell">
+        <div className="composer-icon" aria-hidden="true">
+          <FileText size={22} />
+        </div>
+        <label>
+          <span>{props.theme.labels.composerPrompt}</span>
+          <textarea
             aria-label="Composer input"
             ref={props.inputRef}
             value={props.composer}
             onChange={(event) => props.onComposerChange(event.target.value)}
             placeholder="Ask OpenClog or write something..."
           />
+        </label>
+        <div className="composer-row">
+          <div className="composer-tools" aria-hidden="true">
+            <Paperclip size={17} />
+            <AtSign size={17} />
+            <Hash size={17} />
+          </div>
           <button type="button" onClick={props.onSend}>
             <Send size={18} aria-hidden="true" />
             {props.theme.labels.send}
           </button>
         </div>
-      </label>
+      </div>
       <p aria-live="polite" className={props.notice.includes("blocked") || props.notice.includes("Command") ? "notice warning" : "notice"}>
         {props.notice}
       </p>

@@ -46,3 +46,9 @@ Capture durable lessons that should shape future OpenClog work.
 - Focus-only navigation needs tests because utility-looking controls can otherwise drift into unsafe settings/admin behavior.
 - Shell geometry tests are useful for visual integrations: rail-width assertions caught the intended 280px/360px operator-console proportions without overfitting every pixel.
 - Visual snapshot refreshes are safe when paired with browser-visible operational checks and an asset-safety red-team scan.
+
+## 2026-05-03 Stitch Fidelity Correction
+- Passing functional shell tests does not prove visual fidelity; a direct screenshot-to-reference pass still matters.
+- A visual authority can require global shell vocabulary changes, not just themed cards inside the old layout.
+- Fixed-position approval surfaces need explicit mobile viewport rules, or they can be visible to accessibility APIs while still unreachable by pointer tests.
+- Fidelity tests should assert design vocabulary such as top-bar height, flat background, uppercase nav treatment, composer size, rail contrast, and center measure without freezing every pixel.

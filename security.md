@@ -62,3 +62,9 @@ Track OpenClog security posture, Gateway authority boundaries, redaction, and fa
 - Added red-team/source checks for remote Stitch asset leakage and browser checks for local-only script/link/image usage.
 - Gateway tokens, auth headers, cookies, OAuth values, SMTP credentials, env assignments, raw Gateway payloads, and unsafe local paths remain blocked from browser-visible text.
 - `npm run verify:gateway` failed closed with `device identity required`; no live Gateway activity was fabricated.
+
+## 2026-05-03 Stitch Fidelity Correction
+- The correction remained presentation-only and did not alter Gateway auth, scopes, RPC method names, command blocking, approval decisions, persistence, or public API contracts.
+- Shell utilities and rail shortcuts still perform safe focus/toggle actions only; no admin, config, pairing, secret, or broad-scope controls were added.
+- Browser-visible diagnostics, Gateway degraded state, pending approvals, Agent Activity, Recent Tools, and status chips remain visible in every selectable theme.
+- The asset-safety posture remains unchanged: no Tailwind CDN, Google font, Material Symbols remote dependency, remote profile image, or Stitch external asset URL is shipped.

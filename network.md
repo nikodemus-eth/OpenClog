@@ -56,3 +56,9 @@ Track network behavior, local Gateway assumptions, and remote deployment boundar
 - The implementation rejects the generated Stitch pattern of remote scripts, fonts, profile images, and external assets; all shell visuals are local CSS/React/lucide output.
 - E2E and visual verification remain fixture-driven and do not fabricate live OpenClaw Gateway traffic.
 - `npm run verify:gateway` failed closed with `device identity required`; no live Gateway path was marked green.
+
+## 2026-05-03 Stitch Fidelity Correction
+- No new network calls were added for the corrected shell, rail shortcuts, composer styling, diagnostics styling, approval panel positioning, or visual snapshots.
+- Browser-to-Gateway isolation remains unchanged: the browser uses only OpenClog HTTP/SSE API state and never receives Gateway credentials or direct Gateway access.
+- The correction continues to avoid external fonts, images, scripts, profile assets, and remote Stitch URLs.
+- Live Gateway verification remains separate from deterministic UI verification; `npm run verify:gateway` failed closed with `device identity required`.

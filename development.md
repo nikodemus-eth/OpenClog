@@ -71,3 +71,12 @@ Track OpenClog implementation decisions, verification passes, refactors, and clo
 - Refreshed desktop and mobile visual snapshots for every selectable theme after comparing representative screenshots with the Stitch references.
 - `npm run verify` passed after implementation, snapshot refresh, and refactor; coverage remained 100% statements, branches, functions, and lines for the configured coverage targets.
 - `npm run verify:gateway` failed closed with `device identity required`; no live Gateway activity was fabricated or marked green.
+
+## 2026-05-03 Stitch Fidelity Correction
+- Corrected the Stitch integration after visual review found the first pass too structurally themed and not close enough to the mockups.
+- Tightened the shell toward the Stitch reference: 56px flat top bar, uppercase navigation, grouped operator rail shortcuts, larger journal-entry composer, constrained 800px center measure, and denser right diagnostics rail.
+- Adjusted flagship surfaces so Blackbeard's Log uses a light operator/header shell with a dark diagnostics rail, Captain's Log uses dark operator-console chrome, and core/accessibility themes keep the flat light operator shell.
+- Kept this as a frontend presentation pass only; no backend, Gateway, permission, composer forwarding, approval semantics, persistence, API, or delivery behavior changed.
+- Added a browser fidelity regression for Stitch shell vocabulary and flagship rail colors, then refreshed all 54 desktop/mobile visual snapshots.
+- Fixed the mobile Pending approvals review panel placement so the Stitch-style approval surface remains actionable on narrow viewports.
+- Final `npm run verify` passed on the logged tree; `npm run verify:gateway` failed closed with `device identity required`.

@@ -54,7 +54,7 @@ export function App() {
   const [liveEventToasts, setLiveEventToasts] = useState<LiveEventToast[]>([]);
   const [targetEntryId, setTargetEntryId] = useState<string | null>(null);
   const mainRef = useRef<HTMLElement | null>(null);
-  const composerRef = useRef<HTMLInputElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const gatewayCardRef = useRef<HTMLElement | null>(null);
   const themeSelectorRef = useRef<HTMLSelectElement | null>(null);
   const timelineRef = useRef<HTMLOListElement | null>(null);
