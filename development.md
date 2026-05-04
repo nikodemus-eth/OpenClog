@@ -109,3 +109,33 @@ Track OpenClog implementation decisions, verification passes, refactors, and clo
 - Added safe public health fields for reconnect status, last connection/disconnection times, last error reason, next reconnect, reconnect attempt, and redacted service-recovery summary.
 - Added visible UI copy for reconnecting/stale service recovery states without adding admin, pairing, config, secret, or broad-scope controls.
 - Refactored timeout handling so connect-timeout failures are counted once, while ordinary request timeouts still stale the socket and schedule recovery.
+
+## 2026-05-04 Phase 1 Quick Wins Hardening
+- Implemented the Quick Wins as a bounded tranche: API/view-model changes first, then frontend wiring, then helper extraction, then verification and docs.
+- Pulled the new operator-surface logic out of [`apps/web/src/App.tsx`](/Users/m4/OpenClog/apps/web/src/App.tsx) into [`apps/web/src/state/operator-workspace.ts`](/Users/m4/OpenClog/apps/web/src/state/operator-workspace.ts) so validation, stale-summary checks, URL safety classification, reconnect trend text, and empty-state decisions are unit-testable without rendering the full shell.
+- Kept the route-state refactor narrow by extending [`apps/web/src/hooks/useJournalRouting.ts`](/Users/m4/OpenClog/apps/web/src/hooks/useJournalRouting.ts) with URL-backed `q=` search state instead of introducing another state container.
+- Tightened the operator workflow by blocking pinned-context saves on invalid summary text, adding a clear-filters affordance, and routing the incident bundle copy action through the existing export path rather than duplicating serialization logic.
+- Preserved additive schema/domain growth already underway in the repo and extended tests around it rather than trying to collapse Phase 2-4 into a single speculative rewrite.
+
+## 2026-05-04 Phase 2 Domain And Lifecycle Tranche
+- Added the new `@openclog/app` workspace package and drove it from failing tests first before wiring the API to it.
+- Kept the first application-layer cut narrow and useful: stable cursor pagination, retention snapshot/apply/rollback, alert acknowledgement/snooze state, integration payload pass-through, and replay bundle inspection.
+- Corrected the package integration at the workspace level with a real `npm install` refresh so `@openclog/app` resolves as a package in tests and `tsc -b`, instead of leaving brittle cross-package source imports in place.
+- Let the full verify gate find the schema-ordering regression before touching the logs, then fixed the canonical table-name order and reran the full gate from scratch.
+
+## 2026-05-04 Ladder 1 Investigation Acceleration Slice
+- Extended the existing search lane instead of replacing it: `/api/search` now preserves cursor pagination and adds sanitized `matchSnippet` plus `matchFieldHints`, while the web workbench adds saved search presets and explicit load-more behavior.
+- Added operator-facing review helpers in the current shell: sanitized session-summary copy, bundle-manifest preview before offline review/copy, generated-summary freshness detail, and inline empty-state actions for incidents, alerts, and adapter-driven offline review.
+- Added bounded Gateway diagnostic enrichment without widening authority: a redacted last-error category, repo-derived recent health-history entries, and keyboard search focus that behaves as a true global operator shortcut.
+
+## 2026-05-04 Ladder 2 Incident Workspace Slice
+- Continued the roadmap with the next bounded tranche instead of jumping to native/plugin surfaces: persistent investigation notes, incident workspace retrieval, replay-bundle diffing, and an end-of-day closeout planner are now implemented across `packages/app`, the API, SQLite persistence, and the web workbench.
+- Added a dedicated investigation-note artifact path backed by `journal_investigation_notes`, keeping operator-authored notes distinct from pinned context and generated summaries.
+- Promoted more operator workflow logic into `@openclog/app`: incident workspace assembly, replay-bundle diffing, investigation-note lifecycle, and closeout-plan construction now live behind the shared application seam rather than inside Fastify handlers.
+- Kept the tranche additive and fail-closed: new surfaces operate on stored redacted evidence, not live raw Gateway payloads, and the browser still receives only bounded, sanitized view models.
+
+## 2026-05-04 Full Improvement Tranche Closeout
+- Completed the next operator tranche on top of the existing dirty implementation rather than cherry-picking only fresh edits: the workbench now ships eight default investigative search presets, per-day evidence-completeness badges, API route/payload copy controls, local note confirmation, and replay-bundle diff classifications.
+- Corrected global keyboard commands away from plain `Shift+letter` chords; command shortcuts now use `Alt+E`, `Alt+A`, `Alt+T`, `Alt+C`, and `Alt+S` so operators can still type capital letters in text fields.
+- Kept the refactor boundary practical: shared behavior lives in `@openclog/app`, core display/types, repository helpers, and frontend state helpers while Fastify routes stay mostly as API adapters.
+- Refreshed deterministic visual baselines after the archive badge and workbench control changes, and added `.gitignore` coverage for repo-local cache/build output that should not be committed as source.

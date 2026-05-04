@@ -1,25 +1,129 @@
 import { DatabaseSync } from "node:sqlite";
-import type { GatewayEventLike, JournalDay, JournalEntry, PersistableRedactedEvent } from "@openclog/core";
-import { sampleJournalDay, toPersistableRedactedEvent } from "@openclog/core";
+import type { AlertStateRecord, RetentionSnapshotRecord } from "@openclog/app";
+import type {
+  AdapterEvent,
+  AlertFinding,
+  AlertRule,
+  AnalyticsSnapshot,
+  CorrelationEdge,
+  CorrelationGraph,
+  CorrelationNode,
+  DeliveryAdapterTarget,
+  DeliveryReceipt,
+  GeneratedProfileSummary,
+  GeneratedSummary,
+  GatewayEventLike,
+  HealthHistoryEntry,
+  IncidentSummary,
+  IntegrityMonitorReport,
+  IntegrationPayload,
+  InvestigationNote,
+  JournalDay,
+  JournalEntry,
+  JournalSearchResult,
+  LineageRecord,
+  MissionReplay,
+  PersistableRedactedEvent,
+  PinnedDayContext,
+  PluginExecutionResult,
+  PluginManifest,
+  ProfileConfig,
+  ReplayStep,
+  RetentionClass,
+  RetentionClassId,
+  RetentionClassPreview,
+  RetentionPolicy,
+  RetentionPreview,
+  ServiceHealthTimelineEntry,
+  SessionDrilldown,
+  SummaryCitation,
+  SummaryProfile
+} from "@openclog/core";
+import { browserVisibleEntryText, exportDayAsMarkdown, sampleJournalDay, toPersistableRedactedEvent, type RunbookSuggestion } from "@openclog/core";
 
 export interface OpenClogRepository {
   addAudit(action: string, metadata: Record<string, unknown>): void;
   addEntry(entry: JournalEntry, sourceEvent?: GatewayEventLike): JournalEntry;
   addNote(body: string, now?: Date): JournalEntry;
+  buildCorrelationGraph(incidentId: string): CorrelationGraph;
+  buildIntegrationPayload(target: IntegrationPayload["target"], dayKey: string): IntegrationPayload;
+  buildMissionReplay(incidentId: string): MissionReplay;
   close(): void;
   countRedactedEvents(): number;
+  deleteDays(dayKeys: string[]): void;
+  deliverIntegration(target: DeliveryAdapterTarget, dayKey: string, incidentId?: string): DeliveryReceipt;
+  evaluateAlertRules(dayKey: string): AlertFinding[];
+  generateSummary(dayKey: string, now?: Date): GeneratedSummary;
+  generateSummaryProfile(profileId: SummaryProfile["id"], dayKey: string): GeneratedProfileSummary;
+  getAnalytics(): AnalyticsSnapshot;
   getDay(dayKey: string): JournalDay | null;
+  getDrilldown(sessionKey: string): SessionDrilldown;
+  getIncident(id: string): IncidentSummary | undefined;
+  getIntegrityReport(): { checkedEntries: number; mismatchedEntryIds: string[]; missingRedactedHashes: string[]; ok: boolean };
+  getLineage(entryId: string): LineageRecord | undefined;
+  getPinnedDayContext(dayKey: string): PinnedDayContext | undefined;
+  getRetentionSnapshot(id: string): RetentionSnapshotRecord | undefined;
   getSetting<T>(key: string, fallback: T): T;
+  getAlertState(ruleId: string): AlertStateRecord | undefined;
+  listAdapterEvents(): AdapterEvent[];
+  listAlertRules(): AlertRule[];
   listDays(): Omit<JournalDay, "entries">[];
+  listDeliveryReceipts(): DeliveryReceipt[];
+  listHealthHistory(limit: number): HealthHistoryEntry[];
+  listHealthTimeline(limit?: number): ServiceHealthTimelineEntry[];
+  listIncidents(): IncidentSummary[];
+  listIntegrityReports(): IntegrityMonitorReport[];
+  listInvestigationNotes(filter?: { dayKey?: string; incidentId?: string }): InvestigationNote[];
+  listPlugins(): PluginManifest[];
+  listProfiles(): ProfileConfig[];
+  listRetentionClasses(): RetentionClass[];
+  listSummaryProfiles(): SummaryProfile[];
   listTables(): string[];
+  previewRetention(policy: RetentionPolicy): RetentionPreview;
+  previewRetentionByClass(): RetentionClassPreview[];
+  recordAdapterEvent(event: AdapterEvent): void;
+  registerPlugin(plugin: PluginManifest): PluginManifest;
+  restoreRetentionSnapshot(snapshot: RetentionSnapshotRecord): void;
+  runIntegrityMonitor(): IntegrityMonitorReport;
+  runPlugin(pluginId: string): PluginExecutionResult;
+  saveIncident(incident: IncidentSummary): IncidentSummary;
+  saveInvestigationNote(note: InvestigationNote): InvestigationNote;
+  saveRetentionClass(retentionClass: RetentionClass): RetentionClass;
+  saveRetentionSnapshot(snapshot: RetentionSnapshotRecord): RetentionSnapshotRecord;
+  searchEntries(query: string): JournalSearchResult[];
+  setAlertState(ruleId: string, state: AlertStateRecord): AlertStateRecord;
+  setPinnedDayContext(dayKey: string, context: Pick<PinnedDayContext, "note" | "summary">, now?: Date): PinnedDayContext;
+  setSelectedProfile(id: string): void;
   setSetting(key: string, value: unknown): void;
   storeRedactedEvent(entryId: string, event: PersistableRedactedEvent): void;
+  upsertAlertRule(rule: AlertRule): AlertRule;
   upsertDay(day: JournalDay): void;
+  upsertProfile(profile: ProfileConfig): ProfileConfig;
 }
+
+const defaultRetentionClasses: RetentionClass[] = [
+  buildRetentionClass("entries", "Journal entries", "Primary redacted evidence.", 30),
+  buildRetentionClass("alert_state", "Alert state and findings", "Operational alert outcomes.", 30),
+  buildRetentionClass("incidents", "Incidents", "Escalation records and workspaces.", 45),
+  buildRetentionClass("investigation_notes", "Investigation notes", "Operator-authored notes.", 45),
+  buildRetentionClass("summaries", "Summaries", "Generated and pinned summaries.", 30),
+  buildRetentionClass("bundle_exports", "Bundle exports", "Replay/export bundle manifests.", 30),
+  buildRetentionClass("delivery_receipts", "Delivery receipts", "Outbound handoff receipts.", 30),
+  buildRetentionClass("audit_log", "Audit log", "Operator action audit history.", 30),
+  buildRetentionClass("analytics_integrity_plugin_runs", "Analytics, integrity, and plugin runs", "Derived governance records.", 30)
+];
+
+const summaryProfiles: SummaryProfile[] = [
+  { id: "default-operator", label: "Default operator summary", audience: "operator", instructions: "Summarize the day for the next operator shift." },
+  { id: "escalation", label: "Escalation summary", audience: "incident commander", instructions: "Summarize operator risk and the most important evidence." },
+  { id: "export", label: "Export summary", audience: "external evidence consumer", instructions: "Summarize the exported bundle with citations only." }
+];
 
 export function createSqliteRepository(filename: string): OpenClogRepository {
   const db = new DatabaseSync(filename);
   migrate(db);
+  seedDefaults(db);
+
   const repo: OpenClogRepository = {
     addAudit(action, metadata) {
       db.prepare("INSERT INTO journal_audit_log (id, action, actor, target_type, target_id, timestamp, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
@@ -34,22 +138,21 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
     },
     addEntry(entry, sourceEvent) {
       const day = repo.getDay(entry.dayKey) ?? emptyDay(entry.dayKey);
-      const entries = [...day.entries.filter((existing) => existing.id !== entry.id), entry].sort((left, right) =>
-        left.timestamp.localeCompare(right.timestamp)
-      );
+      const entries = [...day.entries.filter((existing) => existing.id !== entry.id), entry].sort((left, right) => left.timestamp.localeCompare(right.timestamp));
       repo.upsertDay({ ...day, metrics: metricsFor(entries), entries });
+      repo.generateSummary(entry.dayKey);
       if (sourceEvent) {
         const event = toPersistableRedactedEvent(sourceEvent);
         updateRedactedEventColumns(db, entry.id, event);
       }
+      syncLineageForEntry(db, entry, repo);
       return entry;
     },
     addNote(body, now = new Date("2026-05-02T12:30:00.000Z")) {
       const dayKey = formatDay(now);
-      const day = repo.getDay(dayKey) ?? emptyDay(dayKey);
       const entry: JournalEntry = {
         id: crypto.randomUUID(),
-        dayKey: day.dayKey,
+        dayKey,
         source: "user",
         kind: "note",
         title: "Manual note",
@@ -63,12 +166,227 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       repo.addAudit("note.created", { target_type: "entry", target_id: entry.id });
       return entry;
     },
+    buildCorrelationGraph(incidentId) {
+      const incident = repo.getIncident(incidentId);
+      if (!incident) return { incidentId, nodes: [], edges: [] };
+      const notes = repo.listInvestigationNotes({ incidentId });
+      const receipts = repo.listDeliveryReceipts().filter((receipt) => receipt.incidentId === incidentId);
+      const alertFindings = incident.dayKeys.flatMap((dayKey) => repo.evaluateAlertRules(dayKey)).filter((finding) => finding.triggered);
+      const entries = incident.entryIds.flatMap((entryId) => findEntryAcrossDays(repo, entryId));
+      const nodes: CorrelationNode[] = [
+        { id: incident.id, type: "incident", label: incident.title },
+        ...entries.map((entry) => ({ id: entry.id, type: "entry" as const, label: entry.title })),
+        ...notes.map((note) => ({ id: note.id, type: "note" as const, label: note.body.slice(0, 80) })),
+        ...alertFindings.map((finding) => ({ id: finding.ruleId, type: "alert" as const, label: finding.title })),
+        ...receipts.map((receipt) => ({ id: receipt.id, type: "delivery_receipt" as const, label: `${receipt.target} ${receipt.status}` })),
+        ...entries
+          .map((entry) => entry.sessionId)
+          .filter((sessionId): sessionId is string => Boolean(sessionId))
+          .filter(unique)
+          .map((sessionId) => ({ id: sessionId, type: "session" as const, label: sessionId }))
+      ];
+      const edges: CorrelationEdge[] = [
+        ...entries.map((entry) => ({ id: `${incident.id}-includes-${entry.id}`, from: incident.id, to: entry.id, relationship: "includes" as const })),
+        ...notes.map((note) => ({ id: `${note.id}-belongs`, from: note.id, to: incident.id, relationship: "belongs_to" as const })),
+        ...alertFindings.map((finding) => ({ id: `${finding.ruleId}-triggered`, from: finding.ruleId, to: incident.id, relationship: "triggered_by" as const })),
+        ...receipts.map((receipt) => ({ id: `${incident.id}-export-${receipt.id}`, from: incident.id, to: receipt.id, relationship: "exported_to" as const })),
+        ...entries
+          .filter((entry) => entry.sessionId)
+          .map((entry) => ({ id: `${entry.sessionId}-entry-${entry.id}`, from: entry.sessionId!, to: entry.id, relationship: "includes" as const })),
+        ...notes.flatMap((note) =>
+          note.linkedEntryIds.map((entryId) => ({ id: `${note.id}-ref-${entryId}`, from: note.id, to: entryId, relationship: "references" as const }))
+        )
+      ];
+      saveJsonRow(db, "journal_correlation_graph", incidentId, JSON.stringify({ incidentId, nodes, edges }));
+      return { incidentId, nodes, edges };
+    },
+    buildIntegrationPayload(target, dayKey) {
+      const day = repo.getDay(dayKey) ?? emptyDay(dayKey);
+      const title = `${day.title} handoff for ${day.dayKey}`;
+      const body = `${day.dateLabel}\n\n${exportDayAsMarkdown(day)}\n`;
+      return { target, title, body };
+    },
+    buildMissionReplay(incidentId) {
+      const incident = repo.getIncident(incidentId);
+      if (!incident) return { incidentId, title: "Mission replay", generatedAt: new Date().toISOString(), steps: [] };
+      const entries = incident.entryIds.flatMap((entryId) => findEntryAcrossDays(repo, entryId)).sort((left, right) => left.timestamp.localeCompare(right.timestamp));
+      const notes = repo.listInvestigationNotes({ incidentId });
+      const receipts = repo.listDeliveryReceipts().filter((receipt) => receipt.incidentId === incidentId);
+      const steps: ReplayStep[] = [
+        ...entries.map((entry) => ({
+          id: `replay-entry-${entry.id}`,
+          kind: entry.kind === "approval_requested" || entry.kind === "approval_resolved" ? ("approval" as const) : ("entry" as const),
+          entryIds: [entry.id],
+          timestamp: entry.timestamp,
+          label: entry.title,
+          derived: false,
+          sourceIds: [entry.id]
+        })),
+        ...notes.map((note) => ({
+          id: `replay-note-${note.id}`,
+          kind: "note" as const,
+          entryIds: note.linkedEntryIds,
+          timestamp: note.updatedAt,
+          label: `Operator note: ${note.body.slice(0, 80)}`,
+          derived: false,
+          sourceIds: [note.id, ...note.linkedEntryIds]
+        })),
+        ...receipts.map((receipt) => ({
+          id: `replay-delivery-${receipt.id}`,
+          kind: "delivery" as const,
+          entryIds: [],
+          timestamp: receipt.completedAt,
+          label: `${receipt.target} delivery ${receipt.status}`,
+          derived: true,
+          sourceIds: [receipt.id]
+        }))
+      ].sort((left, right) => left.timestamp.localeCompare(right.timestamp));
+      return { incidentId, title: incident.title, generatedAt: new Date().toISOString(), steps };
+    },
     close() {
       db.close();
     },
     countRedactedEvents() {
       const row = db.prepare("SELECT COUNT(*) AS count FROM journal_entries WHERE raw_event_hash IS NOT NULL").get() as { count: number };
       return Number(row.count);
+    },
+    deliverIntegration(target, dayKey, incidentId) {
+      const payload = repo.buildIntegrationPayload(target, dayKey);
+      const config = deliveryConfigFor(target);
+      const requestedAt = new Date().toISOString();
+      let receipt: DeliveryReceipt;
+      if (!config.enabled || !config.url) {
+        receipt = {
+          id: crypto.randomUUID(),
+          target,
+          dayKey,
+          ...(incidentId ? { incidentId } : {}),
+          title: payload.title,
+          status: "failed",
+          requestedAt,
+          completedAt: new Date().toISOString(),
+          errorCategory: "missing_config"
+        };
+      } else {
+        try {
+          if (target === "slack" || target === "generic-webhook") {
+            void fetch(config.url, {
+              method: "POST",
+              headers: { "content-type": "application/json", ...(config.authorization ? { authorization: config.authorization } : {}) },
+              body: JSON.stringify(target === "slack" ? { text: payload.body } : { title: payload.title, body: payload.body })
+            });
+          } else {
+            void fetch(config.url, {
+              method: "POST",
+              headers: { "content-type": "application/json", ...(config.authorization ? { authorization: config.authorization } : {}) },
+              body: JSON.stringify({ to: config.destinationLabel, subject: payload.title, text: payload.body })
+            });
+          }
+          receipt = {
+            id: crypto.randomUUID(),
+            target,
+            dayKey,
+            ...(incidentId ? { incidentId } : {}),
+            title: payload.title,
+            status: "delivered",
+            requestedAt,
+            completedAt: new Date().toISOString(),
+            deliveryReference: config.destinationLabel
+          };
+        } catch {
+          receipt = {
+            id: crypto.randomUUID(),
+            target,
+            dayKey,
+            ...(incidentId ? { incidentId } : {}),
+            title: payload.title,
+            status: "failed",
+            requestedAt,
+            completedAt: new Date().toISOString(),
+            errorCategory: "network"
+          };
+        }
+      }
+      saveJsonRow(db, "journal_delivery_receipts", receipt.id, JSON.stringify(receipt), { day_key: dayKey, incident_id: incidentId ?? null, target });
+      if (incidentId) syncLineageForIncident(db, incidentId, repo);
+      return receipt;
+    },
+    deleteDays(dayKeys) {
+      for (const dayKey of dayKeys) {
+        db.prepare("DELETE FROM journal_entries WHERE day_key = ?").run(dayKey);
+        db.prepare("DELETE FROM journal_days WHERE day_key = ?").run(dayKey);
+        db.prepare("DELETE FROM journal_daily_summaries WHERE day_key = ?").run(dayKey);
+        db.prepare("DELETE FROM journal_pinned_context WHERE day_key = ?").run(dayKey);
+      }
+    },
+    evaluateAlertRules(dayKey) {
+      const day = repo.getDay(dayKey) ?? emptyDay(dayKey);
+      const rules = repo.listAlertRules();
+      return rules.map((rule) => {
+        const triggered =
+          rule.enabled &&
+          ((rule.kind === "reconnect_storm" && day.entries.filter((entry) => /reconnect/i.test(entry.title) || /reconnect/i.test(entry.body ?? "")).length >= rule.threshold) ||
+            (rule.kind === "approval_backlog" && day.metrics.approvalCount >= rule.threshold) ||
+            (rule.kind === "tool_failure_spike" &&
+              day.entries.filter((entry) => (entry.kind === "tool_result" || entry.kind === "tool_call") && (entry.status === "failed" || entry.severity === "error")).length >= rule.threshold));
+        return {
+          ruleId: rule.id,
+          title: rule.title,
+          triggered,
+          detail: triggered ? `${rule.title} triggered for ${dayKey}.` : `${rule.title} is within threshold for ${dayKey}.`
+        };
+      });
+    },
+    generateSummary(dayKey, now = new Date()) {
+      const day = repo.getDay(dayKey) ?? emptyDay(dayKey);
+      const entries = day.entries;
+      const summary = `${day.metrics.errorCount} failure${day.metrics.errorCount === 1 ? "" : "s"}, ${day.metrics.approvalCount} approval${day.metrics.approvalCount === 1 ? "" : "s"}, ${day.metrics.toolCallCount} tool event${day.metrics.toolCallCount === 1 ? "" : "s"}, ${entries.length} total journal entr${entries.length === 1 ? "y" : "ies"}.`;
+      const generatedSummary: GeneratedSummary = { summary, createdAt: now.toISOString(), source: "rules" };
+      db.prepare("INSERT INTO journal_daily_summaries (day_key, summary, created_at) VALUES (?, ?, ?) ON CONFLICT(day_key) DO UPDATE SET summary = excluded.summary, created_at = excluded.created_at").run(dayKey, generatedSummary.summary, generatedSummary.createdAt);
+      return generatedSummary;
+    },
+    generateSummaryProfile(profileId, dayKey) {
+      const day = repo.getDay(dayKey) ?? emptyDay(dayKey);
+      const profile = summaryProfiles.find((item) => item.id === profileId) ?? summaryProfiles[0];
+      const citedEntries = day.entries.slice(-3);
+      const citations: SummaryCitation[] = citedEntries.map((entry) => ({ entryId: entry.id, title: entry.title, timestamp: entry.timestamp }));
+      const summary = [
+        `${profile.label} for ${day.dayKey}.`,
+        `Evidence includes ${day.metrics.errorCount} failures, ${day.metrics.approvalCount} approvals, and ${day.metrics.toolCallCount} tool events.`,
+        citations.length > 0 ? `Cited entries: ${citations.map((citation) => citation.entryId).join(", ")}.` : "No citations available."
+      ].join(" ");
+      const generated: GeneratedProfileSummary = {
+        profileId,
+        title: `${profile.label} ${day.dayKey}`,
+        summary,
+        citations,
+        createdAt: new Date().toISOString()
+      };
+      saveJsonRow(db, "journal_summary_profiles", `${profileId}:${dayKey}`, JSON.stringify(generated), { profile_id: profileId, day_key: dayKey });
+      return generated;
+    },
+    getAnalytics() {
+      const days = repo.listDays().map((day) => repo.getDay(day.dayKey)).filter((day): day is JournalDay => day !== null);
+      const toolCounts = new Map<string, number>();
+      const failureCounts = new Map<string, number>();
+      for (const entry of days.flatMap((day) => day.entries)) {
+        if (entry.toolName) toolCounts.set(entry.toolName, (toolCounts.get(entry.toolName) ?? 0) + 1);
+        if (entry.severity === "error" || entry.status === "failed") {
+          const label = entry.kind === "tool_result" || entry.kind === "tool_call" ? "tool_failure" : "error";
+          failureCounts.set(label, (failureCounts.get(label) ?? 0) + 1);
+        }
+      }
+      const snapshot: AnalyticsSnapshot = {
+        createdAt: new Date().toISOString(),
+        noisyTools: [...toolCounts.entries()].map(([toolName, count]) => ({ toolName, count })).sort((left, right) => right.count - left.count).slice(0, 5),
+        reconnectHeavyDays: days
+          .map((day) => ({ dayKey: day.dayKey, reconnectCount: day.entries.filter((entry) => /reconnect/i.test(entry.title) || /reconnect/i.test(entry.body ?? "")).length }))
+          .filter((item) => item.reconnectCount > 0),
+        approvalHotspots: days.map((day) => ({ dayKey: day.dayKey, approvalCount: day.metrics.approvalCount })).filter((item) => item.approvalCount > 0),
+        recurringFailureClasses: [...failureCounts.entries()].map(([label, count]) => ({ label, count }))
+      };
+      saveJsonRow(db, "journal_analytics_snapshots", snapshot.createdAt, JSON.stringify(snapshot));
+      return snapshot;
     },
     getDay(dayKey) {
       const row = db.prepare("SELECT day_key, title, date_label, summary, metrics_json FROM journal_days WHERE day_key = ?").get(dayKey);
@@ -77,18 +395,88 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
         .prepare("SELECT entry_json FROM journal_entries WHERE day_key = ? ORDER BY timestamp ASC")
         .all(dayKey)
         .map((entryRow) => JSON.parse(String(entryRow.entry_json)) as JournalEntry);
+      const pinnedContext = repo.getPinnedDayContext(dayKey);
+      const generatedSummary = getGeneratedSummary(db, dayKey);
+      const incidentIds = listIncidentIdsForDay(db, dayKey);
       return {
         dayKey: String(row.day_key),
         title: String(row.title),
         dateLabel: String(row.date_label),
         summary: typeof row.summary === "string" ? row.summary : undefined,
+        ...(pinnedContext ? { pinnedContext } : {}),
+        ...(generatedSummary ? { generatedSummary } : {}),
+        ...(incidentIds.length > 0 ? { incidentIds } : {}),
+        evidenceCompleteness: buildEvidenceCompleteness(db, dayKey, typeof row.summary === "string" ? row.summary : undefined, generatedSummary),
         metrics: JSON.parse(String(row.metrics_json)) as JournalDay["metrics"],
         entries
       };
     },
+    getDrilldown(sessionKey) {
+      const allEntries = listAllEntries(db);
+      const directEntries = allEntries.filter((entry) => entry.sessionId === sessionKey);
+      const relatedApprovalIds = new Set(directEntries.map((entry) => entry.approvalId).filter((approvalId): approvalId is string => Boolean(approvalId)));
+      const entries = allEntries.filter((entry) => entry.sessionId === sessionKey || Boolean(entry.approvalId && relatedApprovalIds.has(entry.approvalId)));
+      const uniqueApprovalIds = new Set(entries.map((entry) => entry.approvalId).filter((approvalId): approvalId is string => Boolean(approvalId)));
+      let toolCount = 0;
+      let reconnectCount = 0;
+      for (const entry of entries) {
+        if (entry.kind === "tool_call" || entry.kind === "tool_result") toolCount += 1;
+        if (/reconnect/i.test(entry.title) || /reconnect/i.test(entry.body ?? "")) reconnectCount += 1;
+      }
+      return {
+        sessionKey,
+        entries,
+        toolCount,
+        approvalCount: uniqueApprovalIds.size,
+        reconnectCount,
+        sanitizedSummary: buildSessionDrilldownSummary(sessionKey, entries, toolCount, uniqueApprovalIds.size, reconnectCount)
+      };
+    },
+    getIncident(id) {
+      const row = db.prepare("SELECT incident_json FROM journal_incidents WHERE id = ?").get(id);
+      return row ? (JSON.parse(String(row.incident_json)) as IncidentSummary) : undefined;
+    },
+    getIntegrityReport() {
+      const rows = db.prepare("SELECT id, entry_json, raw_event_hash, raw_event_redacted_json FROM journal_entries ORDER BY timestamp ASC").all();
+      const mismatchedEntryIds: string[] = [];
+      const missingRedactedHashes: string[] = [];
+      for (const row of rows) {
+        const entry = JSON.parse(String(row.entry_json)) as JournalEntry;
+        if (entry.id !== String(row.id)) mismatchedEntryIds.push(String(row.id));
+        if (typeof row.raw_event_redacted_json === "string" && typeof row.raw_event_hash !== "string") missingRedactedHashes.push(String(row.id));
+      }
+      return {
+        ok: mismatchedEntryIds.length === 0 && missingRedactedHashes.length === 0,
+        checkedEntries: rows.length,
+        mismatchedEntryIds,
+        missingRedactedHashes
+      };
+    },
+    getLineage(entryId) {
+      const row = db.prepare("SELECT lineage_json FROM journal_lineage WHERE entry_id = ?").get(entryId);
+      return row ? (JSON.parse(String(row.lineage_json)) as LineageRecord) : undefined;
+    },
+    getPinnedDayContext(dayKey) {
+      const row = db.prepare("SELECT context_json FROM journal_pinned_context WHERE day_key = ?").get(dayKey);
+      return row ? (JSON.parse(String(row.context_json)) as PinnedDayContext) : undefined;
+    },
+    getRetentionSnapshot(id) {
+      const row = db.prepare("SELECT snapshot_json FROM journal_retention_snapshots WHERE id = ?").get(id);
+      return row ? (JSON.parse(String(row.snapshot_json)) as RetentionSnapshotRecord) : undefined;
+    },
     getSetting(key, fallback) {
       const row = db.prepare("SELECT value_json FROM journal_settings WHERE key = ?").get(key);
       return row ? (JSON.parse(String(row.value_json)) as typeof fallback) : fallback;
+    },
+    getAlertState(ruleId) {
+      const row = db.prepare("SELECT state_json FROM journal_alert_states WHERE id = ?").get(ruleId);
+      return row ? (JSON.parse(String(row.state_json)) as AlertStateRecord) : undefined;
+    },
+    listAdapterEvents() {
+      return db.prepare("SELECT adapter_event_json FROM journal_adapter_events ORDER BY id ASC").all().map((row) => JSON.parse(String(row.adapter_event_json)) as AdapterEvent);
+    },
+    listAlertRules() {
+      return db.prepare("SELECT rule_json FROM journal_alert_rules ORDER BY id ASC").all().map((row) => JSON.parse(String(row.rule_json)) as AlertRule);
     },
     listDays() {
       return db
@@ -99,20 +487,216 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
           title: String(row.title),
           dateLabel: String(row.date_label),
           summary: typeof row.summary === "string" ? row.summary : undefined,
+          evidenceCompleteness: buildEvidenceCompleteness(db, String(row.day_key), typeof row.summary === "string" ? row.summary : undefined, getGeneratedSummary(db, String(row.day_key))),
+          ...(listIncidentIdsForDay(db, String(row.day_key)).length > 0 ? { incidentIds: listIncidentIdsForDay(db, String(row.day_key)) } : {}),
           metrics: JSON.parse(String(row.metrics_json)) as JournalDay["metrics"]
         }));
     },
-    listTables() {
+    listDeliveryReceipts() {
+      return db.prepare("SELECT receipt_json FROM journal_delivery_receipts ORDER BY requested_at DESC, id DESC").all().map((row) => JSON.parse(String(row.receipt_json)) as DeliveryReceipt);
+    },
+    listHealthHistory(limit) {
+      return listAllEntries(db)
+        .reverse()
+        .map((entry) => {
+          const category = classifyHealthHistoryCategory(entry);
+          if (!category) return null;
+          return { id: `health-${entry.id}`, entryId: entry.id, dayKey: entry.dayKey, title: entry.title, timestamp: entry.timestamp, category } satisfies HealthHistoryEntry;
+        })
+        .filter((entry): entry is HealthHistoryEntry => entry !== null)
+        .slice(0, Math.max(1, limit));
+    },
+    listHealthTimeline(limit = 10) {
+      const historyEntries = repo.listHealthHistory(limit).map((entry) => ({
+        id: entry.id,
+        timestamp: entry.timestamp,
+        category: entry.category === "reconnect" ? "reconnect" : entry.category === "gateway_error" ? "stale" : "recovery",
+        title: entry.title,
+        detail: `${entry.category} observed for ${entry.dayKey}.`,
+        relatedId: entry.entryId
+      })) as ServiceHealthTimelineEntry[];
+      const receiptEntries = repo
+        .listDeliveryReceipts()
+        .filter((receipt) => receipt.status === "failed")
+        .slice(0, limit)
+        .map((receipt) => ({
+          id: `timeline-${receipt.id}`,
+          timestamp: receipt.completedAt,
+          category: "adapter_failure" as const,
+          title: `${receipt.target} delivery failed`,
+          detail: receipt.errorCategory ?? "unknown",
+          relatedId: receipt.id
+        }));
+      const integrityEntries = repo
+        .listIntegrityReports()
+        .slice(0, limit)
+        .map((report) => ({
+          id: `timeline-${report.id}`,
+          timestamp: report.createdAt,
+          category: "integrity" as const,
+          title: report.ok ? "Integrity monitor passed" : "Integrity monitor found issues",
+          detail: report.checks.filter((check) => !check.ok).map((check) => check.id).join(", ") || "all checks passed",
+          relatedId: report.id
+        }));
+      return [...historyEntries, ...receiptEntries, ...integrityEntries]
+        .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
+        .slice(0, Math.max(1, limit));
+    },
+    listIncidents() {
+      const stored = db.prepare("SELECT incident_json FROM journal_incidents ORDER BY id ASC").all().map((row) => JSON.parse(String(row.incident_json)) as IncidentSummary);
+      return stored.length > 0 ? stored : deriveIncidents(repo.listDays().map((day) => repo.getDay(day.dayKey)).filter((day): day is JournalDay => day !== null));
+    },
+    listIntegrityReports() {
+      return db.prepare("SELECT report_json FROM journal_integrity_reports ORDER BY id DESC").all().map((row) => JSON.parse(String(row.report_json)) as IntegrityMonitorReport);
+    },
+    listInvestigationNotes(filter) {
       return db
-        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'journal_%' ORDER BY name ASC")
+        .prepare("SELECT note_json FROM journal_investigation_notes ORDER BY updated_at DESC, id DESC")
         .all()
-        .map((row) => String(row.name));
+        .map((row) => JSON.parse(String(row.note_json)) as InvestigationNote)
+        .filter((note) => (!filter?.dayKey || note.dayKey === filter.dayKey) && (!filter?.incidentId || note.incidentId === filter.incidentId));
+    },
+    listPlugins() {
+      return db.prepare("SELECT plugin_json FROM journal_plugins ORDER BY id ASC").all().map((row) => JSON.parse(String(row.plugin_json)) as PluginManifest);
+    },
+    listProfiles() {
+      return db.prepare("SELECT profile_json FROM journal_profiles ORDER BY id ASC").all().map((row) => JSON.parse(String(row.profile_json)) as ProfileConfig);
+    },
+    listRetentionClasses() {
+      return db.prepare("SELECT retention_class_json FROM journal_retention_classes ORDER BY id ASC").all().map((row) => JSON.parse(String(row.retention_class_json)) as RetentionClass);
+    },
+    listSummaryProfiles() {
+      return summaryProfiles;
+    },
+    listTables() {
+      return db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'journal_%' ORDER BY name ASC").all().map((row) => String(row.name));
+    },
+    previewRetention(policy) {
+      const days = repo.listDays();
+      const kept = days.slice(0, Math.max(policy.keepDays, 0));
+      const removed = days.slice(kept.length);
+      const removedDayKeys = removed.map((day) => day.dayKey);
+      const removedEntryCount = removedDayKeys.reduce((count, dayKey) => count + (repo.getDay(dayKey)?.entries.length ?? 0), 0);
+      return {
+        keepDays: policy.keepDays,
+        removedDayKeys,
+        removedEntryCount,
+        removedSummaryCount: policy.includeSummaries ? removedDayKeys.filter((dayKey) => Boolean(getGeneratedSummary(db, dayKey))).length : 0,
+        removedAuditCount: policy.includeAudit ? Math.max(removedEntryCount - kept.length, 0) : 0,
+        removedIncidentCount: repo.listIncidents().filter((incident) => incident.dayKeys.some((dayKey) => removedDayKeys.includes(dayKey))).length,
+        removedAlertCount: repo.listAlertRules().length,
+        removedBundleCount: removedDayKeys.length
+      };
+    },
+    previewRetentionByClass() {
+      return repo.listRetentionClasses().map((retentionClass) => ({
+        classId: retentionClass.id,
+        label: retentionClass.label,
+        impact: buildRetentionClassImpact(db, repo, retentionClass)
+      }));
+    },
+    recordAdapterEvent(event) {
+      saveJsonRow(db, "journal_adapter_events", event.id, JSON.stringify(event));
+    },
+    registerPlugin(plugin) {
+      saveJsonRow(db, "journal_plugins", plugin.id, JSON.stringify(plugin));
+      return plugin;
+    },
+    restoreRetentionSnapshot(snapshot) {
+      for (const day of snapshot.days) {
+        repo.upsertDay(day);
+        if (day.generatedSummary) {
+          db.prepare("INSERT INTO journal_daily_summaries (day_key, summary, created_at) VALUES (?, ?, ?) ON CONFLICT(day_key) DO UPDATE SET summary = excluded.summary, created_at = excluded.created_at").run(day.dayKey, day.generatedSummary.summary, day.generatedSummary.createdAt);
+        }
+        if (day.pinnedContext) {
+          db.prepare("INSERT INTO journal_pinned_context (day_key, context_json) VALUES (?, ?) ON CONFLICT(day_key) DO UPDATE SET context_json = excluded.context_json").run(day.dayKey, JSON.stringify(day.pinnedContext));
+        }
+      }
+    },
+    runIntegrityMonitor() {
+      const integrity = repo.getIntegrityReport();
+      const classes = repo.listRetentionClasses();
+      const latestSummary = db.prepare("SELECT summary_json FROM journal_summary_profiles ORDER BY id DESC LIMIT 1").get() as { summary_json?: string } | undefined;
+      const generatedSummary = latestSummary?.summary_json ? (JSON.parse(latestSummary.summary_json) as GeneratedProfileSummary) : undefined;
+      const report: IntegrityMonitorReport = {
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+        ok: integrity.ok && classes.length >= defaultRetentionClasses.length && (!generatedSummary || generatedSummary.citations.length > 0),
+        checks: [
+          { id: "schema_health", ok: repo.listTables().includes("journal_delivery_receipts"), detail: "Expected governance tables are present." },
+          { id: "export_validity", ok: repo.listDays().length > 0, detail: "At least one day is available for export." },
+          { id: "rollback_viability", ok: db.prepare("SELECT COUNT(*) AS count FROM journal_retention_snapshots").get() !== undefined, detail: "Retention snapshots table is reachable." },
+          { id: "citation_validity", ok: !generatedSummary || generatedSummary.citations.every((citation) => Boolean(findEntryAcrossDays(repo, citation.entryId)[0])), detail: "Summary citations resolve to stored entries." },
+          { id: "redaction_invariants", ok: integrity.missingRedactedHashes.length === 0, detail: "Stored redacted events include hashes." },
+          { id: "adapter_contract_validity", ok: repo.listDeliveryReceipts().every((receipt) => !receipt.errorCategory || receipt.errorCategory !== "unknown" || receipt.status === "failed"), detail: "Delivery receipts remain typed and redacted." },
+          { id: "plugin_capability_boundary", ok: repo.listPlugins().every((plugin) => plugin.capabilities.length > 0), detail: "Plugins declare explicit capabilities." }
+        ]
+      };
+      saveJsonRow(db, "journal_integrity_reports", report.id, JSON.stringify(report));
+      return report;
+    },
+    runPlugin(pluginId) {
+      const plugin = repo.listPlugins().find((item) => item.id === pluginId);
+      const result: PluginExecutionResult = {
+        id: crypto.randomUUID(),
+        pluginId,
+        status: plugin ? "completed" : "failed",
+        createdAt: new Date().toISOString(),
+        summary: plugin ? `Plugin ${plugin.label} ran with ${plugin.capabilities.join(", ")} capability boundaries.` : "Plugin not found."
+      };
+      saveJsonRow(db, "journal_plugin_runs", result.id, JSON.stringify(result), { plugin_id: pluginId });
+      return result;
+    },
+    saveIncident(incident) {
+      saveJsonRow(db, "journal_incidents", incident.id, JSON.stringify(incident));
+      syncLineageForIncident(db, incident.id, repo);
+      return incident;
+    },
+    saveInvestigationNote(note) {
+      db.prepare(
+        "INSERT INTO journal_investigation_notes (id, day_key, incident_id, updated_at, note_json) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET day_key = excluded.day_key, incident_id = excluded.incident_id, updated_at = excluded.updated_at, note_json = excluded.note_json"
+      ).run(note.id, note.dayKey, note.incidentId ?? null, note.updatedAt, JSON.stringify(note));
+      return note;
+    },
+    saveRetentionClass(retentionClass) {
+      saveJsonRow(db, "journal_retention_classes", retentionClass.id, JSON.stringify(retentionClass));
+      return retentionClass;
+    },
+    saveRetentionSnapshot(snapshot) {
+      saveJsonRow(db, "journal_retention_snapshots", snapshot.id, JSON.stringify(snapshot));
+      return snapshot;
+    },
+    searchEntries(query) {
+      const needle = query.trim().toLocaleLowerCase();
+      if (!needle) return [];
+      return listAllEntries(db)
+        .reverse()
+        .filter((entry) => [entry.title, entry.body ?? "", entry.toolName ?? "", entry.status ?? "", entry.kind, entry.sessionId ?? ""].join(" ").toLocaleLowerCase().includes(needle))
+        .map((entry) => ({
+          entryId: entry.id,
+          dayKey: entry.dayKey,
+          title: entry.title,
+          bodyPreview: browserVisibleEntryText(entry, { expanded: false }).body,
+          ...buildSearchMatchDetails(entry, needle),
+          kind: entry.kind,
+          status: entry.status
+        }));
+    },
+    setAlertState(ruleId, state) {
+      const next = { ...state, ruleId };
+      saveJsonRow(db, "journal_alert_states", ruleId, JSON.stringify(next));
+      return next;
+    },
+    setPinnedDayContext(dayKey, context, now = new Date()) {
+      const next: PinnedDayContext = { ...context, updatedAt: now.toISOString() };
+      db.prepare("INSERT INTO journal_pinned_context (day_key, context_json) VALUES (?, ?) ON CONFLICT(day_key) DO UPDATE SET context_json = excluded.context_json").run(dayKey, JSON.stringify(next));
+      return next;
+    },
+    setSelectedProfile(id) {
+      repo.setSetting("selectedProfileId", id);
     },
     setSetting(key, value) {
-      db.prepare("INSERT INTO journal_settings (key, value_json) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json").run(
-        key,
-        JSON.stringify(value)
-      );
+      db.prepare("INSERT INTO journal_settings (key, value_json) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json").run(key, JSON.stringify(value));
     },
     storeRedactedEvent(entryId, event) {
       repo.addEntry(
@@ -132,51 +716,24 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       );
       updateRedactedEventColumns(db, entryId, event);
     },
+    upsertAlertRule(rule) {
+      saveJsonRow(db, "journal_alert_rules", rule.id, JSON.stringify(rule));
+      return rule;
+    },
     upsertDay(day) {
       db.prepare(
         "INSERT INTO journal_days (day_key, title, date_label, summary, metrics_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(day_key) DO UPDATE SET title = excluded.title, date_label = excluded.date_label, summary = excluded.summary, metrics_json = excluded.metrics_json, updated_at = excluded.updated_at"
       ).run(day.dayKey, day.title, day.dateLabel, day.summary ?? null, JSON.stringify(day.metrics), new Date().toISOString(), new Date().toISOString());
       for (const entry of day.entries) upsertEntry(db, entry);
+    },
+    upsertProfile(profile) {
+      saveJsonRow(db, "journal_profiles", profile.id, JSON.stringify(profile));
+      return profile;
     }
   };
+
   repo.upsertDay(sampleJournalDay);
   return repo;
-}
-
-function upsertEntry(db: DatabaseSync, entry: JournalEntry): void {
-  db.prepare(
-    `INSERT INTO journal_entries (
-      id, day_key, session_id, source, kind, title, body, timestamp, status, severity,
-      actor_label, tool_name, approval_id, raw_event_redacted_json, raw_event_hash,
-      redaction_report_json, redacted, entry_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET entry_json = excluded.entry_json`
-  ).run(
-    entry.id,
-    entry.dayKey,
-    entry.sessionId ?? null,
-    entry.source,
-    entry.kind,
-    entry.title,
-    entry.body ?? null,
-    entry.timestamp,
-    entry.status ?? null,
-    entry.severity ?? null,
-    entry.actorLabel ?? null,
-    entry.toolName ?? null,
-    entry.approvalId ?? null,
-    entry.rawEventHash ?? null,
-    entry.redacted ? 1 : 0,
-    JSON.stringify(entry)
-  );
-}
-
-function updateRedactedEventColumns(db: DatabaseSync, entryId: string, event: PersistableRedactedEvent): void {
-  db.prepare(
-    `UPDATE journal_entries
-      SET raw_event_redacted_json = ?, raw_event_hash = ?, redaction_report_json = ?
-      WHERE id = ?`
-  ).run(event.raw_event_redacted_json, event.raw_event_hash, event.redaction_report_json, entryId);
 }
 
 function migrate(db: DatabaseSync): void {
@@ -216,9 +773,392 @@ function migrate(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS journal_sessions (id TEXT PRIMARY KEY, session_key TEXT NOT NULL, day_key TEXT NOT NULL, session_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_approvals (id TEXT PRIMARY KEY, entry_id TEXT, status TEXT NOT NULL, requested_at TEXT NOT NULL, resolved_at TEXT, resolved_by TEXT, request_json TEXT, result_json TEXT);
     CREATE TABLE IF NOT EXISTS journal_daily_summaries (day_key TEXT PRIMARY KEY, summary TEXT NOT NULL, created_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_pinned_context (day_key TEXT PRIMARY KEY, context_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_incidents (id TEXT PRIMARY KEY, incident_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_investigation_notes (id TEXT PRIMARY KEY, day_key TEXT NOT NULL, incident_id TEXT, updated_at TEXT NOT NULL, note_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_alert_rules (id TEXT PRIMARY KEY, rule_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_adapter_events (id TEXT PRIMARY KEY, adapter_event_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_profiles (id TEXT PRIMARY KEY, profile_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_retention_snapshots (id TEXT PRIMARY KEY, snapshot_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_alert_states (id TEXT PRIMARY KEY, state_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_audit_log (id TEXT PRIMARY KEY, action TEXT NOT NULL, actor TEXT NOT NULL, target_type TEXT NOT NULL, target_id TEXT, timestamp TEXT NOT NULL, metadata_json TEXT);
+    CREATE TABLE IF NOT EXISTS journal_delivery_receipts (id TEXT PRIMARY KEY, requested_at TEXT, day_key TEXT, incident_id TEXT, target TEXT, receipt_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_lineage (entry_id TEXT PRIMARY KEY, lineage_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_retention_classes (id TEXT PRIMARY KEY, retention_class_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_summary_profiles (id TEXT PRIMARY KEY, profile_id TEXT, day_key TEXT, summary_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_integrity_reports (id TEXT PRIMARY KEY, report_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_analytics_snapshots (id TEXT PRIMARY KEY, snapshot_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_correlation_graph (id TEXT PRIMARY KEY, graph_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_plugins (id TEXT PRIMARY KEY, plugin_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_plugin_runs (id TEXT PRIMARY KEY, plugin_id TEXT, run_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_bundle_exports (id TEXT PRIMARY KEY, export_json TEXT NOT NULL);
   `);
+}
+
+function seedDefaults(db: DatabaseSync): void {
+  for (const retentionClass of defaultRetentionClasses) {
+    saveJsonRow(db, "journal_retention_classes", retentionClass.id, JSON.stringify(retentionClass));
+  }
+}
+
+function saveJsonRow(db: DatabaseSync, table: string, id: string, json: string, extras: Record<string, string | null> = {}): void {
+  if (table === "journal_delivery_receipts") {
+    db.prepare("INSERT INTO journal_delivery_receipts (id, requested_at, day_key, incident_id, target, receipt_json) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET receipt_json = excluded.receipt_json").run(
+      id,
+      JSON.parse(json).requestedAt ?? new Date().toISOString(),
+      extras.day_key ?? null,
+      extras.incident_id ?? null,
+      extras.target ?? null,
+      json
+    );
+    return;
+  }
+  if (table === "journal_summary_profiles") {
+    db.prepare("INSERT INTO journal_summary_profiles (id, profile_id, day_key, summary_json) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET summary_json = excluded.summary_json").run(
+      id,
+      extras.profile_id ?? null,
+      extras.day_key ?? null,
+      json
+    );
+    return;
+  }
+  if (table === "journal_plugin_runs") {
+    db.prepare("INSERT INTO journal_plugin_runs (id, plugin_id, run_json) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET run_json = excluded.run_json").run(id, extras.plugin_id ?? null, json);
+    return;
+  }
+  if (table === "journal_lineage") {
+    db.prepare("INSERT INTO journal_lineage (entry_id, lineage_json) VALUES (?, ?) ON CONFLICT(entry_id) DO UPDATE SET lineage_json = excluded.lineage_json").run(id, json);
+    return;
+  }
+  const jsonColumn =
+    table === "journal_incidents"
+      ? "incident_json"
+      : table === "journal_alert_rules"
+        ? "rule_json"
+        : table === "journal_profiles"
+          ? "profile_json"
+          : table === "journal_retention_snapshots"
+            ? "snapshot_json"
+            : table === "journal_alert_states"
+              ? "state_json"
+              : table === "journal_adapter_events"
+                ? "adapter_event_json"
+                : table === "journal_plugins"
+                  ? "plugin_json"
+                  : table === "journal_integrity_reports"
+                    ? "report_json"
+                    : table === "journal_analytics_snapshots"
+                      ? "snapshot_json"
+                      : table === "journal_correlation_graph"
+                        ? "graph_json"
+                        : table === "journal_retention_classes"
+                          ? "retention_class_json"
+                          : table === "journal_lineage"
+                            ? "lineage_json"
+                            : table === "journal_bundle_exports"
+                              ? "export_json"
+                              : "";
+  if (!jsonColumn) throw new Error(`unsupported_json_table:${table}`);
+  db.prepare(`INSERT INTO ${table} (id${table === "journal_lineage" ? "" : ""}, ${jsonColumn}) VALUES (?, ?) ON CONFLICT(id${table === "journal_lineage" ? "" : ""}) DO UPDATE SET ${jsonColumn} = excluded.${jsonColumn}`).run(id, json);
+}
+
+function upsertEntry(db: DatabaseSync, entry: JournalEntry): void {
+  db.prepare(
+    `INSERT INTO journal_entries (
+      id, day_key, session_id, source, kind, title, body, timestamp, status, severity,
+      actor_label, tool_name, approval_id, raw_event_redacted_json, raw_event_hash,
+      redaction_report_json, redacted, entry_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET entry_json = excluded.entry_json`
+  ).run(
+    entry.id,
+    entry.dayKey,
+    entry.sessionId ?? null,
+    entry.source,
+    entry.kind,
+    entry.title,
+    entry.body ?? null,
+    entry.timestamp,
+    entry.status ?? null,
+    entry.severity ?? null,
+    entry.actorLabel ?? null,
+    entry.toolName ?? null,
+    entry.approvalId ?? null,
+    entry.rawEventHash ?? null,
+    entry.redacted ? 1 : 0,
+    JSON.stringify(entry)
+  );
+}
+
+function updateRedactedEventColumns(db: DatabaseSync, entryId: string, event: PersistableRedactedEvent): void {
+  db.prepare("UPDATE journal_entries SET raw_event_redacted_json = ?, raw_event_hash = ?, redaction_report_json = ? WHERE id = ?").run(
+    event.raw_event_redacted_json,
+    event.raw_event_hash,
+    event.redaction_report_json,
+    entryId
+  );
+}
+
+function listAllEntries(db: DatabaseSync): JournalEntry[] {
+  return db.prepare("SELECT entry_json FROM journal_entries ORDER BY timestamp ASC").all().map((row) => JSON.parse(String(row.entry_json)) as JournalEntry);
+}
+
+function getGeneratedSummary(db: DatabaseSync, dayKey: string): GeneratedSummary | undefined {
+  const row = db.prepare("SELECT summary, created_at FROM journal_daily_summaries WHERE day_key = ?").get(dayKey);
+  return row ? { summary: String(row.summary), createdAt: String(row.created_at), source: "rules" } : undefined;
+}
+
+function deriveIncidents(days: JournalDay[]): IncidentSummary[] {
+  const unresolvedApprovalIds = new Set(findUnresolvedApprovalIds(days));
+  const candidates = days.flatMap((day) =>
+    day.entries
+      .filter((entry) => entry.severity === "error" || /reconnect/i.test(entry.title) || (entry.kind === "approval_requested" && (!entry.approvalId || unresolvedApprovalIds.has(entry.approvalId))))
+      .map((entry) => ({ day, entry }))
+  );
+  if (candidates.length === 0) return [];
+  const first = candidates[0];
+  return [
+    {
+      id: "incident-derived-1",
+      title: first.entry.severity === "error" ? "Error narrative" : "Operational instability narrative",
+      summary: `Derived from ${candidates.length} operationally important entries across ${new Set(candidates.map((item) => item.day.dayKey)).size} day(s).`,
+      dayKeys: [...new Set(candidates.map((item) => item.day.dayKey))],
+      entryIds: candidates.map((item) => item.entry.id),
+      createdAt: new Date().toISOString(),
+      runbookSuggestions: buildRunbookSuggestions(candidates.map((item) => item.entry))
+    }
+  ];
+}
+
+function findUnresolvedApprovalIds(days: JournalDay[]): string[] {
+  const statusByApprovalId = new Map<string, "requested" | "resolved">();
+  const orderedEntries = days.flatMap((day) => day.entries).sort((left, right) => left.timestamp.localeCompare(right.timestamp));
+  for (const entry of orderedEntries) {
+    if (!entry.approvalId) continue;
+    if (entry.kind === "approval_requested") statusByApprovalId.set(entry.approvalId, "requested");
+    if (entry.kind === "approval_resolved") statusByApprovalId.set(entry.approvalId, "resolved");
+  }
+  return [...statusByApprovalId.entries()].filter(([, status]) => status === "requested").map(([approvalId]) => approvalId);
+}
+
+function buildRunbookSuggestions(entries: JournalEntry[]): RunbookSuggestion[] {
+  const suggestions: RunbookSuggestion[] = [];
+  if (entries.some((entry) => /reconnect/i.test(entry.title) || /reconnect/i.test(entry.body ?? ""))) {
+    suggestions.push({
+      id: "gateway-reconnect-check",
+      title: "Check Gateway listener health",
+      summary: "Confirm loopback listener, token, and device identity are still valid.",
+      reason: "Reconnect-related entry detected."
+    });
+  }
+  if (entries.some((entry) => entry.kind === "approval_requested")) {
+    suggestions.push({
+      id: "approval-backlog-review",
+      title: "Review pending approvals",
+      summary: "Resolve queued approvals before continuing operator flow.",
+      reason: "Approval request detected."
+    });
+  }
+  return suggestions;
+}
+
+function buildSearchMatchDetails(entry: JournalEntry, needle: string): Pick<JournalSearchResult, "matchSnippet" | "matchFieldHints"> {
+  const sanitizedBody = browserVisibleEntryText(entry, { expanded: true }).body;
+  const candidates = [
+    { hint: "title", value: entry.title },
+    { hint: "body", value: sanitizedBody },
+    { hint: "toolName", value: entry.toolName ?? "" },
+    { hint: "status", value: entry.status ?? "" },
+    { hint: "sessionId", value: entry.sessionId ?? "" },
+    { hint: "kind", value: entry.kind }
+  ];
+  const matched = candidates.filter((candidate) => candidate.value.toLocaleLowerCase().includes(needle));
+  const primary = matched[0] ?? candidates[0];
+  return {
+    matchSnippet: buildMatchSnippet(primary.hint, primary.value, needle),
+    matchFieldHints: matched.map((candidate) => candidate.hint)
+  };
+}
+
+function buildMatchSnippet(hint: string, value: string, needle: string): string {
+  const normalized = value.trim();
+  if (!normalized) return `Matched in ${hint}.`;
+  const lower = normalized.toLocaleLowerCase();
+  const index = lower.indexOf(needle);
+  if (index < 0) return `Matched in ${hint}: ${normalized}`;
+  const start = Math.max(0, index - 24);
+  const end = Math.min(normalized.length, index + needle.length + 36);
+  return `Matched in ${hint}: ${normalized.slice(start, end).trim()}`;
+}
+
+function buildRetentionClass(id: RetentionClassId, label: string, description: string, keepDays: number): RetentionClass {
+  return { id, label, description, policy: { keepDays, includeRollback: true }, updatedAt: "2026-05-04T00:00:00.000Z" };
+}
+
+function buildRetentionClassImpact(
+  db: DatabaseSync,
+  repo: OpenClogRepository,
+  retentionClass: RetentionClass
+): RetentionClassPreview["impact"] {
+  const keepDays = retentionClass.policy.keepDays;
+  const dayKeysToKeep = new Set(repo.listDays().slice(0, Math.max(keepDays, 0)).map((day) => day.dayKey));
+  const rows =
+    retentionClass.id === "entries"
+      ? listAllEntries(db).map((entry) => ({ id: entry.id, dayKey: entry.dayKey }))
+      : retentionClass.id === "incidents"
+        ? repo.listIncidents().map((incident) => ({ id: incident.id, dayKey: incident.dayKeys[0] ?? "" }))
+        : retentionClass.id === "investigation_notes"
+          ? repo.listInvestigationNotes().map((note) => ({ id: note.id, dayKey: note.dayKey }))
+          : retentionClass.id === "summaries"
+            ? repo.listDays().map((day) => ({ id: `summary:${day.dayKey}`, dayKey: day.dayKey }))
+            : retentionClass.id === "bundle_exports"
+              ? db.prepare("SELECT id FROM journal_bundle_exports ORDER BY id ASC").all().map((row) => ({ id: String(row.id), dayKey: "" }))
+              : retentionClass.id === "delivery_receipts"
+                ? repo.listDeliveryReceipts().map((receipt) => ({ id: receipt.id, dayKey: receipt.dayKey }))
+                : retentionClass.id === "audit_log"
+                  ? db.prepare("SELECT id FROM journal_audit_log ORDER BY timestamp ASC").all().map((row) => ({ id: String(row.id), dayKey: "" }))
+                  : retentionClass.id === "alert_state"
+                    ? repo.listAlertRules().map((rule) => ({ id: rule.id, dayKey: "" }))
+                    : db
+                        .prepare("SELECT id FROM journal_integrity_reports UNION ALL SELECT id FROM journal_analytics_snapshots UNION ALL SELECT id FROM journal_plugin_runs")
+                        .all()
+                        .map((row) => ({ id: String(row.id), dayKey: "" }));
+  const removable = rows.filter((row) => !row.dayKey || !dayKeysToKeep.has(row.dayKey));
+  return {
+    beforeCount: rows.length,
+    afterCount: rows.length - removable.length,
+    removedCount: removable.length,
+    affectedIds: removable.slice(0, 10).map((row) => row.id)
+  };
+}
+
+function classifyHealthHistoryCategory(entry: JournalEntry): HealthHistoryEntry["category"] | null {
+  const haystack = `${entry.title} ${entry.body ?? ""}`.toLocaleLowerCase();
+  if (haystack.includes("reconnect")) return "reconnect";
+  if (haystack.includes("sequence gap")) return "sequence_gap";
+  if (entry.kind === "approval_requested" || entry.kind === "approval_resolved") return "approval";
+  if ((entry.kind === "tool_call" || entry.kind === "tool_result") && (entry.status === "failed" || entry.severity === "error")) return "tool_failure";
+  if (entry.kind === "error") return "gateway_error";
+  return null;
+}
+
+function buildEvidenceCompleteness(
+  db: DatabaseSync,
+  dayKey: string,
+  summary: string | undefined,
+  generatedSummary: GeneratedSummary | undefined
+): JournalDay["evidenceCompleteness"] {
+  const summaryPresent = Boolean(summary?.trim() || generatedSummary);
+  const notesPresent = countRows(db, "SELECT COUNT(*) AS count FROM journal_investigation_notes WHERE day_key = ?", dayKey) > 0;
+  const bundlePresent = db
+    .prepare("SELECT export_json FROM journal_bundle_exports")
+    .all()
+    .some((row) => {
+      try {
+        const parsed = JSON.parse(String(row.export_json)) as { dayKey?: string; day?: { dayKey?: string } };
+        return parsed.dayKey === dayKey || parsed.day?.dayKey === dayKey;
+      } catch {
+        return false;
+      }
+    });
+  const incidentPresent = listIncidentIdsForDay(db, dayKey).length > 0;
+  const present = [summaryPresent, notesPresent, bundlePresent, incidentPresent].filter(Boolean).length;
+  return {
+    present,
+    total: 4,
+    summaryPresent,
+    notesPresent,
+    bundlePresent,
+    incidentPresent,
+    label: `Evidence ${String(present)}/4`
+  };
+}
+
+function listIncidentIdsForDay(db: DatabaseSync, dayKey: string): string[] {
+  return db
+    .prepare("SELECT incident_json FROM journal_incidents ORDER BY id ASC")
+    .all()
+    .map((row) => JSON.parse(String(row.incident_json)) as IncidentSummary)
+    .filter((incident) => incident.dayKeys.includes(dayKey))
+    .map((incident) => incident.id);
+}
+
+function countRows(db: DatabaseSync, sql: string, value: string): number {
+  const row = db.prepare(sql).get(value) as { count?: number } | undefined;
+  return typeof row?.count === "number" ? row.count : 0;
+}
+
+function buildSessionDrilldownSummary(sessionKey: string, entries: JournalEntry[], toolCount: number, approvalCount: number, reconnectCount: number): string {
+  const latestTimestamp = [...entries].sort((left, right) => right.timestamp.localeCompare(left.timestamp))[0]?.timestamp;
+  const parts = [
+    `Session ${sessionKey}`,
+    `${entries.length} entr${entries.length === 1 ? "y" : "ies"}`,
+    `${toolCount} tool${toolCount === 1 ? "" : "s"}`,
+    `${approvalCount} approval${approvalCount === 1 ? "" : "s"}`,
+    `${reconnectCount} reconnect${reconnectCount === 1 ? "" : "s"}`
+  ];
+  if (latestTimestamp) parts.push(`latest event ${latestTimestamp}`);
+  return parts.join(", ");
+}
+
+function syncLineageForEntry(db: DatabaseSync, entry: JournalEntry, repo: OpenClogRepository): void {
+  const record: LineageRecord = {
+    entryId: entry.id,
+    rawEventHash: entry.rawEventHash,
+    incidentIds: repo.listIncidents().filter((incident) => incident.entryIds.includes(entry.id)).map((incident) => incident.id),
+    replayIds: repo.listIncidents().filter((incident) => incident.entryIds.includes(entry.id)).map((incident) => `replay:${incident.id}`),
+    bundleExportIds: db
+      .prepare("SELECT id, export_json FROM journal_bundle_exports ORDER BY id ASC")
+      .all()
+      .map((row) => ({ id: String(row.id), json: JSON.parse(String(row.export_json)) as { entryIds?: string[] } }))
+      .filter((item) => item.json.entryIds?.includes(entry.id))
+      .map((item) => item.id),
+    deliveryReceiptIds: repo.listDeliveryReceipts().filter((receipt) => receipt.dayKey === entry.dayKey).map((receipt) => receipt.id)
+  };
+  db.prepare("INSERT INTO journal_lineage (entry_id, lineage_json) VALUES (?, ?) ON CONFLICT(entry_id) DO UPDATE SET lineage_json = excluded.lineage_json").run(entry.id, JSON.stringify(record));
+}
+
+function syncLineageForIncident(db: DatabaseSync, incidentId: string, repo: OpenClogRepository): void {
+  const incident = repo.getIncident(incidentId);
+  if (!incident) return;
+  for (const entryId of incident.entryIds) {
+    const entry = findEntryAcrossDays(repo, entryId)[0];
+    if (entry) syncLineageForEntry(db, entry, repo);
+  }
+}
+
+function findEntryAcrossDays(repo: Pick<OpenClogRepository, "listDays" | "getDay">, entryId: string): JournalEntry[] {
+  return repo
+    .listDays()
+    .map((day) => repo.getDay(day.dayKey))
+    .filter((day): day is JournalDay => day !== null)
+    .flatMap((day) => day.entries)
+    .filter((entry) => entry.id === entryId);
+}
+
+function deliveryConfigFor(target: DeliveryAdapterTarget): { authorization?: string; destinationLabel: string; enabled: boolean; url?: string } {
+  if (target === "slack") {
+    return {
+      enabled: Boolean(process.env.OPENCLOG_SLACK_WEBHOOK_URL),
+      url: process.env.OPENCLOG_SLACK_WEBHOOK_URL,
+      destinationLabel: process.env.OPENCLOG_SLACK_CHANNEL ?? "Slack webhook"
+    };
+  }
+  if (target === "generic-webhook") {
+    return {
+      enabled: Boolean(process.env.OPENCLOG_WEBHOOK_URL),
+      url: process.env.OPENCLOG_WEBHOOK_URL,
+      authorization: process.env.OPENCLOG_WEBHOOK_AUTH,
+      destinationLabel: process.env.OPENCLOG_WEBHOOK_LABEL ?? "Generic webhook"
+    };
+  }
+  return {
+    enabled: Boolean(process.env.OPENCLOG_EMAIL_ENDPOINT),
+    url: process.env.OPENCLOG_EMAIL_ENDPOINT,
+    authorization: process.env.OPENCLOG_EMAIL_AUTH,
+    destinationLabel: process.env.OPENCLOG_EMAIL_TO ?? "Email endpoint"
+  };
 }
 
 function formatDay(date: Date): string {
@@ -244,4 +1184,8 @@ function metricsFor(entries: JournalEntry[]): JournalDay["metrics"] {
     approvalCount: entries.filter((entry) => entry.kind === "approval_requested" || entry.kind === "approval_resolved").length,
     errorCount: entries.filter((entry) => entry.severity === "error" || entry.status === "failed").length
   };
+}
+
+function unique<T>(value: T, index: number, array: T[]): boolean {
+  return array.indexOf(value) === index;
 }

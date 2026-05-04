@@ -1,4 +1,38 @@
-import { themeIds, type AgentActivity, type ApprovalView, type JournalDay, type ThemeId } from "@openclog/core";
+import type {
+  AdapterEvent,
+  AgentActivity,
+  AnalyticsSnapshot,
+  CorrelationGraph,
+  DeliveryReceipt,
+  GeneratedProfileSummary,
+  HealthHistoryEntry,
+  IntegrityMonitorReport,
+  AlertFinding,
+  AlertRule,
+  CloseoutPlan,
+  LineageRecord,
+  MissionReplay,
+  GeneratedSummary,
+  IncidentSummary,
+  IncidentWorkspace,
+  InvestigationNote,
+  IntegrationPayload,
+  PluginExecutionResult,
+  PluginManifest,
+  IntegrityReport,
+  JournalDay,
+  JournalSearchResult,
+  PinnedDayContext,
+  ProfileConfig,
+  RetentionClass,
+  RetentionClassPreview,
+  ReplayBundleDiff,
+  ServiceHealthTimelineEntry,
+  SessionDrilldown,
+  SummaryProfile,
+  ThemeId
+} from "@openclog/core";
+import { themeIds } from "@openclog/core";
 
 export interface HealthResponse {
   ok: boolean;
@@ -6,12 +40,16 @@ export interface HealthResponse {
     connectionStatus?: "connected" | "connecting" | "disconnected";
     lastConnectedAt?: string;
     lastDisconnectedAt?: string;
+    lastErrorCategory?: string;
     lastErrorReason?: string;
+    lastLiveEventAt?: string;
+    lastSuccessfulSyncAt?: string;
     status: "ready" | "blocked" | "degraded";
     role: string;
     scopes: string[];
     missingScopes: string[];
     nextReconnectAt?: string;
+    reconnectCount?: number;
     reconnectAttempt?: number;
     serviceRecovery?: {
       enabled: boolean;
@@ -25,8 +63,18 @@ export interface HealthResponse {
   };
 }
 
+export interface VersionResponse {
+  version: string;
+  commitSha: string;
+  buildTimestamp: string;
+}
+
 export async function fetchHealth(): Promise<HealthResponse> {
   return fetchJson<HealthResponse>("/api/health");
+}
+
+export async function fetchVersion(): Promise<VersionResponse> {
+  return fetchJson<VersionResponse>("/api/version");
 }
 
 export async function fetchDays(): Promise<Array<Omit<JournalDay, "entries">>> {
@@ -39,20 +87,38 @@ export async function fetchDay(dayKey: string): Promise<JournalDay> {
   return result.day;
 }
 
-export async function fetchSettings(): Promise<{ showToolCalls: boolean; theme: string }> {
-  const result = await fetchJson<{ settings: { showToolCalls?: boolean; theme?: string } }>("/api/settings");
-  return { showToolCalls: result.settings.showToolCalls !== false, theme: result.settings.theme ?? "default" };
+export async function updateDayContext(dayKey: string, context: { note?: string; summary?: string }): Promise<PinnedDayContext> {
+  const response = await fetch(`/api/days/${encodeURIComponent(dayKey)}/context`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(context)
+  });
+  if (!response.ok) throw new Error("Day context update failed");
+  const result = (await response.json()) as { context: PinnedDayContext };
+  return result.context;
 }
 
-export async function updateSettings(settings: { showToolCalls?: boolean; theme?: string }): Promise<{ showToolCalls: boolean; theme: string }> {
+export async function generateSummary(dayKey: string): Promise<GeneratedSummary> {
+  const response = await fetch(`/api/days/${encodeURIComponent(dayKey)}/generate-summary`, { method: "POST" });
+  if (!response.ok) throw new Error("Summary generation failed");
+  const result = (await response.json()) as { generatedSummary: GeneratedSummary };
+  return result.generatedSummary;
+}
+
+export async function fetchSettings(): Promise<{ showToolCalls: boolean; theme: string; searchPresets: SearchPreset[] }> {
+  const result = await fetchJson<{ settings: { showToolCalls?: boolean; theme?: string; searchPresets?: SearchPreset[] } }>("/api/settings");
+  return { showToolCalls: result.settings.showToolCalls !== false, theme: result.settings.theme ?? "default", searchPresets: result.settings.searchPresets ?? [] };
+}
+
+export async function updateSettings(settings: Record<string, unknown>): Promise<Record<string, unknown>> {
   const response = await fetch("/api/settings", {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(settings)
   });
   if (!response.ok) throw new Error("Settings update failed");
-  const result = (await response.json()) as { settings?: { showToolCalls?: boolean; theme?: string } };
-  return { showToolCalls: result.settings?.showToolCalls !== false, theme: result.settings?.theme ?? "default" };
+  const result = (await response.json()) as { settings?: Record<string, unknown> };
+  return result.settings ?? {};
 }
 
 export async function fetchSessions(dayKey: string): Promise<AgentActivity[]> {
@@ -60,9 +126,22 @@ export async function fetchSessions(dayKey: string): Promise<AgentActivity[]> {
   return result.agents;
 }
 
+export async function fetchSessionDrilldown(sessionKey: string): Promise<SessionDrilldown> {
+  return fetchJson<SessionDrilldown>(`/api/sessions/${encodeURIComponent(sessionKey)}`);
+}
+
 export async function fetchApprovals(): Promise<ApprovalView[]> {
   const result = await fetchJson<{ approvals: ApprovalView[] }>("/api/approvals");
   return result.approvals;
+}
+
+export interface ApprovalView {
+  id: string;
+  title: string;
+  command: string;
+  status: string;
+  requestedAt?: string;
+  sessionKey?: string;
 }
 
 export async function resolveApproval(id: string, decision: "allow-once" | "deny"): Promise<void> {
@@ -89,6 +168,297 @@ export async function exportDay(dayKey: string, format: "markdown" | "html" = "m
   const response = await fetch(`/api/days/${encodeURIComponent(dayKey)}/export?format=${format}`);
   if (!response.ok) throw new Error("Export failed");
   return response.blob();
+}
+
+export interface BundleExport {
+  manifest: { dayKey: string; exportedAt: string; version: string };
+  day: JournalDay;
+  markdown: string;
+}
+
+export interface SearchPreset {
+  id: string;
+  label: string;
+  query: string;
+}
+
+export async function exportBundle(dayKey: string): Promise<BundleExport> {
+  return fetchJson(`/api/days/${encodeURIComponent(dayKey)}/export/bundle`);
+}
+
+export async function searchJournal(query: string, cursor?: string, limit = 20): Promise<{ query: string; results: JournalSearchResult[]; nextCursor?: string }> {
+  const params = new URLSearchParams({ q: query, limit: String(limit) });
+  if (cursor) params.set("cursor", cursor);
+  return fetchJson<{ query: string; results: JournalSearchResult[]; nextCursor?: string }>(`/api/search?${params.toString()}`);
+}
+
+export async function runIntegrityCheck(): Promise<IntegrityReport> {
+  const response = await fetch("/api/integrity-check", { method: "POST" });
+  if (!response.ok) throw new Error("Integrity check failed");
+  const result = (await response.json()) as { report: IntegrityReport };
+  return result.report;
+}
+
+export async function previewRetention(policy: { keepDays: number; includeAudit: boolean; includeRedactedEvents: boolean; includeSummaries: boolean }): Promise<{
+  keepDays: number;
+  removedDayKeys: string[];
+  removedEntryCount: number;
+  removedSummaryCount: number;
+  removedAuditCount: number;
+}> {
+  const response = await fetch("/api/retention/preview", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(policy)
+  });
+  if (!response.ok) throw new Error("Retention preview failed");
+  const result = (await response.json()) as {
+    preview: { keepDays: number; removedDayKeys: string[]; removedEntryCount: number; removedSummaryCount: number; removedAuditCount: number };
+  };
+  return result.preview;
+}
+
+export async function fetchIncidents(): Promise<IncidentSummary[]> {
+  const result = await fetchJson<{ incidents: IncidentSummary[] }>("/api/incidents");
+  return result.incidents;
+}
+
+export async function fetchIncidentWorkspace(id: string): Promise<IncidentWorkspace> {
+  const result = await fetchJson<{ ok: boolean; workspace: IncidentWorkspace }>(`/api/incidents/${encodeURIComponent(id)}/workspace`);
+  return result.workspace;
+}
+
+export async function createIncidentSnapshot(payload: { dayKey: string; entryIds: string[]; title?: string }): Promise<IncidentSummary> {
+  const response = await fetch("/api/incident-mode", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) throw new Error("Incident snapshot failed");
+  const result = (await response.json()) as { incident: IncidentSummary };
+  return result.incident;
+}
+
+export async function fetchInvestigationNotes(filter: { dayKey?: string; incidentId?: string } = {}): Promise<InvestigationNote[]> {
+  const params = new URLSearchParams();
+  if (filter.dayKey) params.set("dayKey", filter.dayKey);
+  if (filter.incidentId) params.set("incidentId", filter.incidentId);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const result = await fetchJson<{ notes: InvestigationNote[] }>(`/api/investigation-notes${suffix}`);
+  return result.notes;
+}
+
+export async function createInvestigationNote(payload: {
+  dayKey: string;
+  incidentId?: string;
+  sessionKey?: string;
+  body: string;
+  linkedEntryIds?: string[];
+  author?: string;
+}): Promise<InvestigationNote> {
+  const response = await fetch("/api/investigation-notes", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) throw new Error("Investigation note save failed");
+  const result = (await response.json()) as { note: InvestigationNote };
+  return result.note;
+}
+
+export async function fetchAlerts(): Promise<{ rules: AlertRule[]; findings: AlertFinding[] }> {
+  return fetchJson("/api/alerts");
+}
+
+export async function saveAlertRule(rule: Partial<AlertRule> & { id: string }): Promise<AlertRule> {
+  const response = await fetch(`/api/alerts/rules/${encodeURIComponent(rule.id)}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(rule)
+  });
+  if (!response.ok) throw new Error("Alert rule save failed");
+  const result = (await response.json()) as { rule: AlertRule };
+  return result.rule;
+}
+
+export async function fetchAdapterEvents(): Promise<AdapterEvent[]> {
+  const result = await fetchJson<{ events: AdapterEvent[] }>("/api/adapters/events");
+  return result.events;
+}
+
+export async function fetchHealthHistory(limit = 5): Promise<HealthHistoryEntry[]> {
+  const result = await fetchJson<{ history: HealthHistoryEntry[] }>(`/api/health/history?limit=${String(limit)}`);
+  return result.history;
+}
+
+export async function fetchHealthTimeline(limit = 10): Promise<ServiceHealthTimelineEntry[]> {
+  const result = await fetchJson<{ timeline: ServiceHealthTimelineEntry[] }>(`/api/health/timeline?limit=${String(limit)}`);
+  return result.timeline;
+}
+
+export async function fetchProfiles(): Promise<{ selectedProfileId: string; profiles: ProfileConfig[] }> {
+  return fetchJson("/api/profiles");
+}
+
+export async function createProfile(profile: ProfileConfig): Promise<ProfileConfig> {
+  const response = await fetch("/api/profiles", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(profile)
+  });
+  if (!response.ok) throw new Error("Profile create failed");
+  const result = (await response.json()) as { profile: ProfileConfig };
+  return result.profile;
+}
+
+export async function selectProfile(id: string): Promise<string> {
+  const response = await fetch(`/api/profiles/${encodeURIComponent(id)}/select`, { method: "PUT" });
+  if (!response.ok) throw new Error("Profile select failed");
+  const result = (await response.json()) as { selectedProfileId: string };
+  return result.selectedProfileId;
+}
+
+export async function buildIntegrationPayload(target: IntegrationPayload["target"], dayKey: string): Promise<IntegrationPayload> {
+  const response = await fetch(`/api/integrations/${encodeURIComponent(target)}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ dayKey })
+  });
+  if (!response.ok) throw new Error("Integration payload failed");
+  const result = (await response.json()) as { payload: IntegrationPayload };
+  return result.payload;
+}
+
+export async function deliverIntegration(target: "slack" | "generic-webhook" | "email", payload: { dayKey: string; incidentId?: string }): Promise<DeliveryReceipt> {
+  const response = await fetch(`/api/integrations/${encodeURIComponent(target)}/deliver`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) throw new Error("Integration delivery failed");
+  const result = (await response.json()) as { receipt: DeliveryReceipt };
+  return result.receipt;
+}
+
+export async function fetchDeliveryReceipts(): Promise<DeliveryReceipt[]> {
+  const result = await fetchJson<{ receipts: DeliveryReceipt[] }>("/api/integrations/receipts");
+  return result.receipts;
+}
+
+export async function diffReplayBundles(payload: { left: BundleExport; right: BundleExport }): Promise<ReplayBundleDiff> {
+  const response = await fetch("/api/replay-bundles/diff", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) throw new Error("Replay bundle diff failed");
+  const result = (await response.json()) as { diff: ReplayBundleDiff };
+  return result.diff;
+}
+
+export async function buildCloseoutPlan(payload: { dayKey: string; keepDays: number; exportTargets: string[] }): Promise<CloseoutPlan> {
+  const response = await fetch("/api/closeout/plan", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) throw new Error("Closeout plan failed");
+  const result = (await response.json()) as { plan: CloseoutPlan };
+  return result.plan;
+}
+
+export async function fetchRetentionClasses(): Promise<RetentionClass[]> {
+  const result = await fetchJson<{ classes: RetentionClass[] }>("/api/retention/classes");
+  return result.classes;
+}
+
+export async function saveRetentionClass(id: RetentionClass["id"], payload: { keepDays: number; includeRollback?: boolean }): Promise<RetentionClass> {
+  const response = await fetch(`/api/retention/classes/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) throw new Error("Retention class save failed");
+  const result = (await response.json()) as { retentionClass: RetentionClass };
+  return result.retentionClass;
+}
+
+export async function previewRetentionByClass(): Promise<RetentionClassPreview[]> {
+  const response = await fetch("/api/retention/preview-by-class", { method: "POST" });
+  if (!response.ok) throw new Error("Retention by class preview failed");
+  const result = (await response.json()) as { previews: RetentionClassPreview[] };
+  return result.previews;
+}
+
+export async function fetchLineage(entryId: string): Promise<LineageRecord> {
+  const result = await fetchJson<{ lineage: LineageRecord }>(`/api/lineage/${encodeURIComponent(entryId)}`);
+  return result.lineage;
+}
+
+export async function fetchSummaryProfiles(): Promise<SummaryProfile[]> {
+  const result = await fetchJson<{ profiles: SummaryProfile[] }>("/api/summaries/profiles");
+  return result.profiles;
+}
+
+export async function generateSummaryProfile(profileId: SummaryProfile["id"], dayKey: string): Promise<GeneratedProfileSummary> {
+  const response = await fetch(`/api/summaries/profiles/${encodeURIComponent(profileId)}/generate`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ dayKey })
+  });
+  if (!response.ok) throw new Error("Summary profile generation failed");
+  const result = (await response.json()) as { summary: GeneratedProfileSummary };
+  return result.summary;
+}
+
+export async function runIntegrityMonitor(): Promise<IntegrityMonitorReport> {
+  const response = await fetch("/api/integrity-monitor/run", { method: "POST" });
+  if (!response.ok) throw new Error("Integrity monitor failed");
+  const result = (await response.json()) as { report: IntegrityMonitorReport };
+  return result.report;
+}
+
+export async function fetchIntegrityReports(): Promise<IntegrityMonitorReport[]> {
+  const result = await fetchJson<{ reports: IntegrityMonitorReport[] }>("/api/integrity-monitor/reports");
+  return result.reports;
+}
+
+export async function fetchAnalytics(): Promise<AnalyticsSnapshot> {
+  const result = await fetchJson<{ analytics: AnalyticsSnapshot }>("/api/analytics");
+  return result.analytics;
+}
+
+export async function fetchReplay(incidentId: string): Promise<MissionReplay> {
+  const result = await fetchJson<{ replay: MissionReplay }>(`/api/replay/${encodeURIComponent(incidentId)}`);
+  return result.replay;
+}
+
+export async function fetchCorrelation(incidentId: string): Promise<CorrelationGraph> {
+  const result = await fetchJson<{ graph: CorrelationGraph }>(`/api/correlation/${encodeURIComponent(incidentId)}`);
+  return result.graph;
+}
+
+export async function fetchPlugins(): Promise<PluginManifest[]> {
+  const result = await fetchJson<{ plugins: PluginManifest[] }>("/api/plugins");
+  return result.plugins;
+}
+
+export async function registerPlugin(plugin: PluginManifest): Promise<PluginManifest> {
+  const response = await fetch("/api/plugins/register", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(plugin)
+  });
+  if (!response.ok) throw new Error("Plugin registration failed");
+  const result = (await response.json()) as { plugin: PluginManifest };
+  return result.plugin;
+}
+
+export async function runPlugin(pluginId: string): Promise<PluginExecutionResult> {
+  const response = await fetch(`/api/plugins/${encodeURIComponent(pluginId)}/run`, { method: "POST" });
+  if (!response.ok) throw new Error("Plugin run failed");
+  const result = (await response.json()) as { result: PluginExecutionResult };
+  return result.result;
 }
 
 export const selectableThemeIds: ThemeId[] = [...themeIds];

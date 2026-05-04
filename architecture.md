@@ -82,3 +82,34 @@ Track OpenClog architecture, component ownership, and authority boundaries.
 - `GatewayPort.getState()` returns a safe runtime state used by `/api/health`; `close()` lets the API shut down timers and sockets cleanly.
 - Reconnect owns reauthentication and subscription replay; repository and UI layers continue to consume normalized public events and health state.
 - Service recovery is isolated behind an injectable backend restart function so tests use a fake restart and production uses the local LaunchAgent path only after guarded thresholds.
+
+## 2026-05-04 Phase 1 Quick Wins Hardening
+- Completed the current operator-surface Quick Wins in the existing API/web stack instead of broadening into the native pivot prematurely.
+- Added a small frontend state boundary in [`apps/web/src/state/operator-workspace.ts`](/Users/m4/OpenClog/apps/web/src/state/operator-workspace.ts) for pinned-summary validation, summary staleness, Gateway URL safety classification, reconnect trend text, retention preview formatting, and empty-state copy.
+- Route state now owns URL-persisted search query alongside the existing day/filter view state so investigative views can be shared exactly.
+- `/api/health.gateway` now exposes explicit freshness metadata through `lastSuccessfulSyncAt`, while reconnect count and recovery state remain backend-authored instead of browser-derived.
+- The diagnostics/profile surfaces now show Gateway URL authority and loopback/LAN/remote safety classification as explicit view-model data rather than implicit operator knowledge.
+- The journal day model is now carrying advanced-operator data directly: pinned context, generated summary, retention metadata, incidents, alerts, adapter events, integration payloads, and bundle export helpers.
+- The Phase 1 refactor stayed additive: no native host was introduced yet, and the Fastify API remains the compatibility façade over the current local SQLite domain.
+
+## 2026-05-04 Phase 2 Domain And Lifecycle Tranche
+- Added a new shared application package at [`/Users/m4/OpenClog/packages/app/src/index.ts`](/Users/m4/OpenClog/packages/app/src/index.ts) so pagination, retention lifecycle, alert state lifecycle, integration payload routing, and replay-bundle inspection are no longer owned directly by Fastify handlers.
+- The API now consumes that application layer for paginated search, paginated session drilldowns, retention apply/rollback, alert acknowledgement/snooze, expanded integration targets, and replay bundle inspection.
+- Repository persistence grew new lifecycle tables for retention snapshots and alert state so rollback and operator acknowledgement/snooze survive beyond in-memory request handling.
+- This tranche still stops short of the native host pivot: the current web/API stack remains the product surface, but it now sits on a clearer domain seam that the future native client can call into.
+
+## 2026-05-04 Ladder 1 Investigation Acceleration Slice
+- Search remains application-layer paginated, but the public contract now carries operator-facing match metadata: sanitized snippets and field hints travel from repository search through `@openclog/app` into the web workbench.
+- Gateway health remains backend-authored, while short-form operational history is now repo-derived from persisted public events instead of inferred in the browser.
+- Session drilldown, bundle preview, summary freshness, and search presets are all additive workbench capabilities on top of the existing API/web shell; no browser-visible secret, raw Gateway frame, or direct Gateway browser connection path was introduced.
+
+## 2026-05-04 Ladder 2 Incident Workspace Slice
+- The application seam now owns more than pagination and retention: `@openclog/app` assembles incident workspaces from persisted incidents, journal days, alert findings, and investigation notes, and it computes replay-bundle diffs plus closeout plans from bounded evidence inputs.
+- SQLite persistence now includes a first-class investigation-note store keyed by day and optional incident id, which keeps operator-authored notes separate from pinned day context and rule-generated summaries.
+- The web workbench now treats incident review as a composed surface instead of three disconnected buttons: incident selection, workspace summary, operator notes, bundle comparison, and closeout planning all consume explicit API contracts rather than ad hoc frontend joins.
+
+## 2026-05-04 Full Improvement Tranche Closeout
+- `JournalDay` now carries optional evidence-completeness metadata so archive rows can show the same operator-quality signal whether they come from fixtures or SQLite-backed API responses.
+- The repository composes per-day completeness from persisted summary, investigation notes, bundle exports, and incidents; UI code renders the result as view-model data instead of re-counting tables in the browser.
+- Replay-bundle diffs now include a first-class change class from `@openclog/app`, keeping narrative/metadata/evidence-shape triage close to the shared application boundary.
+- Workbench interaction helpers continue moving into `apps/web/src/state/operator-workspace.ts`, with React owning orchestration and focus rather than policy decisions.

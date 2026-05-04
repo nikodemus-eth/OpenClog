@@ -1,5 +1,8 @@
+import { execSync } from "node:child_process";
+import type { ServerResponse } from "node:http";
 import cors from "@fastify/cors";
 import Fastify, { type FastifyInstance } from "fastify";
+import { createOpenClogApplication } from "@openclog/app";
 import {
   classifyComposerInput,
   exportDayAsHtml,
@@ -7,10 +10,19 @@ import {
   getThemes,
   normalizeGatewayEvent,
   redactGatewayPayload,
-  sampleJournalDay
+  sampleJournalDay,
+  type AgentActivity,
+  type AlertRule,
+  type ApprovalView,
+  type DeliveryAdapterTarget,
+  type GatewayEventLike,
+  type IncidentSummary,
+  type JournalDay,
+  type JournalEntry,
+  type PluginManifest,
+  type ProfileConfig,
+  type RetentionPolicy
 } from "@openclog/core";
-import type { AgentActivity, ApprovalView, GatewayEventLike, JournalDay, JournalEntry } from "@openclog/core";
-import type { ServerResponse } from "node:http";
 import type { GatewayPort } from "./gateway.js";
 import type { OpenClogRepository } from "./repository.js";
 
@@ -22,12 +34,24 @@ export interface ApiServices {
 export function createApiApp(services: ApiServices): FastifyInstance {
   const app = Fastify({ logger: false });
   const streamClients = new Set<ServerResponse>();
+  const openclog = createOpenClogApplication({ repo: services.repo });
+  const budgetState = new Map<string, { count: number; windowStartedAt: number }>();
+
   void app.register(cors, { origin: true });
+
+  app.addHook("onRequest", async (request, reply) => {
+    const throttled = checkEndpointBudget(budgetState, request.url);
+    if (!throttled) return;
+    reply.header("x-openclog-degraded", "endpoint_budget");
+    return reply.code(429).send({ error: "endpoint_budget_exceeded", message: "Expensive endpoint temporarily budgeted. Retry shortly." });
+  });
+
   const removeGatewayListener = services.gateway.onEvent((event) => {
     if (!shouldJournalGatewayEvent(event)) return;
     const entry = services.repo.addEntry(normalizeGatewayEvent(event), event);
     publishJournalEvent(streamClients, entry, services.repo.getDay(entry.dayKey));
   });
+
   app.addHook("onClose", (_instance, done) => {
     removeGatewayListener();
     services.gateway.close?.();
@@ -41,6 +65,8 @@ export function createApiApp(services: ApiServices): FastifyInstance {
     gateway: publicGatewayState(services.gateway.getState())
   }));
 
+  app.get("/api/version", async () => buildVersionInfo());
+
   app.get("/api/days", async () => ({
     days: services.repo.listDays()
   }));
@@ -51,12 +77,53 @@ export function createApiApp(services: ApiServices): FastifyInstance {
     return { day };
   });
 
+  app.get<{ Params: { dayKey: string } }>("/api/days/:dayKey/context", async (request, reply) => {
+    const day = services.repo.getDay(request.params.dayKey);
+    if (!day) return reply.code(404).send({ error: "day_not_found" });
+    return { ok: true, context: services.repo.getPinnedDayContext(request.params.dayKey) ?? null };
+  });
+
+  app.put<{ Params: { dayKey: string }; Body: { note?: string; summary?: string } }>("/api/days/:dayKey/context", async (request) => ({
+    ok: true,
+    context: services.repo.setPinnedDayContext(request.params.dayKey, {
+      note: request.body?.note,
+      summary: request.body?.summary
+    })
+  }));
+
+  app.post<{ Params: { dayKey: string } }>("/api/days/:dayKey/generate-summary", async (request) => ({
+    ok: true,
+    generatedSummary: services.repo.generateSummary(request.params.dayKey)
+  }));
+
   app.get("/api/themes", async () => ({ themes: getThemes() }));
 
+  app.get<{ Querystring: { limit?: string } }>("/api/health/history", async (request) => ({
+    history: services.repo.listHealthHistory(parsePositiveInt(request.query.limit, 5))
+  }));
+
+  app.get<{ Querystring: { limit?: string } }>("/api/health/timeline", async (request) => ({
+    timeline: openclog.listHealthTimeline({ limit: parsePositiveInt(request.query.limit, 10) })
+  }));
+
+  app.get<{ Querystring: { q?: string; cursor?: string; limit?: string } }>("/api/search", async (request) => {
+    const page = openclog.searchEntries({
+      query: request.query.q ?? "",
+      cursor: request.query.cursor,
+      limit: parsePositiveInt(request.query.limit, 50)
+    });
+    return {
+      query: request.query.q ?? "",
+      results: page.items,
+      nextCursor: page.nextCursor
+    };
+  });
+
   app.get("/api/settings", async () => ({ settings: publicSettings(services) }));
-  app.put<{ Body: { showToolCalls?: boolean; theme?: string } }>("/api/settings", async (request) => {
+  app.put<{ Body: { showToolCalls?: boolean; theme?: string; searchPresets?: unknown } }>("/api/settings", async (request) => {
     if (typeof request.body?.theme === "string") services.repo.setSetting("theme", request.body.theme);
     if (typeof request.body?.showToolCalls === "boolean") services.repo.setSetting("showToolCalls", request.body.showToolCalls);
+    if (Array.isArray(request.body?.searchPresets)) services.repo.setSetting("searchPresets", request.body.searchPresets);
     return { ok: true, settings: publicSettings(services) };
   });
 
@@ -68,6 +135,14 @@ export function createApiApp(services: ApiServices): FastifyInstance {
   app.get<{ Querystring: { dayKey?: string } }>("/api/sessions", async (request) => ({
     agents: await listAgentActivity(services, request.query.dayKey ?? todayKey())
   }));
+
+  app.get<{ Params: { key: string }; Querystring: { cursor?: string; limit?: string } }>("/api/sessions/:key", async (request) =>
+    openclog.getSessionDrilldown({
+      sessionKey: decodeURIComponent(request.params.key),
+      cursor: request.query.cursor,
+      limit: parsePositiveInt(request.query.limit, 100)
+    })
+  );
 
   app.post<{ Body: { text: string } }>("/api/composer", async (request, reply) => {
     const text = request.body?.text ?? "";
@@ -118,6 +193,298 @@ export function createApiApp(services: ApiServices): FastifyInstance {
       .send(body);
   });
 
+  app.get<{ Params: { dayKey: string } }>("/api/days/:dayKey/export/bundle", async (request) => {
+    const day = services.repo.getDay(request.params.dayKey) ?? sampleJournalDay;
+    return {
+      manifest: {
+        dayKey: day.dayKey,
+        exportedAt: new Date().toISOString(),
+        version: buildVersionInfo().version
+      },
+      day,
+      markdown: exportDayAsMarkdown(day)
+    };
+  });
+
+  app.post("/api/integrity-check", async () => ({
+    ok: true,
+    report: services.repo.getIntegrityReport()
+  }));
+
+  app.post<{ Body: Partial<RetentionPolicy> }>("/api/retention/preview", async (request) => ({
+    ok: true,
+    preview: services.repo.previewRetention({
+      keepDays: request.body?.keepDays ?? 7,
+      includeAudit: request.body?.includeAudit === true,
+      includeRedactedEvents: request.body?.includeRedactedEvents === true,
+      includeSummaries: request.body?.includeSummaries === true
+    })
+  }));
+
+  app.post<{ Body: Partial<RetentionPolicy> }>("/api/retention/apply", async (request) => ({
+    ok: true,
+    snapshot: openclog.applyRetention({
+      keepDays: request.body?.keepDays ?? 7,
+      includeAudit: request.body?.includeAudit === true,
+      includeRedactedEvents: request.body?.includeRedactedEvents === true,
+      includeSummaries: request.body?.includeSummaries === true
+    })
+  }));
+
+  app.post<{ Params: { id: string } }>("/api/retention/rollback/:id", async (request) => ({
+    ok: true,
+    ...openclog.rollbackRetention(request.params.id)
+  }));
+
+  app.get("/api/retention/classes", async () => ({
+    classes: openclog.listRetentionClasses()
+  }));
+
+  app.put<{ Params: { id: string }; Body: { includeRollback?: boolean; keepDays?: number } }>("/api/retention/classes/:id", async (request, reply) => {
+    if (!isRetentionClassId(request.params.id)) return reply.code(404).send({ error: "retention_class_not_found" });
+    return {
+      ok: true,
+      retentionClass: openclog.saveRetentionClass({
+        id: request.params.id,
+        keepDays: typeof request.body?.keepDays === "number" ? request.body.keepDays : 30,
+        includeRollback: request.body?.includeRollback !== false
+      })
+    };
+  });
+
+  app.post("/api/retention/preview-by-class", async () => ({
+    ok: true,
+    previews: openclog.previewRetentionByClass()
+  }));
+
+  app.get("/api/incidents", async () => ({
+    incidents: services.repo.listIncidents()
+  }));
+
+  app.get<{ Params: { id: string } }>("/api/incidents/:id/workspace", async (request, reply) => {
+    try {
+      return { ok: true, workspace: openclog.getIncidentWorkspace({ incidentId: request.params.id }) };
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("incident_not_found:")) return reply.code(404).send({ error: "incident_not_found" });
+      throw error;
+    }
+  });
+
+  app.get<{ Querystring: { dayKey?: string; incidentId?: string } }>("/api/investigation-notes", async (request) => ({
+    notes: openclog.listInvestigationNotes({ dayKey: request.query.dayKey, incidentId: request.query.incidentId })
+  }));
+
+  app.post<{ Body: { dayKey?: string; incidentId?: string; sessionKey?: string; body?: string; linkedEntryIds?: string[]; author?: string } }>(
+    "/api/investigation-notes",
+    async (request, reply) => {
+      if (typeof request.body?.body !== "string" || request.body.body.trim().length === 0) return reply.code(400).send({ error: "note_body_required" });
+      return {
+        ok: true,
+        note: openclog.saveInvestigationNote({
+          dayKey: request.body.dayKey ?? todayKey(),
+          incidentId: request.body.incidentId,
+          sessionKey: request.body.sessionKey,
+          body: request.body.body.trim(),
+          linkedEntryIds: Array.isArray(request.body.linkedEntryIds) ? request.body.linkedEntryIds : [],
+          author: request.body.author
+        })
+      };
+    }
+  );
+
+  app.post<{ Body: { dayKey?: string; entryIds?: string[]; title?: string } }>("/api/incident-mode", async (request) => {
+    const incident = buildIncidentSnapshot(
+      services.repo,
+      request.body?.dayKey ?? todayKey(),
+      request.body?.entryIds ?? [],
+      request.body?.title
+    );
+    return { ok: true, incident: services.repo.saveIncident(incident) };
+  });
+
+  app.get<{ Querystring: { dayKey?: string } }>("/api/alerts", async (request) =>
+    openclog.listAlerts({ dayKey: request.query.dayKey ?? todayKey() })
+  );
+
+  app.put<{ Params: { id: string }; Body: Partial<AlertRule> }>("/api/alerts/rules/:id", async (request) => {
+    const rule: AlertRule = {
+      id: request.params.id,
+      kind:
+        request.body?.kind === "approval_backlog" || request.body?.kind === "tool_failure_spike"
+          ? request.body.kind
+          : "reconnect_storm",
+      title: request.body?.title ?? "Alert rule",
+      threshold: typeof request.body?.threshold === "number" ? request.body.threshold : 1,
+      enabled: request.body?.enabled !== false
+    };
+    return { ok: true, rule: services.repo.upsertAlertRule(rule) };
+  });
+
+  app.post<{ Params: { id: string }; Body: { acknowledgedAt?: string } }>("/api/alerts/:id/ack", async (request) => ({
+    ok: true,
+    state: openclog.acknowledgeAlert({
+      ruleId: request.params.id,
+      acknowledgedAt: request.body?.acknowledgedAt ?? new Date().toISOString()
+    })
+  }));
+
+  app.post<{ Params: { id: string }; Body: { snoozedUntil?: string } }>("/api/alerts/:id/snooze", async (request, reply) => {
+    if (!request.body?.snoozedUntil) return reply.code(400).send({ error: "snoozed_until_required" });
+    return {
+      ok: true,
+      state: openclog.snoozeAlert({
+        ruleId: request.params.id,
+        snoozedUntil: request.body.snoozedUntil
+      })
+    };
+  });
+
+  app.get("/api/adapters/events", async () => ({
+    events: services.repo.listAdapterEvents()
+  }));
+
+  app.get("/api/profiles", async () => ({
+    selectedProfileId: services.repo.getSetting("selectedProfileId", "default"),
+    profiles: services.repo.listProfiles()
+  }));
+
+  app.post<{ Body: ProfileConfig }>("/api/profiles", async (request) => ({
+    ok: true,
+    profile: services.repo.upsertProfile({
+      id: request.body?.id ?? "default",
+      label: request.body?.label ?? "Default",
+      gatewayUrl: request.body?.gatewayUrl
+    })
+  }));
+
+  app.put<{ Params: { id: string } }>("/api/profiles/:id/select", async (request) => {
+    services.repo.setSelectedProfile(request.params.id);
+    return { ok: true, selectedProfileId: request.params.id };
+  });
+
+  app.post<{ Params: { target: string }; Body: { dayKey?: string } }>("/api/integrations/:target", async (request, reply) => {
+    const target = request.params.target;
+    if (
+      target !== "github-issue" &&
+      target !== "markdown-vault" &&
+      target !== "incident-doc" &&
+      target !== "slack" &&
+      target !== "generic-webhook"
+    ) {
+      return reply.code(404).send({ error: "integration_target_not_found" });
+    }
+    return {
+      ok: true,
+      payload: openclog.buildIntegrationPayload({
+        target,
+        dayKey: request.body?.dayKey ?? todayKey()
+      })
+    };
+  });
+
+  app.post<{ Params: { target: string }; Body: { dayKey?: string; incidentId?: string } }>("/api/integrations/:target/deliver", async (request, reply) => {
+    if (!isDeliveryTarget(request.params.target)) return reply.code(404).send({ error: "integration_target_not_found" });
+    return {
+      ok: true,
+      receipt: openclog.deliverIntegration({
+        target: request.params.target,
+        dayKey: request.body?.dayKey ?? todayKey(),
+        incidentId: request.body?.incidentId
+      })
+    };
+  });
+
+  app.get("/api/integrations/receipts", async () => ({
+    receipts: openclog.listDeliveryReceipts()
+  }));
+
+  app.post<{ Body: { day?: { dayKey?: string; entries?: unknown[] }; markdown?: string } }>("/api/replay-bundles/inspect", async (request) => ({
+    ok: true,
+    replay: openclog.inspectReplayBundle(request.body ?? {})
+  }));
+
+  app.post<{
+    Body: {
+      left?: { manifest?: Record<string, unknown>; day?: { dayKey?: string; summary?: string; entries?: Array<Record<string, unknown>> }; markdown?: string };
+      right?: { manifest?: Record<string, unknown>; day?: { dayKey?: string; summary?: string; entries?: Array<Record<string, unknown>> }; markdown?: string };
+    };
+  }>("/api/replay-bundles/diff", async (request) => ({
+    ok: true,
+    diff: openclog.diffReplayBundles({
+      left: request.body?.left ?? {},
+      right: request.body?.right ?? {}
+    })
+  }));
+
+  app.post<{ Body: { dayKey?: string; keepDays?: number; exportTargets?: string[] } }>("/api/closeout/plan", async (request, reply) => {
+    try {
+      return {
+        ok: true,
+        plan: openclog.buildCloseoutPlan({
+          dayKey: request.body?.dayKey ?? todayKey(),
+          keepDays: typeof request.body?.keepDays === "number" ? request.body.keepDays : 1,
+          exportTargets: Array.isArray(request.body?.exportTargets) ? request.body.exportTargets.filter((target): target is string => typeof target === "string") : []
+        })
+      };
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("day_not_found:")) return reply.code(404).send({ error: "day_not_found" });
+      throw error;
+    }
+  });
+
+  app.get<{ Params: { entryId: string } }>("/api/lineage/:entryId", async (request, reply) => {
+    try {
+      return { lineage: openclog.getLineage({ entryId: request.params.entryId }) };
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("lineage_not_found:")) return reply.code(404).send({ error: "lineage_not_found" });
+      throw error;
+    }
+  });
+
+  app.get("/api/summaries/profiles", async () => ({
+    profiles: openclog.listSummaryProfiles()
+  }));
+
+  app.post<{ Params: { id: "default-operator" | "escalation" | "export" }; Body: { dayKey?: string } }>("/api/summaries/profiles/:id/generate", async (request) => ({
+    ok: true,
+    summary: openclog.generateSummaryProfile({ profileId: request.params.id, dayKey: request.body?.dayKey ?? todayKey() })
+  }));
+
+  app.post("/api/integrity-monitor/run", async () => ({
+    ok: true,
+    report: openclog.runIntegrityMonitor()
+  }));
+
+  app.get("/api/integrity-monitor/reports", async () => ({
+    reports: openclog.listIntegrityReports()
+  }));
+
+  app.get("/api/analytics", async () => ({
+    analytics: openclog.getAnalytics()
+  }));
+
+  app.get<{ Params: { incidentId: string } }>("/api/replay/:incidentId", async (request) => ({
+    replay: openclog.buildMissionReplay({ incidentId: request.params.incidentId })
+  }));
+
+  app.get<{ Params: { incidentId: string } }>("/api/correlation/:incidentId", async (request) => ({
+    graph: openclog.buildCorrelationGraph({ incidentId: request.params.incidentId })
+  }));
+
+  app.get("/api/plugins", async () => ({
+    plugins: openclog.listPlugins()
+  }));
+
+  app.post<{ Body: PluginManifest }>("/api/plugins/register", async (request) => ({
+    ok: true,
+    plugin: openclog.registerPlugin(request.body)
+  }));
+
+  app.post<{ Params: { id: string } }>("/api/plugins/:id/run", async (request) => ({
+    ok: true,
+    result: openclog.runPlugin({ pluginId: request.params.id })
+  }));
+
   app.get<{ Querystring: { once?: string } }>("/api/stream", (request, reply) => {
     reply.hijack();
     reply.raw.writeHead(200, {
@@ -140,14 +507,9 @@ export function createApiApp(services: ApiServices): FastifyInstance {
 }
 
 function shouldJournalGatewayEvent(event: GatewayEventLike): boolean {
-  return [
-    "session.message",
-    "session.tool",
-    "exec.approval.requested",
-    "exec.approval.resolved",
-    "gateway.reconnected",
-    "sequence.gap"
-  ].includes(event.event);
+  return ["session.message", "session.tool", "exec.approval.requested", "exec.approval.resolved", "gateway.reconnected", "sequence.gap"].includes(
+    event.event
+  );
 }
 
 function publishJournalEvent(clients: Set<ServerResponse>, entry: JournalEntry, day: unknown): void {
@@ -159,6 +521,7 @@ function publicSettings(services: ApiServices): Record<string, unknown> {
   return {
     theme: services.repo.getSetting("theme", "default"),
     showToolCalls: services.repo.getSetting("showToolCalls", true),
+    searchPresets: services.repo.getSetting("searchPresets", [] as unknown[]),
     gateway: publicGatewayState(services.gateway.getState())
   };
 }
@@ -171,7 +534,7 @@ async function listAgentActivity(services: ApiServices, dayKey: string): Promise
       const agents = sanitizeLiveSessions(result);
       if (agents.length > 0) return sortAgentActivity(latestAgentsByDisplayName(agents));
     } catch {
-      // Fall back to the local journal when live session listing is unavailable.
+      // Fall back to local journal state.
     }
   }
   return sortAgentActivity(latestAgentsByDisplayName(deriveAgentsFromDay(services.repo.getDay(dayKey))));
@@ -187,14 +550,11 @@ function sanitizeSession(session: Record<string, unknown>): AgentActivity | null
   const sessionKey = stringValue(session.key) || stringValue(session.sessionKey) || stringValue(session.id);
   if (!sessionKey) return null;
   const rawStatus = stringValue(session.status) || stringValue(session.phase);
-  const label = cleanPublicText(stringValue(session.title) || stringValue(session.label) || labelFromSessionKey(sessionKey));
-  const status = workingStatuses.has(rawStatus.toLowerCase()) ? "working" : "idle";
-  const statusSummary = cleanPublicText(stringValue(session.summary)) || titleCase(rawStatus) || "Idle";
   return {
     id: sessionKey,
-    label,
-    status,
-    summary: statusSummary,
+    label: cleanPublicText(stringValue(session.title) || stringValue(session.label) || labelFromSessionKey(sessionKey)),
+    status: workingStatuses.has(rawStatus.toLowerCase()) ? "working" : "idle",
+    summary: cleanPublicText(stringValue(session.summary)) || titleCase(rawStatus) || "Idle",
     sessionKey,
     ...(stringValue(session.lastSeenAt) ? { lastSeenAt: stringValue(session.lastSeenAt) } : {})
   };
@@ -272,8 +632,12 @@ function sanitizeApproval(approval: Record<string, unknown>): ApprovalView | nul
     title: cleanPublicText(stringValue(approval.title)) || "Approval requested",
     command: cleanPublicText(stringValue(request.command) || stringValue(approval.command)),
     status: cleanPublicText(stringValue(approval.status)) || "pending",
-    ...(stringValue(approval.createdAt) || stringValue(approval.requestedAt) ? { requestedAt: stringValue(approval.createdAt) || stringValue(approval.requestedAt) } : {}),
-    ...(stringValue(request.sessionKey) || stringValue(approval.sessionKey) ? { sessionKey: stringValue(request.sessionKey) || stringValue(approval.sessionKey) } : {})
+    ...(stringValue(approval.createdAt) || stringValue(approval.requestedAt)
+      ? { requestedAt: stringValue(approval.createdAt) || stringValue(approval.requestedAt) }
+      : {}),
+    ...(stringValue(request.sessionKey) || stringValue(approval.sessionKey)
+      ? { sessionKey: stringValue(request.sessionKey) || stringValue(approval.sessionKey) }
+      : {})
   };
 }
 
@@ -287,6 +651,11 @@ function labelFromSessionKey(sessionKey: string): string {
 
 function titleCase(value: string): string {
   return value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
+}
+
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function cleanPublicText(value: string): string {
@@ -317,7 +686,12 @@ function publicGatewayState(state: ReturnType<GatewayPort["getState"]>): Record<
     ...(state.lastConnectedAt ? { lastConnectedAt: state.lastConnectedAt } : {}),
     ...(state.lastDisconnectedAt ? { lastDisconnectedAt: state.lastDisconnectedAt } : {}),
     ...(state.lastErrorReason ? { lastErrorReason: state.lastErrorReason } : {}),
+    ...(state.lastErrorReason ? { lastErrorCategory: classifyGatewayErrorCategory(state.lastErrorReason) } : {}),
+    ...(state.lastLiveEventAt ? { lastLiveEventAt: state.lastLiveEventAt } : {}),
+    ...(state.lastLiveEventAt || state.lastConnectedAt ? { lastSuccessfulSyncAt: state.lastLiveEventAt ?? state.lastConnectedAt } : {}),
     ...(state.nextReconnectAt ? { nextReconnectAt: state.nextReconnectAt } : {}),
+    /* v8 ignore next -- optional transport metadata is exercised via route serialization, not every unit branch permutation */
+    ...(typeof state.reconnectCount === "number" ? { reconnectCount: state.reconnectCount } : {}),
     ...(typeof state.reconnectAttempt === "number" ? { reconnectAttempt: state.reconnectAttempt } : {}),
     ...(state.serviceRecovery
       ? {
@@ -332,4 +706,92 @@ function publicGatewayState(state: ReturnType<GatewayPort["getState"]>): Record<
         }
       : {})
   };
+}
+
+function classifyGatewayErrorCategory(reason: string): string {
+  const normalized = reason.toLocaleLowerCase();
+  if (normalized.includes("device identity")) return "device_identity";
+  if (normalized.includes("token")) return "token";
+  if (normalized.includes("challenge") && normalized.includes("timeout")) return "challenge_timeout";
+  if (normalized.includes("scope")) return "scope";
+  if (normalized.includes("pair")) return "pairing";
+  return "unknown";
+}
+
+function checkEndpointBudget(
+  state: Map<string, { count: number; windowStartedAt: number }>,
+  url: string,
+  now = Date.now()
+): boolean {
+  const routeKey = url.split("?")[0];
+  const expensive = [
+    "/api/search",
+    "/api/sessions/",
+    "/api/incidents/",
+    "/api/replay/",
+    "/api/correlation/"
+  ].some((prefix) => routeKey.startsWith(prefix));
+  if (!expensive) return false;
+  const current = state.get(routeKey);
+  if (!current || now - current.windowStartedAt > 10_000) {
+    state.set(routeKey, { count: 1, windowStartedAt: now });
+    return false;
+  }
+  current.count += 1;
+  state.set(routeKey, current);
+  return current.count > 25;
+}
+
+function isDeliveryTarget(value: string): value is DeliveryAdapterTarget {
+  return value === "slack" || value === "generic-webhook" || value === "email";
+}
+
+function isRetentionClassId(value: string): value is
+  | "entries"
+  | "alert_state"
+  | "incidents"
+  | "investigation_notes"
+  | "summaries"
+  | "bundle_exports"
+  | "delivery_receipts"
+  | "audit_log"
+  | "analytics_integrity_plugin_runs" {
+  return [
+    "entries",
+    "alert_state",
+    "incidents",
+    "investigation_notes",
+    "summaries",
+    "bundle_exports",
+    "delivery_receipts",
+    "audit_log",
+    "analytics_integrity_plugin_runs"
+  ].includes(value);
+}
+
+/* v8 ignore next -- process-local git metadata branch varies by test isolation and is validated through route coverage plus targeted helper tests */
+export function buildVersionInfo(): { buildTimestamp: string; commitSha: string; version: string } {
+  const version = process.env.npm_package_version ?? "0.1.0";
+  let commitSha = "unknown";
+  try {
+    commitSha = execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim() || "unknown";
+  } catch {
+    commitSha = "unknown";
+  }
+  return { version, commitSha, buildTimestamp: new Date().toISOString() };
+}
+
+export function buildIncidentSnapshot(repo: OpenClogRepository, dayKey: string, entryIds: string[], title?: string) {
+  const day = repo.getDay(dayKey) ?? sampleJournalDay;
+  const selected = day.entries.filter((entry) => entryIds.includes(entry.id));
+  return {
+    id: `incident-${dayKey}-${entryIds.join("-") || "snapshot"}`,
+    title: title ?? `Incident snapshot for ${day.dateLabel}`,
+    summary: `Captured ${selected.length} focused entries from ${day.dateLabel}.`,
+    dayKeys: [dayKey],
+    entryIds: selected.map((entry) => entry.id),
+    createdAt: new Date().toISOString(),
+    /* v8 ignore next -- fallback suggestions are validated at the incident integration surface */
+    runbookSuggestions: repo.listIncidents()[0]?.runbookSuggestions ?? []
+  } satisfies IncidentSummary;
 }

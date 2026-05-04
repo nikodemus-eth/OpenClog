@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "./packages/core" },
+    { "path": "./packages/app" },
     { "path": "./apps/api" },
     { "path": "./apps/web" }
   ],
@@ -16,4 +17,3 @@
     "resolveJsonModule": true
   }
 }
-

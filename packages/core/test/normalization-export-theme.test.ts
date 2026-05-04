@@ -27,6 +27,15 @@ describe("normalization, exports, and themes", () => {
       approvalId: "a1",
       status: "pending"
     });
+    expect(
+      normalizeGatewayEvent({
+        event: "exec.approval.requested",
+        payload: { id: "a2", sessionKey: "agent:hugin:main", request: { command: "pwd" }, createdAtMs: 3 }
+      })
+    ).toMatchObject({
+      approvalId: "a2",
+      sessionId: "agent:hugin:main"
+    });
     expect(normalizeGatewayEvent({ event: "sequence.gap", payload: { expected: 1, received: 3, ts: 4 } })).toMatchObject({
       kind: "system_status",
       severity: "warning"
@@ -112,7 +121,11 @@ describe("normalization, exports, and themes", () => {
       kind: "approval_resolved",
       status: "declined"
     });
-    expect(normalizeGatewayEvent({ event: "exec.approval.resolved", payload: { id: "a2", decision: "allow-once", createdAtMs: 8 } })).toMatchObject({
+    expect(normalizeGatewayEvent({ event: "exec.approval.resolved", payload: { id: "a2", decision: "allow-once", sessionKey: "agent:hugin:main", createdAtMs: 8 } })).toMatchObject({
+      sessionId: "agent:hugin:main",
+      status: "approved"
+    });
+    expect(normalizeGatewayEvent({ event: "exec.approval.resolved", payload: { id: "a3", decision: "allow-once", createdAtMs: 8 } })).toMatchObject({
       status: "approved"
     });
     expect(normalizeGatewayEvent({ event: "unknown.event", payload: "not-object" })).toMatchObject({
@@ -159,6 +172,112 @@ describe("normalization, exports, and themes", () => {
     expect(markdown).not.toContain("(undefined)");
     expect(html).toContain("A &lt;careful&gt; day");
     expect(html).toContain("Summary &amp; closeout");
+  });
+
+  test("collapses textless structured OpenClaw responses in exports", () => {
+    const day = {
+      dayKey: "2026-05-03",
+      title: "OpenClog Journal",
+      dateLabel: "Sunday, May 3, 2026",
+      entries: [
+        {
+          id: "assistant-1",
+          dayKey: "2026-05-03",
+          source: "openclaw" as const,
+          kind: "assistant_message" as const,
+          title: "OpenClaw response",
+          body: "",
+          timestamp: "2026-05-03T10:00:00.000Z",
+          status: "info" as const,
+          severity: "info" as const,
+          redacted: true
+        },
+        {
+          id: "assistant-2",
+          dayKey: "2026-05-03",
+          source: "openclaw" as const,
+          kind: "assistant_message" as const,
+          title: "OpenClaw response",
+          body: "   ",
+          timestamp: "2026-05-03T10:00:01.000Z",
+          status: "info" as const,
+          severity: "info" as const,
+          redacted: true
+        },
+        {
+          id: "assistant-3",
+          dayKey: "2026-05-03",
+          source: "openclaw" as const,
+          kind: "assistant_message" as const,
+          title: "OpenClaw response",
+          body: "Visible answer",
+          timestamp: "2026-05-03T10:01:00.000Z",
+          status: "info" as const,
+          severity: "info" as const,
+          redacted: true
+        }
+      ],
+      metrics: { sessionCount: 1, messageCount: 3, toolCallCount: 0, approvalCount: 0, errorCount: 0 }
+    };
+
+    const markdown = exportDayAsMarkdown(day);
+    const html = exportDayAsHtml(day);
+
+    expect(markdown).toContain("2 structured OpenClaw responses omitted from export");
+    expect(markdown).toContain("Visible answer");
+    expect(markdown).not.toContain("- 2026-05-03T10:00:01.000Z - OpenClaw response");
+    expect(html).toContain("2 structured OpenClaw responses omitted from export");
+  });
+
+  test("collapses a single textless structured OpenClaw response in exports", () => {
+    const day = {
+      dayKey: "2026-05-03",
+      title: "OpenClog Journal",
+      dateLabel: "Sunday, May 3, 2026",
+      entries: [
+        {
+          id: "assistant-1",
+          dayKey: "2026-05-03",
+          source: "openclaw" as const,
+          kind: "assistant_message" as const,
+          title: "OpenClaw response",
+          body: "",
+          timestamp: "2026-05-03T10:00:00.000Z",
+          status: "info" as const,
+          severity: "info" as const,
+          redacted: true
+        }
+      ],
+      metrics: { sessionCount: 1, messageCount: 1, toolCallCount: 0, approvalCount: 0, errorCount: 0 }
+    };
+
+    const markdown = exportDayAsMarkdown(day);
+
+    expect(markdown).toContain("Structured OpenClaw response omitted from export because it carried no browser-visible text body.");
+  });
+
+  test("treats undefined structured OpenClaw bodies as export-omittable", () => {
+    const day = {
+      dayKey: "2026-05-03",
+      title: "OpenClog Journal",
+      dateLabel: "Sunday, May 3, 2026",
+      entries: [
+        {
+          id: "assistant-1",
+          dayKey: "2026-05-03",
+          source: "openclaw" as const,
+          kind: "assistant_message" as const,
+          title: "OpenClaw response",
+          timestamp: "2026-05-03T10:00:00.000Z",
+          status: "info" as const,
+          severity: "info" as const,
+          redacted: true
+        }
+      ],
+      metrics: { sessionCount: 1, messageCount: 1, toolCallCount: 0, approvalCount: 0, errorCount: 0 }
+    };
+
+    expect(exportDayAsMarkdown(day)).toContain("Structured OpenClaw response omitted from export");
   });
 
   test("all themes preserve required safety surfaces", () => {

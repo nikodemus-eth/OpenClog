@@ -169,7 +169,9 @@ class LiveGateway implements GatewayPort {
       lastConnectedAt: new Date().toISOString(),
       lastDisconnectedAt: this.state.lastDisconnectedAt,
       lastErrorReason: undefined,
+      lastLiveEventAt: this.state.lastLiveEventAt,
       nextReconnectAt: undefined,
+      reconnectCount: (this.state.reconnectCount ?? 0) + 1,
       reconnectAttempt: 0,
       serviceRecovery: { ...this.serviceRecovery },
       stale: false
@@ -202,6 +204,10 @@ class LiveGateway implements GatewayPort {
   }
 
   private emitEvent(event: GatewayEventLike): void {
+    this.state = {
+      ...this.state,
+      lastLiveEventAt: new Date().toISOString()
+    };
     if (typeof event.seq === "number") {
       if (this.lastEventSeq !== null && event.seq !== this.lastEventSeq + 1) {
         this.notifyListeners({

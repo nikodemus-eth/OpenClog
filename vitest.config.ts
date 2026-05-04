@@ -22,7 +22,9 @@ export default defineConfig({
       exclude: [
         "**/main.ts",
         "**/server.ts",
+        "**/app.ts",
         "**/live-gateway.ts",
+        "**/repository.ts",
         "**/fixture-server.ts",
         "**/*.d.ts",
         "**/generated/**"

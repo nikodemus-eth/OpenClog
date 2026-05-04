@@ -72,3 +72,21 @@ Record first-person implementation notes from the builder/operator perspective.
 - I fixed the lifetime problem inside OpenClog instead of leaning on another manual restart.
 - I kept auto-restart narrow and grudging: OpenClog first heals its own socket, then restarts only the local LaunchAgent after repeated eligible failures and never for auth, pairing, scope, or remote-deployment problems.
 - I kept the browser on public status data only; reconnect details are useful, but secrets and raw frames still stay backend-only.
+
+## 2026-05-04 Phase 1 Quick Wins Hardening
+- I kept this turn honest and tranche-scoped: I shipped the current operator-surface Quick Wins rather than pretending the whole native pivot could be finished in one pass.
+- I pulled the new decision logic into a small helper module because `App.tsx` was already carrying too much conditional state for safe testing.
+- I made the profile panel tell the truth about where it points, whether it is loopback-safe, LAN-local, remote, invalid, or unset, because operators should not have to infer that from a URL string.
+- I treated the generated-summary stale marker and pinned-summary validation as operator trust work, not cosmetic polish.
+- I reran the full deterministic gate after the UI, test, and visual snapshot changes and logged the result only after it was green.
+
+## 2026-05-04 Phase 2 Domain And Lifecycle Tranche
+- I used the user's larger native-pivot plan as the guide, but I kept this implementation tranche grounded in the real missing seam: product behavior was still living in Fastify handlers and repository helpers.
+- I added the shared application package first and made it earn its place with failing tests before I moved the HTTP routes over.
+- When the package import path broke `tsc -b`, I fixed the workspace integration properly with a dependency refresh instead of normalizing brittle source-import hacks.
+- I let the full gate be the authority; the only regression it found was the canonical table-order list, and I reran the entire verify stack after fixing it.
+
+## 2026-05-04 Full Improvement Tranche Closeout
+- I treated the user's “commit everything” correction as a scope rule, not a suggestion: all repo-owned non-ignored work belongs in the final local commit.
+- I changed the shortcut chords because `Shift+letter` was a real usability trap in an app where operators type notes, summaries, and searches all day.
+- I kept the last tranche concrete: saved presets, evidence badges, API examples, diff classes, local note confirmation, tests, docs, snapshots, and publication rather than vague roadmap naming.

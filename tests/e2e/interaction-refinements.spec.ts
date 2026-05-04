@@ -209,9 +209,9 @@ test("Agent Activity lists named agents with visible idle and working statuses",
   await page.goto("/");
 
   await expect(page.getByRole("heading", { name: "Agent Activity" })).toBeVisible();
-  await expect(page.getByText("Hugin")).toBeVisible();
+  await expect(page.getByText("Hugin", { exact: true })).toBeVisible();
   await expect(page.getByText("Status: working")).toBeVisible();
-  await expect(page.getByText("Munin")).toBeVisible();
+  await expect(page.getByText("Munin", { exact: true })).toBeVisible();
   await expect(page.getByText("Status: idle")).toBeVisible();
 });
 
@@ -383,6 +383,108 @@ test("clicking a live tool-call toast reveals the hidden tool entry and navigate
   await expect(page.getByText("Called live_tool.")).toBeVisible();
   await expect(page.locator("[data-entry-id='live-tool-entry']")).toBeFocused();
   await expect(page.getByText("Entry details")).toBeVisible();
+});
+
+test("top shell navigation resets home state and jumps to the journal timeline", async ({ page }) => {
+  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
+  await page.goto("/?day=2026-05-02&view=raw&filters=errors&q=timeout&entry=2026-05-02-entry-1");
+
+  await page.getByRole("button", { name: "OpenClog", exact: true }).click();
+  await expect(page).toHaveURL(/day=2026-05-03/);
+  await expect(page).not.toHaveURL(/filters=/);
+  await expect(page).not.toHaveURL(/q=timeout/);
+  await expect(page).not.toHaveURL(/entry=/);
+
+  await page.getByRole("button", { name: "Jump to journal timeline" }).click();
+  await expect(page.getByLabel("Timeline entries")).toBeFocused();
+});
+
+test("archive rail exposes recent logs and date jumping guidance", async ({ page }) => {
+  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
+  await page.goto("/");
+
+  await expect(page.getByText("Recent logs")).toBeVisible();
+  await expect(page.getByLabel("Recent logs").getByRole("button", { name: /2026-05-03/ })).toBeVisible();
+  await expect(page.getByLabel("Jump to date")).toHaveValue("2026-05-03");
+
+  await page.getByLabel("Jump to date").fill("2026-05-01");
+  await expect(page.getByText("No log available for that date.")).toBeVisible();
+
+  await page.getByLabel("Jump to date").fill("2026-05-02");
+  await expect(page.getByLabel("Daily page").getByText("Saturday, May 2, 2026")).toBeVisible();
+});
+
+test("timeline filter checkboxes support partial matching plus inter-session and ack filters", async ({ page }) => {
+  await installApiFixtures(page, {
+    gatewayStatus: "ready",
+    approvalCount: 0,
+    extraEntries: [
+      {
+        id: "2026-05-03-entry-session",
+        dayKey: "2026-05-03",
+        source: "gateway",
+        kind: "session_started",
+        title: "Session started",
+        body: "Session resumed.",
+        timestamp: "2026-05-03T12:01:00.000Z",
+        status: "info",
+        severity: "info",
+        redacted: true
+      },
+      {
+        id: "2026-05-03-entry-inter-session",
+        dayKey: "2026-05-03",
+        source: "system",
+        kind: "note",
+        title: "Inter-session handoff",
+        body: "Inter-session message for the next operator.",
+        timestamp: "2026-05-03T12:03:00.000Z",
+        status: "info",
+        severity: "info",
+        redacted: true
+      },
+      {
+        id: "2026-05-03-entry-ack",
+        dayKey: "2026-05-03",
+        source: "gateway",
+        kind: "assistant_message",
+        title: "ACK",
+        body: "Acknowledged by Gateway.",
+        timestamp: "2026-05-03T12:04:00.000Z",
+        status: "success",
+        severity: "info",
+        redacted: true
+      }
+    ]
+  });
+  await page.goto("/");
+
+  const filters = page.getByLabel("Saved filters");
+  await expect(page.getByText("Inter-session handoff")).toBeVisible();
+  await expect(page.locator("[data-entry-id='2026-05-03-entry-ack']")).toBeVisible();
+
+  await filters.getByLabel("Inter-session messages").uncheck();
+  await expect(page.getByText("Inter-session handoff")).toBeHidden();
+  await expect(page.locator("[data-entry-id='2026-05-03-entry-ack']")).toBeVisible();
+
+  await filters.getByLabel("ACKs and acknowledged").uncheck();
+  await expect(page.locator("[data-entry-id='2026-05-03-entry-ack']")).toBeHidden();
+
+  await filters.getByLabel("Inter-session messages").check();
+  await filters.getByLabel("ACKs and acknowledged").check();
+  await expect(page.getByText("Inter-session handoff")).toBeVisible();
+  await expect(page.locator("[data-entry-id='2026-05-03-entry-ack']")).toBeVisible();
+});
+
+test("pinned context and journal search expose help popovers", async ({ page }) => {
+  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
+  await page.goto("/");
+
+  await page.getByLabel("Pinned context").getByRole("button", { name: "?" }).click();
+  await expect(page.getByText(/Pinned context keeps the operator note/i)).toBeVisible();
+
+  await page.getByLabel("Journal search").getByRole("button", { name: "?" }).click();
+  await expect(page.getByText(/Presets save recurring investigations/i)).toBeVisible();
 });
 
 function repeatedResponses() {

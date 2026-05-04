@@ -64,6 +64,7 @@ function normalizeApprovalRequested(payload: Record<string, unknown>, base: Base
     title: "Approval requested",
     body: stringValue(request.command),
     approvalId: stringValue(payload.id),
+    sessionId: stringValue(payload.sessionKey) || stringValue(request.sessionKey),
     status: "pending",
     severity: "warning",
     actions: [
@@ -81,6 +82,7 @@ function normalizeApprovalResolved(payload: Record<string, unknown>, base: BaseE
     title: "Approval resolved",
     body: stringValue(payload.decision),
     approvalId: stringValue(payload.id),
+    sessionId: stringValue(payload.sessionKey),
     status: payload.decision === "allow-once" || payload.decision === "allow-always" ? "approved" : "declined",
     severity: "info"
   };

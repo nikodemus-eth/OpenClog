@@ -116,3 +116,39 @@ Record deterministic verification, live Gateway verification, coverage policy, a
 - Added Playwright coverage for visible reconnecting state and service-recovery status on desktop and mobile.
 - Coverage returned to 100% statements, branches, functions, and lines after adding public-health branch coverage.
 - The first full `npm run verify` after implementation passed with 85 unit tests, 178 E2E/UI tests, 54 visual snapshots, and 4 red-team tests.
+
+## 2026-05-04 Phase 1 Quick Wins Hardening
+- Added focused unit coverage for the new operator-workspace helper module: pinned-summary validation, generated-summary staleness, Gateway URL safety classification, reconnect trend text, retention preview formatting, and empty-state copy.
+- Extended API coverage for `lastSuccessfulSyncAt` so reconnect/recovery health metadata stays backend-authored and visible to the browser.
+- Expanded repository coverage around drilldown reconnect counts, search, integration payload fallback, integrity checks, settings persistence, and advanced-operator data paths.
+- Added browser coverage for Phase 1 operator flows: URL-persisted search, clear-filters, reconnect trend text, last-successful-sync display, retention preview totals, bundle JSON copy action, profile safety display, pinned-summary validation, and empty states for search/incidents/alerts/adapters.
+- Refreshed all 54 Playwright visual snapshots after the intentional diagnostics/profile/timeline copy changes.
+- Final verification passed on the Phase 1 tree with `npm run verify`.
+- Coverage remains 100 percent statements, branches, functions, and lines for the configured measured surface.
+- Current explicit exclusions remain limited to bootstrap-heavy paths: `main.ts`, `server.ts`, `app.ts`, `live-gateway.ts`, `repository.ts`, fixture servers, generated output, and declaration files. These exclusions must be revisited in later tranches rather than silently expanded.
+
+## 2026-05-04 Phase 2 Domain And Lifecycle Tranche
+- Added direct application-layer unit coverage in [`/Users/m4/OpenClog/packages/app/test/application.test.ts`](/Users/m4/OpenClog/packages/app/test/application.test.ts) for paginated search/drilldown, retention snapshot apply/rollback, and alert acknowledgement/snooze behavior.
+- Expanded API coverage for the new domain-backed routes: paginated `/api/search`, paginated `/api/sessions/:key`, `/api/retention/apply`, `/api/retention/rollback/:id`, alert ack/snooze endpoints, expanded integration targets, and replay bundle inspection.
+- Reran repository coverage after adding retention snapshot and alert state tables; the only full-gate regression was canonical table ordering, which was fixed and verified.
+- Fresh full verification passed after this tranche: `npm run verify` completed with typecheck, lint, build, 100 percent measured coverage, 184 E2E/UI tests, 54 visual snapshots, 4 red-team tests, and docs check.
+
+## 2026-05-04 Ladder 1 Investigation Acceleration Slice
+- Added targeted unit/API coverage for search match metadata, repo-derived health history, session-summary export text, generated-summary freshness detail, bundle-manifest formatting, and Gateway error-category classification.
+- Added Playwright coverage for saved search presets, search match snippets, session-summary copy, bundle preview, inline empty-state actions, degraded-category visibility, and global keyboard search focus on both desktop Chromium and mobile.
+- Verification for this slice:
+  - `npx vitest run packages/app/test/application.test.ts apps/api/test/advanced-features.test.ts apps/web/test/operator-workspace.test.ts`
+  - `npx playwright test tests/e2e/advanced-features.spec.ts`
+
+## 2026-05-04 Ladder 2 Incident Workspace Slice
+- Extended application-layer unit coverage to include investigation-note creation, incident workspace composition, replay-bundle diffing, and closeout-plan generation.
+- Expanded API coverage for the new routes: `/api/investigation-notes`, `/api/incidents/:id/workspace`, `/api/replay-bundles/diff`, and `/api/closeout/plan`.
+- Extended Playwright operator-flow coverage for incident workspace selection, note capture, bundle diff visibility, and closeout-plan rendering; mobile visual baselines were refreshed after the new workbench panels increased page height.
+- Full verification passed after this tranche with `npm run verify`.
+
+## 2026-05-04 Full Improvement Tranche Closeout
+- Added focused unit/API/UI coverage for default search presets, evidence completeness, local investigation-note confirmation, API example copy controls, non-typing-blocking keyboard chords, and replay-bundle change classification.
+- Updated all 54 Playwright visual snapshots after the intentional archive-row and workbench affordance changes.
+- Final `npm run verify` passed with forbidden-RPC checks, typecheck, lint, workspace builds, 18 coverage test files, 134 unit/API tests, 100 percent measured statements/branches/functions/lines, 192 E2E/UI tests, 54 visual snapshots, 4 red-team tests, and docs check.
+- `npm run verify:gateway` passed live with `status: ready`; mutation testing remained disabled, so no live test session traffic was fabricated.
+- `npm run smoke -w @openclog/desktop` and `git diff --check` both passed during closeout.

@@ -53,7 +53,7 @@ export function displayProductCopy(value: string): string {
 }
 
 export function browserVisibleEntryText(entry: JournalEntry, options: { expanded: boolean }): BrowserVisibleText {
-  const safe = sanitizeBrowserVisibleText(entry.body ?? "", entry);
+  const safe = sanitizeBrowserVisibleText(resolveBrowserVisibleBody(entry), entry);
   const hasMore = safe.body.length > previewLimit;
   const redactions = [...safe.redactions];
   if (hasMore && !options.expanded) redactions.push({ reason: "long_preview" });
@@ -63,6 +63,30 @@ export function browserVisibleEntryText(entry: JournalEntry, options: { expanded
     hasMore: hasMore && !options.expanded,
     redactions: dedupeRedactions(redactions)
   };
+}
+
+function resolveBrowserVisibleBody(entry: JournalEntry): string {
+  const directBody = entry.body?.trim();
+  if (directBody) return entry.body!;
+
+  if (entry.kind === "assistant_message") {
+    if (entry.source === "openclaw") return "Structured OpenClaw response captured without a browser-visible text body.";
+    return "Structured assistant response captured without a browser-visible text body.";
+  }
+
+  if (entry.kind === "tool_call") {
+    return entry.toolName ? `Tool call for ${entry.toolName} captured without a browser-visible text body.` : "Tool call captured without a browser-visible text body.";
+  }
+
+  if (entry.kind === "tool_result") {
+    return entry.toolName ? `Tool result for ${entry.toolName} captured without a browser-visible text body.` : "Tool result captured without a browser-visible text body.";
+  }
+
+  if (entry.kind === "system_status" || entry.kind === "error") {
+    return "Operational event captured without a browser-visible text body.";
+  }
+
+  return entry.body ?? "";
 }
 
 export function buildTimelineDisplayItems(entries: JournalEntry[], options: { grouped: boolean }): TimelineDisplayItem[] {

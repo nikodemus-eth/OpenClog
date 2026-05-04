@@ -10,7 +10,7 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
+    "@openclog/app": "0.1.0",
     "@openclog/core": "0.1.0"
   }
 }
-

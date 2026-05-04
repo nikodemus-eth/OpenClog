@@ -166,7 +166,7 @@ test("Dyslexia Friendly avoids selector clipping, cramped text, and zoom overflo
   const railBox = await page.locator(".left-rail").boundingBox();
   const lineHeight = await page.locator(".day-row").first().evaluate((element) => Number.parseFloat(getComputedStyle(element).lineHeight));
   const fontSize = await page.locator(".day-row").first().evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
-  const fontWeight = await page.locator(".theme-picker span").evaluate((element) => getComputedStyle(element).fontWeight);
+  const fontWeight = await page.locator(".theme-picker span").filter({ hasText: "Theme picker:" }).evaluate((element) => getComputedStyle(element).fontWeight);
 
   expect(shellOverflow).toBe(false);
   expect(selectorBox && railBox ? selectorBox.x + selectorBox.width <= railBox.x + railBox.width + 1 : false).toBe(true);

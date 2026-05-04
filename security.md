@@ -90,3 +90,32 @@ Track OpenClog security posture, Gateway authority boundaries, redaction, and fa
 - Auto-restart is guarded: loopback and macOS only, repeated eligible failures only, cooldown-bound, and blocked for token mismatch, missing device identity, pairing-required, missing-scope, and remote Gateway failures.
 - Composer and approval behavior remain fail-closed while the Gateway is stale or reconnecting; no fake local success path was added.
 - The browser-visible secret checks were extended through the reconnecting UI state and continue to reject token-like or raw-frame leakage.
+
+## 2026-05-04 Phase 1 Quick Wins Hardening
+- The new profile diagnostics surface exposes only safe Gateway authority metadata: URL, safety classification, and operator-facing explanatory text. No token, device identity, auth header, cookie, env value, or raw frame data was added to browser state.
+- The incident bundle copy action reuses the existing redacted export path; it does not bypass bundle redaction or create a second serialization path with weaker controls.
+- Generated-summary staleness and retention-preview totals are display metadata only and do not grant new mutation authority.
+- Pinned-summary validation is now explicit and fail-closed in the UI, preventing empty or overlong saved summary text from quietly entering the persisted operator context.
+- Browser-visible empty states and reconnect diagnostics were expanded without weakening the existing browser-visible secret scans or red-team fixture lane.
+
+## 2026-05-04 Phase 2 Domain And Lifecycle Tranche
+- Retention apply/rollback now persists explicit snapshot state instead of relying on request-local memory; rollback is a defined operator action with stored evidence.
+- Alert acknowledgement and snooze are stored as local operator state only and layered onto alert findings without granting broader control scopes.
+- Replay-bundle inspection reads already-exported local evidence and returns a bounded summary only; it does not reconnect to Gateway or trust arbitrary remote execution data.
+- Expanded integration targets remain payload builders only in this tranche; no outbound delivery secrets or browser-side webhook credentials were introduced.
+
+## 2026-05-04 Ladder 1 Investigation Acceleration Slice
+- Search snippets and field hints are derived from the same browser-visible redaction path as timeline text; the richer search contract does not expose raw payloads or bypass secret scrubbing.
+- Gateway error categories are now exposed separately from full error text, which keeps degraded-state diagnosis faster without widening secret leakage risk.
+- Repo-derived health history, session-summary copy, and bundle-manifest preview remain sanitized evidence views only; they do not expose device identity, Gateway tokens, raw connect frames, or unredacted event payloads.
+
+## 2026-05-04 Ladder 2 Incident Workspace Slice
+- Investigation notes are stored as operator-authored local evidence only; they are separate from generated summaries and never require raw Gateway payload access.
+- Incident workspace, replay-bundle diff, and closeout-plan routes operate entirely on persisted redacted evidence plus operator metadata. No new route returns raw event frames, auth material, device identity, or browser-visible delivery secrets.
+- Bundle comparison remains bounded to manifest fields, entry ids, summary/markdown change flags, and metadata-key differences; it does not expose hidden payload content while still giving operators a useful “what changed” view.
+
+## 2026-05-04 Full Improvement Tranche Closeout
+- API example copy controls expose only route names and bounded sample payloads; clipboard failure falls back to local notice text and does not require secrets, auth headers, cookies, device identity, or raw Gateway frames in browser state.
+- Evidence completeness is derived from local summary, note, bundle, and incident presence, so the badge improves operator triage without granting new read authority.
+- Replay-bundle change classification stays at narrative, metadata, or evidence-shape level and does not disclose hidden payload content.
+- Global shortcuts now avoid `Shift+letter` interception, reducing accidental command activation while operators type notes, search queries, or summaries.

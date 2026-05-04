@@ -7,6 +7,7 @@ export default [
       "node_modules/**",
       "**/dist/**",
       "**/dist-types/**",
+      "**/target/**",
       "coverage/**",
       "test-results/**",
       "playwright-report/**"

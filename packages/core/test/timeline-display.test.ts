@@ -44,13 +44,43 @@ describe("browser-visible display safety", () => {
     expect(browserVisibleEntryText(buildEntry({ body: path, kind: "note" }), { expanded: true }).body).toContain(path);
   });
 
-  test("handles missing entry body as empty browser-visible text", () => {
-    expect(browserVisibleEntryText(buildEntry({ body: undefined }), { expanded: false })).toMatchObject({
+  test("keeps operator note bodies empty when there is no text to show", () => {
+    expect(browserVisibleEntryText(buildEntry({ kind: "note", source: "user", title: "Operator note", body: undefined }), { expanded: false })).toMatchObject({
       body: "",
       expanded: false,
       hasMore: false,
       redactions: []
     });
+  });
+
+  test("shows explicit fallback copy for structured assistant messages with no browser-visible text body", () => {
+    expect(browserVisibleEntryText(buildEntry({ body: "   " }), { expanded: false })).toMatchObject({
+      body: "Structured OpenClaw response captured without a browser-visible text body.",
+      expanded: false,
+      hasMore: false,
+      redactions: []
+    });
+    expect(browserVisibleEntryText(buildEntry({ source: "gateway", body: "   " }), { expanded: false }).body).toBe(
+      "Structured assistant response captured without a browser-visible text body."
+    );
+  });
+
+  test("shows explicit fallback copy for structured tool events with no browser-visible text body", () => {
+    expect(browserVisibleEntryText(buildEntry({ kind: "tool_call", source: "tool", body: "" }), { expanded: false }).body).toBe(
+      "Tool call captured without a browser-visible text body."
+    );
+    expect(browserVisibleEntryText(buildEntry({ kind: "tool_call", source: "tool", toolName: "browser", body: "" }), { expanded: false }).body).toBe(
+      "Tool call for browser captured without a browser-visible text body."
+    );
+    expect(browserVisibleEntryText(buildEntry({ kind: "tool_result", source: "tool", body: "" }), { expanded: false }).body).toBe(
+      "Tool result captured without a browser-visible text body."
+    );
+    expect(browserVisibleEntryText(buildEntry({ kind: "tool_result", source: "tool", toolName: "browser", body: "" }), { expanded: false }).body).toBe(
+      "Tool result for browser captured without a browser-visible text body."
+    );
+    expect(browserVisibleEntryText(buildEntry({ kind: "system_status", source: "system", body: "" }), { expanded: false }).body).toBe(
+      "Operational event captured without a browser-visible text body."
+    );
   });
 });
 

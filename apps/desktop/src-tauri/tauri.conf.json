@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "OpenClog Desktop",
+  "version": "0.1.0",
+  "identifier": "com.openclog.desktop",
+  "build": {
+    "beforeBuildCommand": "npm run build -w @openclog/web",
+    "beforeDevCommand": "npm run dev -w @openclog/web -- --host 127.0.0.1 --port 4173",
+    "devUrl": "http://127.0.0.1:4173",
+    "frontendDist": "../../web/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "OpenClog Desktop",
+        "width": 1440,
+        "height": 960,
+        "minWidth": 1100,
+        "minHeight": 760,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": [],
+    "targets": "all"
+  }
+}

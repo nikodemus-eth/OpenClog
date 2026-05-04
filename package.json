@@ -16,7 +16,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "playwright test tests/e2e/openclog.spec.ts tests/e2e/theme-accessibility.spec.ts tests/e2e/interaction-refinements.spec.ts",
+    "test:e2e": "playwright test tests/e2e/openclog.spec.ts tests/e2e/theme-accessibility.spec.ts tests/e2e/interaction-refinements.spec.ts tests/e2e/advanced-features.spec.ts",
     "test:visual": "playwright test tests/e2e/visual.spec.ts",
     "test:redteam": "vitest run tests/redteam",
     "typecheck": "tsc -b tsconfig.json",

@@ -78,3 +78,22 @@ Track public API contracts and Gateway RPC usage.
 - `/api/health.gateway` now includes safe reconnect metadata: connection status, last connection/disconnection timestamps, last error reason, next reconnect time, reconnect attempt, and service-recovery summary.
 - Gateway control requests still use dotted method names and fail closed while the backend is reconnecting or missing required negotiated scopes.
 - The backend re-runs `health`, `system-presence`, `exec.approval.list`, `sessions.list`, `sessions.subscribe`, and `sessions.messages.subscribe` after successful reconnect.
+
+## 2026-05-04 Phase 1 Quick Wins Hardening
+- `/api/health.gateway` now also exposes `lastSuccessfulSyncAt`, sourced from the backend Gateway runtime state rather than inferred in the browser.
+- Existing advanced-operator routes remained the Phase 1 authority path: pinned context, generated summaries, retention preview, incidents, alerts, adapter events, integrations, and bundle export were exercised and tightened through tests instead of redefined.
+- The web surface continues to consume explicit view-model metadata for freshness, staleness, retention totals, and profile safety classification; no browser path was added to Gateway credentials or raw Gateway events.
+- No new public route names, Gateway RPC method names, or scope requests were introduced in this tranche.
+
+## 2026-05-04 Phase 2 Domain And Lifecycle Tranche
+- `GET /api/search` now supports `limit` and `cursor`, returning `results` plus `nextCursor` from the shared application layer.
+- `GET /api/sessions/:key` now supports paginated drilldown through `limit` and `cursor`.
+- Added retention lifecycle routes: `POST /api/retention/apply` and `POST /api/retention/rollback/:id`.
+- Added alert lifecycle routes: `POST /api/alerts/:id/ack` and `POST /api/alerts/:id/snooze`, while `GET /api/alerts` now layers stored operator state onto evaluated findings.
+- Expanded integration targets to include `slack` and `generic-webhook`, and added `POST /api/replay-bundles/inspect` for replayable exported evidence inspection.
+
+## 2026-05-04 Full Improvement Tranche Closeout
+- Day list/detail responses may now include optional `evidenceCompleteness` and `incidentIds` fields; clients should treat them as additive operator metadata.
+- Replay-bundle diff responses now include `changeClass` with `unchanged`, `narrative_only`, `metadata_only`, or `evidence_shape` so reviewers can triage bundle changes without re-parsing every manifest field.
+- The new copy controls are UI affordances over existing route examples; they do not add Gateway RPC methods, requested scopes, delivery transports, or browser-side credential paths.
+- Search presets remain settings/view-model data and cap at eight merged defaults plus operator entries, avoiding API drift for saved investigation shortcuts.

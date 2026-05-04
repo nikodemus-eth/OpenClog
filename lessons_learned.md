@@ -71,3 +71,22 @@ Capture durable lessons that should shape future OpenClog work.
 - The durable boundary is the API connection lifecycle: reconnect, reauthenticate, resubscribe, and reconcile before asking the user to touch services.
 - Service restart should be a last resort with failure classification, cooldown, and an explicit refusal path for auth and scope problems.
 - Public health needs enough detail to explain stale/reconnecting state without leaking the auth material that made the connection possible.
+
+## 2026-05-04 Phase 1 Quick Wins Hardening
+- Small operator improvements become easier to verify when their decision logic is extracted into pure helpers before the UI is stretched further.
+- Search state is part of the investigative contract; if operators cannot deep-link the current query, the feature is materially less useful.
+- A `Copy incident bundle JSON` affordance should reuse the same export authority path as file export, or the product will drift into multiple incident-evidence formats.
+- Coverage pressure is still useful here, but the right honest statement is `100 percent on the configured measured surface` until the heavier bootstrap/repository exclusions are retired.
+- Visual snapshot refreshes are safe only when paired with targeted E2E assertions for the new operator cues, especially diagnostics copy and empty-state behavior.
+
+## 2026-05-04 Phase 2 Domain And Lifecycle Tranche
+- If a new workspace package is meant to be consumed as a real package, refresh the workspace install instead of leaving temporary cross-package source imports in place.
+- Retention rollback is more reliable when the snapshot captures the full pre-apply state, not only the removed subset.
+- Seed data matters for lifecycle tests: OpenClog's canonical sample day participates in retention behavior and needs to be accounted for honestly in assertions.
+- Full-gate regressions after schema growth are often contract-order problems rather than logic problems; rerun from the failing lane upward instead of assuming the new behavior is wrong.
+
+## 2026-05-04 Full Improvement Tranche Closeout
+- Do not bind global commands to plain `Shift+letter` in a text-heavy operator app; those chords compete with ordinary capitalization and make the interface feel hostile during note-taking.
+- Visual snapshot updates are expected when archive row content changes, but they should follow targeted behavior assertions for the new badges and controls.
+- Default search presets are safest as a merge helper, not as one-time settings seed data, because stored operator preferences should survive while new canonical presets still appear.
+- Evidence-quality signals are more useful when they show concrete counts and missing pieces than when they hide behind generic “complete” labels.

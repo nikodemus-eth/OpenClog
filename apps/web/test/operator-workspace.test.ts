@@ -1,0 +1,255 @@
+import { describe, expect, test } from "vitest";
+import type { GeneratedSummary, JournalEntry } from "@openclog/core";
+import {
+  addSearchPreset,
+  buildReconnectTrendText,
+  classifyGatewayErrorCategory,
+  classifyGatewayUrl,
+  DEFAULT_SEARCH_PRESETS,
+  describeGeneratedSummaryFreshness,
+  formatBundleManifestPreview,
+  formatCloseoutPlan,
+  formatReplayBundleDiff,
+  formatRetentionPreview,
+  isGeneratedSummaryStale,
+  mergeSearchPresets,
+  searchEmptyState,
+  validateInvestigationNote,
+  validatePinnedSummary
+} from "../src/state/operator-workspace.js";
+
+describe("operator workspace helpers", () => {
+  test("validates pinned summaries for empty and oversized values", () => {
+    expect(validatePinnedSummary("   ")).toBe("Pinned summary cannot be empty.");
+    expect(validatePinnedSummary("a".repeat(281))).toBe("Pinned summary must be 280 characters or fewer.");
+    expect(validatePinnedSummary("Operational summary")).toBeNull();
+  });
+
+  test("detects when generated summaries are stale", () => {
+    const generatedSummary: GeneratedSummary = {
+      summary: "Summary text",
+      createdAt: "2026-05-04T09:00:00.000Z",
+      source: "rules"
+    };
+    const entries: JournalEntry[] = [buildEntry("2026-05-04T08:59:00.000Z"), buildEntry("2026-05-04T09:01:00.000Z")];
+
+    expect(isGeneratedSummaryStale(generatedSummary, entries)).toBe(true);
+    expect(isGeneratedSummaryStale(generatedSummary, [buildEntry("2026-05-04T08:58:00.000Z")])).toBe(false);
+    expect(isGeneratedSummaryStale({ ...generatedSummary, createdAt: "not-a-date" }, entries)).toBe(false);
+    expect(isGeneratedSummaryStale(undefined, entries)).toBe(false);
+  });
+
+  test("classifies Gateway URL safety for loopback, lan, remote, and invalid values", () => {
+    expect(classifyGatewayUrl("ws://127.0.0.1:18789")).toMatchObject({ kind: "loopback", label: "Loopback-safe" });
+    expect(classifyGatewayUrl("ws://10.0.0.5:18789")).toMatchObject({ kind: "lan", label: "LAN-local" });
+    expect(classifyGatewayUrl("ws://192.168.1.4:18789")).toMatchObject({ kind: "lan", label: "LAN-local" });
+    expect(classifyGatewayUrl("ws://172.16.0.5:18789")).toMatchObject({ kind: "lan", label: "LAN-local" });
+    expect(classifyGatewayUrl("ws://172.32.0.5:18789")).toMatchObject({ kind: "remote", label: "Remote target" });
+    expect(classifyGatewayUrl("wss://gateway.example.com")).toMatchObject({ kind: "remote", label: "Remote target" });
+    expect(classifyGatewayUrl("::bad-url::")).toMatchObject({ kind: "invalid", label: "Invalid Gateway URL" });
+    expect(classifyGatewayUrl(undefined)).toMatchObject({ kind: "unset", label: "Gateway URL unavailable" });
+  });
+
+  test("formats reconnect, retention, and empty-search guidance", () => {
+    expect(buildReconnectTrendText(0)).toContain("stable");
+    expect(buildReconnectTrendText(1)).toContain("one reconnect");
+    expect(buildReconnectTrendText(2)).toContain("elevated");
+    expect(buildReconnectTrendText(4)).toContain("noisy");
+    expect(
+      formatRetentionPreview({
+        keepDays: 1,
+        removedDayKeys: ["2026-05-01"],
+        removedEntryCount: 2,
+        removedSummaryCount: 1,
+        removedAuditCount: 1
+      })
+    ).toContain("2 entries");
+    expect(formatRetentionPreview(null)).toBeNull();
+    expect(searchEmptyState("timeout", 0)).toContain("No journal matches");
+    expect(searchEmptyState("timeout", 1)).toBeNull();
+    expect(searchEmptyState("", 0)).toBeNull();
+  });
+
+  test("formats closeout plans, replay diffs, and investigation notes", () => {
+    expect(validateInvestigationNote("   ")).toBe("Investigation note cannot be empty.");
+    expect(validateInvestigationNote("a".repeat(1001))).toBe("Investigation note must be 1000 characters or fewer.");
+    expect(validateInvestigationNote("Operator note")).toBeNull();
+    expect(formatReplayBundleDiff(null)).toBeNull();
+    expect(
+      formatReplayBundleDiff({
+        changeClass: "evidence_shape",
+        leftDayKey: "2026-05-03",
+        rightDayKey: "2026-05-04",
+        addedEntryIds: ["entry-b"],
+        removedEntryIds: [],
+        summaryChanged: true,
+        markdownChanged: false,
+        entryCountDelta: 1,
+        changedManifestFields: ["dayKey"],
+        changedMetadataFields: ["status"]
+      })
+    ).toContain("+1 / -0 entries");
+    expect(
+      formatReplayBundleDiff({
+        changeClass: "narrative_only",
+        leftDayKey: "2026-05-03",
+        rightDayKey: "2026-05-04",
+        addedEntryIds: [],
+        removedEntryIds: [],
+        summaryChanged: false,
+        markdownChanged: true,
+        entryCountDelta: 0,
+        changedManifestFields: [],
+        changedMetadataFields: []
+      })
+    ).toContain("markdown changed");
+    expect(
+      formatReplayBundleDiff({
+        changeClass: "unchanged",
+        leftDayKey: "2026-05-03",
+        rightDayKey: "2026-05-04",
+        addedEntryIds: [],
+        removedEntryIds: [],
+        summaryChanged: false,
+        markdownChanged: false,
+        entryCountDelta: 0,
+        changedManifestFields: [],
+        changedMetadataFields: []
+      })
+    ).toContain("summary unchanged");
+    expect(formatCloseoutPlan(null)).toBeNull();
+    expect(
+      formatCloseoutPlan({
+        dayKey: "2026-05-04",
+        generatedSummaryFresh: true,
+        retentionPreview: { keepDays: 1, removedDayKeys: ["2026-05-03"], removedEntryCount: 2, removedSummaryCount: 1, removedAuditCount: 1 },
+        incidentCount: 1,
+        noteCount: 2,
+        exportTargets: ["github-issue"],
+        checklist: ["Generated summary is current."]
+      })
+    ).toContain("summary current");
+    expect(
+      formatCloseoutPlan({
+        dayKey: "2026-05-04",
+        generatedSummaryFresh: false,
+        retentionPreview: { keepDays: 1, removedDayKeys: [], removedEntryCount: 0, removedSummaryCount: 0, removedAuditCount: 0 },
+        incidentCount: 0,
+        noteCount: 0,
+        exportTargets: [],
+        checklist: ["Select export targets before handoff."]
+      })
+    ).toContain("not selected");
+  });
+
+  test("describes summary freshness, bundle manifests, and gateway error categories", () => {
+    const generatedSummary: GeneratedSummary = {
+      summary: "Summary text",
+      createdAt: "2026-05-04T09:00:00.000Z",
+      source: "rules"
+    };
+    const freshness = describeGeneratedSummaryFreshness(generatedSummary, [
+      buildEntry("2026-05-04T08:58:00.000Z"),
+      buildEntry("2026-05-04T08:59:30.000Z"),
+      buildEntry("2026-05-04T09:01:00.000Z")
+    ]);
+
+    expect(freshness).toMatchObject({
+      isStale: true,
+      lastEntryIncludedAt: "2026-05-04T08:59:30.000Z"
+    });
+    expect(formatBundleManifestPreview({ manifest: { dayKey: "2026-05-04", exportedAt: "2026-05-04T10:00:00.000Z", version: "0.1.0" }, day: { entries: [{ id: "1" }, { id: "2" }] } })).toContain(
+      "2 entries"
+    );
+    expect(classifyGatewayErrorCategory("gateway unavailable: Gateway connect.challenge timeout")).toBe("challenge_timeout");
+    expect(classifyGatewayErrorCategory("device identity required")).toBe("device_identity");
+    expect(classifyGatewayErrorCategory("token mismatch")).toBe("token");
+    expect(classifyGatewayErrorCategory("missing required operator scopes")).toBe("scope");
+    expect(classifyGatewayErrorCategory("pairing required")).toBe("pairing");
+    expect(classifyGatewayErrorCategory(undefined)).toBe("unknown");
+    expect(
+      describeGeneratedSummaryFreshness(
+        generatedSummary,
+        []
+      )
+    ).toEqual({ isStale: false });
+  });
+
+  test("adds saved search presets, deduplicates by query, and caps the list", () => {
+    expect(addSearchPreset([], "   ")).toEqual([]);
+    expect(addSearchPreset([], "Timeout Investigation")).toEqual([
+      {
+        id: "timeout-investigation",
+        label: "Timeout Investigation",
+        query: "Timeout Investigation"
+      }
+    ]);
+    expect(
+      addSearchPreset(
+        [
+          { id: "timeout-investigation", label: "Timeout Investigation", query: "Timeout Investigation" },
+          { id: "approval-backlog", label: "Approval Backlog", query: "Approval Backlog" }
+        ],
+        "timeout investigation"
+      )
+    ).toEqual([
+      {
+        id: "timeout-investigation",
+        label: "timeout investigation",
+        query: "timeout investigation"
+      },
+      { id: "approval-backlog", label: "Approval Backlog", query: "Approval Backlog" }
+    ]);
+    expect(
+      addSearchPreset(
+        [
+          { id: "one", label: "one", query: "one" },
+          { id: "two", label: "two", query: "two" },
+          { id: "three", label: "three", query: "three" },
+          { id: "four", label: "four", query: "four" },
+          { id: "five", label: "five", query: "five" },
+          { id: "six", label: "six", query: "six" },
+          { id: "seven-old", label: "seven old", query: "seven old" },
+          { id: "eight-old", label: "eight old", query: "eight old" }
+        ],
+        "seven"
+      )
+    ).toHaveLength(8);
+    expect(addSearchPreset([], "!!!")).toEqual([
+      {
+        id: "preset",
+        label: "!!!",
+        query: "!!!"
+      }
+    ]);
+  });
+
+  test("ships the top eight investigative search presets as defaults", () => {
+    expect(DEFAULT_SEARCH_PRESETS).toHaveLength(8);
+    expect(DEFAULT_SEARCH_PRESETS.map((preset) => preset.query)).toEqual([
+      "status:failed tool",
+      "approval pending",
+      "gateway reconnect",
+      "sequence gap",
+      "adapter failed",
+      "summary stale",
+      "delivery receipt",
+      "plugin run"
+    ]);
+    expect(mergeSearchPresets([])).toHaveLength(8);
+    expect(mergeSearchPresets([{ id: "custom", label: "Custom", query: "custom" }])[0]).toMatchObject({ query: "custom" });
+    expect(mergeSearchPresets([{ id: "dup", label: "Duplicate", query: "gateway reconnect" }])).toHaveLength(8);
+  });
+});
+
+function buildEntry(timestamp: string): JournalEntry {
+  return {
+    id: `entry-${timestamp}`,
+    dayKey: "2026-05-04",
+    source: "gateway",
+    kind: "assistant_message",
+    title: "Gateway event",
+    timestamp,
+    redacted: true
+  };
+}

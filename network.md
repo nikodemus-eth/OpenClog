@@ -82,3 +82,20 @@ Track network behavior, local Gateway assumptions, and remote deployment boundar
 - Reconnect attempts stay on loopback Gateway URLs and re-read token/device identity from the backend source each time.
 - Auto-restart uses `launchctl kickstart -k gui/$(id -u)/ai.openclaw.gateway` only after repeated eligible reconnect failures and a cooldown window.
 - Browser networking remains unchanged: the web app uses OpenClog HTTP/SSE routes and never connects directly to the OpenClaw Gateway.
+
+## 2026-05-04 Phase 1 Quick Wins Hardening
+- No new browser network paths were added for the Phase 1 operator improvements.
+- URL-persisted search is route state only; it changes the browser address/query string but does not add a direct browser-to-Gateway channel.
+- The selected-profile diagnostics now make loopback/LAN/remote targeting visible to the operator, but the browser still talks only to the OpenClog HTTP/SSE API.
+- Incident bundle copy uses locally fetched export data and the browser clipboard API; it does not introduce outbound transport.
+
+## 2026-05-04 Phase 2 Domain And Lifecycle Tranche
+- Pagination, retention lifecycle, alert lifecycle, expanded integrations, and replay inspection all stay behind the existing OpenClog HTTP API boundary.
+- No direct browser-to-Gateway or browser-to-third-party delivery channel was added; even the new integration targets remain backend-generated payloads only.
+- Replay bundle inspection is local HTTP request/response processing over already-exported data, not a live network replay channel.
+
+## 2026-05-04 Full Improvement Tranche Closeout
+- No direct browser-to-Gateway network path was added for saved presets, evidence completeness badges, API example copy buttons, replay diff classifications, or shortcut changes.
+- API example copy buttons generate local clipboard text from existing route shapes; they do not send third-party delivery requests or expose delivery credentials.
+- Gateway readiness and reconnect trend visibility remains sourced from OpenClog API health data, not a new browser socket to OpenClaw Gateway.
+- Final live Gateway verification reached `status: ready` against the local Gateway and probed `health`, `system-presence`, `exec.approval.list`, `sessions.list`, `sessions.subscribe`, and `sessions.messages.subscribe`; mutation testing stayed off.

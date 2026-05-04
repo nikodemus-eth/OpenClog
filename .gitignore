@@ -7,6 +7,9 @@ test-results/
 playwright-report/
 output/playwright/
 .playwright-mcp/
+.codex-tmp/
+target/
+**/target/
 stitch_openclog_multi_theme_interface_system/
 stitch_openclog_multi_theme_interface_system.zip
 .env

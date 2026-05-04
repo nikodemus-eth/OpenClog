@@ -15,7 +15,9 @@ export interface GatewayRuntimeState extends GatewayNegotiatedState {
   lastConnectedAt?: string;
   lastDisconnectedAt?: string;
   lastErrorReason?: string;
+  lastLiveEventAt?: string;
   nextReconnectAt?: string;
+  reconnectCount?: number;
   reconnectAttempt?: number;
   serviceRecovery?: GatewayServiceRecoveryState;
   stale?: boolean;

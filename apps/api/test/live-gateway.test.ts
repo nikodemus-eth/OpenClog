@@ -132,7 +132,13 @@ describe("live Gateway handshake", () => {
     token = "gateway-token-2";
     firstConnectedSocket?.close();
 
-    await waitFor(() => connectTokens.length === 2);
+    await waitFor(
+      () =>
+        connectTokens.length === 2 &&
+        methods.filter((method) => method === "sessions.subscribe").length === 2 &&
+        methods.filter((method) => method === "sessions.messages.subscribe").length === 2 &&
+        gatewayEvents.includes("gateway.reconnected")
+    );
 
     expect(connectTokens).toEqual(["gateway-token-1", "gateway-token-2"]);
     expect(methods.filter((method) => method === "sessions.subscribe")).toHaveLength(2);
