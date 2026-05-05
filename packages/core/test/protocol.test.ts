@@ -160,6 +160,25 @@ describe("Gateway protocol contract", () => {
     });
   });
 
+  test("treats negotiated operator.admin as satisfying operator.approvals", () => {
+    const state = evaluateHelloOk({
+      type: "hello-ok",
+      protocol: 3,
+      auth: {
+        role: "operator",
+        scopes: ["operator.admin", "operator.read", "operator.write"]
+      }
+    });
+
+    expect(state).toMatchObject({
+      status: "ready",
+      role: "operator",
+      scopes: ["operator.admin", "operator.read", "operator.write"],
+      missingScopes: [],
+      canIssueControlActions: true
+    });
+  });
+
   test("reconnect plan refreshes and resubscribes because events are not replayed", () => {
     expect(buildReconnectPlan("agent:hugin:main")).toEqual([
       { method: "health", params: {} },

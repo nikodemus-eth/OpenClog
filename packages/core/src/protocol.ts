@@ -86,6 +86,12 @@ export interface GatewayNegotiatedState {
   canIssueControlActions: boolean;
 }
 
+function expandNegotiatedOperatorScopes(scopes: readonly string[]): string[] {
+  const expanded = new Set(scopes);
+  if (expanded.has("operator.admin")) expanded.add("operator.approvals");
+  return [...expanded];
+}
+
 export function getGatewayMethod(key: GatewayMethodKey): GatewayMethod {
   return gatewayMethodMap[key];
 }
@@ -133,7 +139,8 @@ export function isLoopbackGatewayUrl(url: string): boolean {
 }
 
 export function evaluateHelloOk(hello: HelloOkLike): GatewayNegotiatedState {
-  const missingScopes = requiredOperatorScopes.filter((scope) => !hello.auth.scopes.includes(scope));
+  const effectiveScopes = expandNegotiatedOperatorScopes(hello.auth.scopes);
+  const missingScopes = requiredOperatorScopes.filter((scope) => !effectiveScopes.includes(scope));
   const ready = hello.auth.role === "operator" && missingScopes.length === 0;
   return {
     status: ready ? "ready" : "blocked",

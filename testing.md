@@ -152,3 +152,14 @@ Record deterministic verification, live Gateway verification, coverage policy, a
 - Final `npm run verify` passed with forbidden-RPC checks, typecheck, lint, workspace builds, 18 coverage test files, 134 unit/API tests, 100 percent measured statements/branches/functions/lines, 192 E2E/UI tests, 54 visual snapshots, 4 red-team tests, and docs check.
 - `npm run verify:gateway` passed live with `status: ready`; mutation testing remained disabled, so no live test session traffic was fabricated.
 - `npm run smoke -w @openclog/desktop` and `git diff --check` both passed during closeout.
+
+## 2026-05-05 Incident Command Loop Closeout
+- Added unit coverage for the refactored `packages/app` seams: versioned settings normalization, incident-loop assembly, bounded recommendation logic, richer receipt metadata, and explicit incident action execution.
+- Expanded browser/API coverage to the new operator flow: saved operator views, incident-loop headings and actions, backend-mediated note recording, richer receipt rendering, and the updated search/session observability microcopy.
+- Refreshed all 54 Playwright visual snapshots after the incident-workspace layout pivot changed panel height and command-surface copy across both desktop and mobile themes.
+- Final verification completed:
+  - `npm run verify`
+  - `npm run verify:gateway`
+  - `npm run smoke -w @openclog/desktop`
+  - `git diff --check`
+- Coverage remains fully closed on measured code after the refactor: 100% statements, branches, functions, and lines in `npm run test:coverage`.

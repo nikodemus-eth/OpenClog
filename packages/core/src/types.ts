@@ -260,6 +260,125 @@ export interface InvestigationNote {
   updatedAt: string;
 }
 
+export interface SearchPreset {
+  id: string;
+  label: string;
+  query: string;
+}
+
+export interface OperatorViewPreset {
+  id: string;
+  label: string;
+  dayKey?: string;
+  searchQuery: string;
+  activeFilters: JournalFilterKey[];
+  grouped: boolean;
+}
+
+export interface OpenClogSettings {
+  version: 2;
+  theme: string;
+  showToolCalls: boolean;
+  searchPresets: SearchPreset[];
+  operatorViews: OperatorViewPreset[];
+}
+
+export type IncidentCauseCategory =
+  | "sequence_gap"
+  | "reconnect_storm"
+  | "stale_summary"
+  | "delivery_failure"
+  | "integrity_mismatch"
+  | "retention_risk"
+  | "plugin_boundary"
+  | "evidence_incomplete"
+  | "unknown";
+
+export interface IncidentLoopDetectState {
+  title: string;
+  summary: string;
+  affectedDayKeys: string[];
+  sessionKeys: string[];
+  linkedEntryIds: string[];
+  evidence: string[];
+}
+
+export interface IncidentLoopExplainState {
+  category: IncidentCauseCategory;
+  title: string;
+  summary: string;
+  evidence: string[];
+  degraded: boolean;
+}
+
+export type IncidentRecommendationPriority = "high" | "medium" | "low";
+
+export interface IncidentLoopRecommendation {
+  id: string;
+  title: string;
+  rationale: string;
+  priority: IncidentRecommendationPriority;
+  actionId?: IncidentActionKind;
+}
+
+export type IncidentActionKind =
+  | "rebuild_visible_state"
+  | "open_raw_logs"
+  | "open_replay"
+  | "open_correlation"
+  | "copy_incident_packet"
+  | "deliver_slack"
+  | "deliver_generic_webhook"
+  | "deliver_email"
+  | "create_github_issue"
+  | "run_plugin"
+  | "refresh_summary"
+  | "save_note"
+  | "record_closeout";
+
+export type IncidentActionAvailability = "available" | "degraded" | "blocked";
+export type IncidentActionConfirmation = "none" | "confirm";
+export type IncidentActionStatus = "completed" | "failed";
+
+export interface IncidentLoopAction {
+  id: IncidentActionKind;
+  label: string;
+  description: string;
+  availability: IncidentActionAvailability;
+  confirmation: IncidentActionConfirmation;
+  reason?: string;
+}
+
+export interface IncidentActionRecord {
+  id: string;
+  incidentId: string;
+  kind: IncidentActionKind;
+  title: string;
+  status: IncidentActionStatus;
+  summary: string;
+  createdAt: string;
+  receiptId?: string;
+  noteId?: string;
+  exportId?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface IncidentLoopRecordState {
+  noteCount: number;
+  latestReceiptIds: string[];
+  latestExportId?: string;
+  latestCloseoutAt?: string;
+  actionRecords: IncidentActionRecord[];
+}
+
+export interface IncidentLoop {
+  detect: IncidentLoopDetectState;
+  explain: IncidentLoopExplainState;
+  recommend: IncidentLoopRecommendation[];
+  act: IncidentLoopAction[];
+  record: IncidentLoopRecordState;
+}
+
 export interface IncidentWorkspace {
   incident: IncidentSummary;
   entries: JournalEntry[];
@@ -268,6 +387,7 @@ export interface IncidentWorkspace {
   notes: InvestigationNote[];
   sessionKeys: string[];
   suggestedNextActions: string[];
+  loop: IncidentLoop;
 }
 
 export interface ReplayBundleDiff {
@@ -353,7 +473,7 @@ export interface RetentionClassPreview {
   impact: RetentionClassPreviewImpact;
 }
 
-export type DeliveryAdapterTarget = "slack" | "generic-webhook" | "email";
+export type DeliveryAdapterTarget = "slack" | "generic-webhook" | "email" | "github-issue";
 export type DeliveryReceiptStatus = "delivered" | "failed";
 
 export interface DeliveryAdapterConfig {
@@ -372,8 +492,11 @@ export interface DeliveryReceipt {
   status: DeliveryReceiptStatus;
   requestedAt: string;
   completedAt: string;
+  correlationId: string;
+  retryCount: number;
   deliveryReference?: string;
   errorCategory?: "missing_config" | "network" | "authentication" | "validation" | "unknown";
+  deadLetterReason?: string;
 }
 
 export interface ServiceHealthTimelineEntry {

@@ -113,3 +113,10 @@ Track OpenClog architecture, component ownership, and authority boundaries.
 - The repository composes per-day completeness from persisted summary, investigation notes, bundle exports, and incidents; UI code renders the result as view-model data instead of re-counting tables in the browser.
 - Replay-bundle diffs now include a first-class change class from `@openclog/app`, keeping narrative/metadata/evidence-shape triage close to the shared application boundary.
 - Workbench interaction helpers continue moving into `apps/web/src/state/operator-workspace.ts`, with React owning orchestration and focus rather than policy decisions.
+
+## 2026-05-05 Incident Command Loop Convergence
+- `packages/app` is no longer a single catch-all file: the shared application layer now has explicit contracts, settings normalization, utility helpers, and a dedicated incident-loop module that assembles `Detect -> Explain -> Recommend -> Act -> Record` from bounded local evidence.
+- `IncidentWorkspace` now carries a typed `loop` model rather than only loose summary fields, so the API and web UI can render the same operator decision surface without React inventing policy.
+- Incident actions are now explicit backend-mediated contracts rather than scattered button wiring: rebuild-state, raw-log review, replay/correlation review, incident packet copy, outbound delivery, GitHub issue creation, plugin execution, summary refresh, note capture, and closeout recording all execute through one incident action route.
+- SQLite persistence now records incident action history in `journal_incident_action_records`, while delivery receipts carry richer operational metadata such as `correlationId`, `retryCount`, and `deadLetterReason`.
+- Settings now have a versioned `settings.v2` shape that preserves theme, tool-call preference, search presets, and saved operator views across the web and future desktop surfaces.

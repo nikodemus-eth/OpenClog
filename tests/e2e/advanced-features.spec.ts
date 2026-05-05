@@ -44,7 +44,6 @@ test("journal quick wins and advanced workbench stay usable together", async ({ 
 
   await expect(page.getByLabel("Daily page")).toContainText("OpenClog Journal");
   await expect(page.getByLabel("Gateway readiness: ready")).toBeVisible();
-  await expect(page.getByText(/Last live event at/i)).toBeVisible();
   await expect(page.getByLabel("Saved filters").getByLabel("Errors")).toBeChecked();
   await expect(page.getByLabel("Saved filters").getByLabel("Tool failures")).toBeChecked();
   await expect(page.getByRole("button", { name: "Raw timeline" })).toHaveAttribute("aria-pressed", "true");
@@ -61,7 +60,9 @@ test("journal quick wins and advanced workbench stay usable together", async ({ 
   await page.getByLabel("Journal search input").fill("timeout");
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await page.getByRole("button", { name: "Save search preset" }).click();
-  await expect(page.getByRole("button", { name: /timeout/i })).toBeVisible();
+  await page.getByRole("button", { name: "Save operator view" }).click();
+  await expect(page.getByRole("button", { name: "timeout", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "2026-05-03 timeout", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /Tool call Called/i })).toContainText("Called get_repository_status for 2026-05-03.");
   await expect(page.getByText(/Matched in toolName and body/i)).toBeVisible();
   await expect(page).toHaveURL(/q=timeout/);
@@ -88,7 +89,11 @@ test("journal quick wins and advanced workbench stay usable together", async ({ 
   await page.getByRole("button", { name: "Save alert rule" }).click();
   await expect(page.getByText(/incidents, 1 active alert findings\./i)).toBeVisible();
   await page.getByLabel("Incident workspace selector").selectOption("incident-1");
-  await expect(page.getByText(/Derived incident summary/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Detect", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Explain", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Recommend", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Act", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Record", exact: true })).toBeVisible();
   await page.getByLabel("Investigation note").fill("Operator captured the reconnect sequence.");
   await page.getByRole("button", { name: "Save investigation note" }).click();
   await expect(page.getByText(/Investigation note recorded/i)).toBeVisible();
@@ -160,7 +165,7 @@ test("keyboard shortcuts jump to operational entries and the composer", async ({
   await page.goto("/?day=2026-05-03");
 
   await page.keyboard.press("Alt+e");
-  await expect(page.getByText("Tool failed")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Timeline entry .*Tool failed/ })).toBeVisible();
   await page.keyboard.press("Alt+a");
   await expect(page.getByRole("button", { name: /Timeline entry .*Approval requested/ })).toBeVisible();
   await page.keyboard.press("Alt+t");

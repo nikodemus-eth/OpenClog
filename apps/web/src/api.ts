@@ -13,10 +13,14 @@ import type {
   LineageRecord,
   MissionReplay,
   GeneratedSummary,
+  IncidentActionKind,
+  IncidentActionRecord,
   IncidentSummary,
   IncidentWorkspace,
   InvestigationNote,
   IntegrationPayload,
+  OpenClogSettings,
+  OperatorViewPreset,
   PluginExecutionResult,
   PluginManifest,
   IntegrityReport,
@@ -33,6 +37,8 @@ import type {
   ThemeId
 } from "@openclog/core";
 import { themeIds } from "@openclog/core";
+
+export type { SearchPreset } from "@openclog/core";
 
 export interface HealthResponse {
   ok: boolean;
@@ -105,20 +111,32 @@ export async function generateSummary(dayKey: string): Promise<GeneratedSummary>
   return result.generatedSummary;
 }
 
-export async function fetchSettings(): Promise<{ showToolCalls: boolean; theme: string; searchPresets: SearchPreset[] }> {
-  const result = await fetchJson<{ settings: { showToolCalls?: boolean; theme?: string; searchPresets?: SearchPreset[] } }>("/api/settings");
-  return { showToolCalls: result.settings.showToolCalls !== false, theme: result.settings.theme ?? "default", searchPresets: result.settings.searchPresets ?? [] };
+export async function fetchSettings(): Promise<OpenClogSettings> {
+  const result = await fetchJson<{ settings: Partial<OpenClogSettings> }>("/api/settings");
+  return {
+    version: 2,
+    theme: result.settings.theme ?? "default",
+    showToolCalls: result.settings.showToolCalls !== false,
+    searchPresets: result.settings.searchPresets ?? [],
+    operatorViews: result.settings.operatorViews ?? []
+  };
 }
 
-export async function updateSettings(settings: Record<string, unknown>): Promise<Record<string, unknown>> {
+export async function updateSettings(settings: Partial<OpenClogSettings> & { operatorViews?: OperatorViewPreset[] }): Promise<OpenClogSettings> {
   const response = await fetch("/api/settings", {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(settings)
   });
   if (!response.ok) throw new Error("Settings update failed");
-  const result = (await response.json()) as { settings?: Record<string, unknown> };
-  return result.settings ?? {};
+  const result = (await response.json()) as { settings?: Partial<OpenClogSettings> };
+  return {
+    version: 2,
+    theme: result.settings?.theme ?? "default",
+    showToolCalls: result.settings?.showToolCalls !== false,
+    searchPresets: result.settings?.searchPresets ?? [],
+    operatorViews: result.settings?.operatorViews ?? []
+  };
 }
 
 export async function fetchSessions(dayKey: string): Promise<AgentActivity[]> {
@@ -174,12 +192,6 @@ export interface BundleExport {
   manifest: { dayKey: string; exportedAt: string; version: string };
   day: JournalDay;
   markdown: string;
-}
-
-export interface SearchPreset {
-  id: string;
-  label: string;
-  query: string;
 }
 
 export async function exportBundle(dayKey: string): Promise<BundleExport> {
@@ -239,13 +251,17 @@ export async function createIncidentSnapshot(payload: { dayKey: string; entryIds
   return result.incident;
 }
 
-export async function fetchInvestigationNotes(filter: { dayKey?: string; incidentId?: string } = {}): Promise<InvestigationNote[]> {
+export async function fetchInvestigationNotes(filter: { dayKey?: string; incidentId?: string; cursor?: string; limit?: number } = {}): Promise<{
+  notes: InvestigationNote[];
+  nextCursor?: string;
+}> {
   const params = new URLSearchParams();
   if (filter.dayKey) params.set("dayKey", filter.dayKey);
   if (filter.incidentId) params.set("incidentId", filter.incidentId);
+  if (filter.cursor) params.set("cursor", filter.cursor);
+  if (typeof filter.limit === "number") params.set("limit", String(filter.limit));
   const suffix = params.toString() ? `?${params.toString()}` : "";
-  const result = await fetchJson<{ notes: InvestigationNote[] }>(`/api/investigation-notes${suffix}`);
-  return result.notes;
+  return fetchJson<{ notes: InvestigationNote[]; nextCursor?: string }>(`/api/investigation-notes${suffix}`);
 }
 
 export async function createInvestigationNote(payload: {
@@ -291,9 +307,10 @@ export async function fetchHealthHistory(limit = 5): Promise<HealthHistoryEntry[
   return result.history;
 }
 
-export async function fetchHealthTimeline(limit = 10): Promise<ServiceHealthTimelineEntry[]> {
-  const result = await fetchJson<{ timeline: ServiceHealthTimelineEntry[] }>(`/api/health/timeline?limit=${String(limit)}`);
-  return result.timeline;
+export async function fetchHealthTimeline(limit = 10, cursor?: string): Promise<{ timeline: ServiceHealthTimelineEntry[]; nextCursor?: string }> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set("cursor", cursor);
+  return fetchJson<{ timeline: ServiceHealthTimelineEntry[]; nextCursor?: string }>(`/api/health/timeline?${params.toString()}`);
 }
 
 export async function fetchProfiles(): Promise<{ selectedProfileId: string; profiles: ProfileConfig[] }> {
@@ -340,9 +357,25 @@ export async function deliverIntegration(target: "slack" | "generic-webhook" | "
   return result.receipt;
 }
 
-export async function fetchDeliveryReceipts(): Promise<DeliveryReceipt[]> {
-  const result = await fetchJson<{ receipts: DeliveryReceipt[] }>("/api/integrations/receipts");
-  return result.receipts;
+export async function fetchDeliveryReceipts(limit = 20, cursor?: string): Promise<{ receipts: DeliveryReceipt[]; nextCursor?: string }> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set("cursor", cursor);
+  return fetchJson<{ receipts: DeliveryReceipt[]; nextCursor?: string }>(`/api/integrations/receipts?${params.toString()}`);
+}
+
+export async function executeIncidentAction(payload: {
+  incidentId: string;
+  actionId: IncidentActionKind;
+  body?: string;
+  pluginId?: string;
+}): Promise<{ actionRecord: IncidentActionRecord; receipt?: DeliveryReceipt; note?: InvestigationNote; packet?: string; nextWorkspace: IncidentWorkspace }> {
+  const response = await fetch(`/api/incidents/${encodeURIComponent(payload.incidentId)}/actions/${encodeURIComponent(payload.actionId)}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ body: payload.body, pluginId: payload.pluginId })
+  });
+  if (!response.ok) throw new Error("Incident action failed");
+  return (await response.json()) as { actionRecord: IncidentActionRecord; receipt?: DeliveryReceipt; note?: InvestigationNote; packet?: string; nextWorkspace: IncidentWorkspace };
 }
 
 export async function diffReplayBundles(payload: { left: BundleExport; right: BundleExport }): Promise<ReplayBundleDiff> {

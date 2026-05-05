@@ -4,116 +4,46 @@ import type {
   AnalyticsSnapshot,
   CloseoutPlan,
   CorrelationGraph,
-  DeliveryAdapterTarget,
   DeliveryReceipt,
   GeneratedProfileSummary,
-  IncidentSummary,
   IncidentWorkspace,
   IntegrityMonitorReport,
   InvestigationNote,
   IntegrationPayload,
-  JournalDay,
-  JournalEntry,
-  JournalSearchResult,
   LineageRecord,
   MissionReplay,
+  OpenClogSettings,
   PluginExecutionResult,
   PluginManifest,
   ReplayBundleDiff,
   RetentionClass,
   RetentionClassPreview,
   RetentionPolicy,
-  RetentionPreview,
   ServiceHealthTimelineEntry,
-  SessionDrilldown,
   SummaryProfile
 } from "@openclog/core";
+import { buildIncidentWorkspace, executeIncidentAction } from "./incident-loop.js";
+import type {
+  AlertStateRecord,
+  ApplicationRepository,
+  PaginatedListResult,
+  PaginatedSearchResult,
+  PaginatedSessionDrilldown,
+  RetentionSnapshotRecord,
+  UpdateSettingsInput
+} from "./contracts.js";
+import { getSettings, updateSettings } from "./settings.js";
+import {
+  buildBundleEntryMetadata,
+  classifyReplayBundleDiff,
+  diffRecordKeys,
+  latestEntryAt,
+  paginateItems,
+  requireMethod,
+  titleCase
+} from "./utils.js";
 
-export interface PaginatedSearchResult {
-  items: JournalSearchResult[];
-  nextCursor?: string;
-}
-
-export interface PaginatedSessionDrilldown extends SessionDrilldown {
-  nextCursor?: string;
-}
-
-export interface RetentionSnapshotRecord {
-  id: string;
-  createdAt: string;
-  preview: RetentionPreview;
-  days: JournalDay[];
-}
-
-export interface AlertStateRecord {
-  ruleId: string;
-  acknowledgedAt?: string;
-  snoozedUntil?: string;
-}
-
-interface SearchRepository {
-  searchEntries(query: string): JournalSearchResult[];
-}
-
-interface DrilldownRepository {
-  getDrilldown(sessionKey: string): SessionDrilldown;
-}
-
-interface RetentionRepository {
-  listDays(): Array<Omit<JournalDay, "entries">>;
-  getDay(dayKey: string): JournalDay | null;
-  previewRetention(policy: RetentionPolicy): RetentionPreview;
-  deleteDays(dayKeys: string[]): void;
-  saveRetentionSnapshot(snapshot: RetentionSnapshotRecord): RetentionSnapshotRecord;
-  getRetentionSnapshot(id: string): RetentionSnapshotRecord | undefined;
-  restoreRetentionSnapshot(snapshot: RetentionSnapshotRecord): void;
-  listRetentionClasses(): RetentionClass[];
-  saveRetentionClass(retentionClass: RetentionClass): RetentionClass;
-  previewRetentionByClass(): RetentionClassPreview[];
-}
-
-interface AlertsRepository {
-  listAlertRules(): AlertRule[];
-  evaluateAlertRules(dayKey: string): AlertFinding[];
-  setAlertState(ruleId: string, state: AlertStateRecord): AlertStateRecord;
-  getAlertState(ruleId: string): AlertStateRecord | undefined;
-}
-
-interface IncidentRepository {
-  getIncident(id: string): IncidentSummary | undefined;
-  listIncidents(): IncidentSummary[];
-  getDay(dayKey: string): JournalDay | null;
-  saveInvestigationNote(note: InvestigationNote): InvestigationNote;
-  listInvestigationNotes(filter?: {
-    dayKey?: string;
-    incidentId?: string;
-  }): InvestigationNote[];
-}
-
-interface IntegrationRepository {
-  buildIntegrationPayload(target: IntegrationPayload["target"], dayKey: string): IntegrationPayload;
-  deliverIntegration(target: DeliveryAdapterTarget, dayKey: string, incidentId?: string): DeliveryReceipt;
-  listDeliveryReceipts(): DeliveryReceipt[];
-}
-
-interface GovernanceRepository {
-  getLineage(entryId: string): LineageRecord | undefined;
-  listSummaryProfiles(): SummaryProfile[];
-  generateSummaryProfile(profileId: SummaryProfile["id"], dayKey: string): GeneratedProfileSummary;
-  runIntegrityMonitor(): IntegrityMonitorReport;
-  listIntegrityReports(): IntegrityMonitorReport[];
-  getAnalytics(): AnalyticsSnapshot;
-  buildMissionReplay(incidentId: string): MissionReplay;
-  buildCorrelationGraph(incidentId: string): CorrelationGraph;
-  listPlugins(): PluginManifest[];
-  registerPlugin(plugin: PluginManifest): PluginManifest;
-  runPlugin(pluginId: string): PluginExecutionResult;
-  listHealthTimeline(limit?: number): ServiceHealthTimelineEntry[];
-}
-
-type ApplicationRepository = Partial<
-  SearchRepository & DrilldownRepository & RetentionRepository & AlertsRepository & IncidentRepository & IntegrationRepository & GovernanceRepository
->;
+export * from "./contracts.js";
 
 export function createOpenClogApplication({ repo }: { repo: ApplicationRepository }) {
   return {
@@ -134,11 +64,17 @@ export function createOpenClogApplication({ repo }: { repo: ApplicationRepositor
       const page = paginateItems(drilldown.entries, limit, cursor);
       return { ...drilldown, entries: page.items, nextCursor: page.nextCursor };
     },
+    getSettings(): OpenClogSettings {
+      return getSettings(repo);
+    },
+    updateSettings(input: UpdateSettingsInput): OpenClogSettings {
+      return updateSettings(repo, input);
+    },
     applyRetention(policy: RetentionPolicy): RetentionSnapshotRecord {
       const preview = requireMethod(repo.previewRetention, "previewRetention")(policy);
       const days = requireMethod(repo.listDays, "listDays")()
         .map((day) => requireMethod(repo.getDay, "getDay")(day.dayKey))
-        .filter((day): day is JournalDay => day !== null);
+        .filter((day): day is NonNullable<typeof day> => day !== null);
       const snapshot: RetentionSnapshotRecord = {
         id: `retention-${Date.now()}`,
         createdAt: new Date().toISOString(),
@@ -215,44 +151,37 @@ export function createOpenClogApplication({ repo }: { repo: ApplicationRepositor
         updatedAt: now
       });
     },
-    listInvestigationNotes(filter?: { dayKey?: string; incidentId?: string }): InvestigationNote[] {
-      return requireMethod(repo.listInvestigationNotes, "listInvestigationNotes")(filter);
+    listInvestigationNotes(filter?: { dayKey?: string; incidentId?: string; cursor?: string; limit?: number }): PaginatedListResult<InvestigationNote> {
+      const items = requireMethod(repo.listInvestigationNotes, "listInvestigationNotes")({
+        dayKey: filter?.dayKey,
+        incidentId: filter?.incidentId
+      });
+      return paginateItems(items, filter?.limit ?? 20, filter?.cursor);
     },
     getIncidentWorkspace({ incidentId }: { incidentId: string }): IncidentWorkspace {
-      const incident = requireMethod(repo.getIncident, "getIncident")(incidentId);
-      if (!incident) throw new Error(`incident_not_found:${incidentId}`);
-      const notes = requireMethod(repo.listInvestigationNotes, "listInvestigationNotes")({ incidentId });
-      const days = incident.dayKeys
-        .map((dayKey) => requireMethod(repo.getDay, "getDay")(dayKey))
-        .filter((day): day is JournalDay => day !== null);
-      const entries = incident.entryIds
-        .map((entryId) => days.flatMap((day) => day.entries).find((entry) => entry.id === entryId))
-        .filter((entry): entry is JournalEntry => entry !== undefined);
-      const sessionKeys = [...new Set(entries.map((entry) => entry.sessionId).filter((sessionKey): sessionKey is string => Boolean(sessionKey)))];
-      const alertFindings = incident.dayKeys.flatMap((dayKey) => requireMethod(repo.evaluateAlertRules, "evaluateAlertRules")(dayKey)).filter((finding) => finding.triggered);
-      const suggestedNextActions = [
-        ...incident.runbookSuggestions.map((suggestion) => suggestion.title),
-        ...(notes.length === 0 ? ["Capture the first operator investigation note."] : []),
-        ...(alertFindings.length > 0 ? ["Review active alert findings before export."] : [])
-      ];
-      return {
-        incident,
-        entries,
-        alertFindings,
-        generatedSummary: days[0]?.generatedSummary,
-        notes,
-        sessionKeys,
-        suggestedNextActions
-      };
+      return buildIncidentWorkspace(repo, incidentId);
+    },
+    executeIncidentAction({
+      incidentId,
+      actionId,
+      body,
+      pluginId
+    }: {
+      incidentId: string;
+      actionId: IncidentWorkspace["loop"]["act"][number]["id"];
+      body?: string;
+      pluginId?: string;
+    }) {
+      return executeIncidentAction(repo, { incidentId, actionId, body, pluginId });
     },
     buildIntegrationPayload({ target, dayKey }: { target: IntegrationPayload["target"]; dayKey: string }): IntegrationPayload {
       return requireMethod(repo.buildIntegrationPayload, "buildIntegrationPayload")(target, dayKey);
     },
-    deliverIntegration({ target, dayKey, incidentId }: { target: DeliveryAdapterTarget; dayKey: string; incidentId?: string }): DeliveryReceipt {
+    deliverIntegration({ target, dayKey, incidentId }: { target: DeliveryReceipt["target"]; dayKey: string; incidentId?: string }): DeliveryReceipt {
       return requireMethod(repo.deliverIntegration, "deliverIntegration")(target, dayKey, incidentId);
     },
-    listDeliveryReceipts(): DeliveryReceipt[] {
-      return requireMethod(repo.listDeliveryReceipts, "listDeliveryReceipts")();
+    listDeliveryReceipts({ cursor, limit = 20 }: { cursor?: string; limit?: number } = {}): PaginatedListResult<DeliveryReceipt> {
+      return paginateItems(requireMethod(repo.listDeliveryReceipts, "listDeliveryReceipts")(), limit, cursor);
     },
     inspectReplayBundle(bundle: { day?: { dayKey?: string; entries?: unknown[] }; markdown?: string }) {
       return {
@@ -369,60 +298,8 @@ export function createOpenClogApplication({ repo }: { repo: ApplicationRepositor
     runPlugin({ pluginId }: { pluginId: string }): PluginExecutionResult {
       return requireMethod(repo.runPlugin, "runPlugin")(pluginId);
     },
-    listHealthTimeline({ limit = 10 }: { limit?: number } = {}): ServiceHealthTimelineEntry[] {
-      return requireMethod(repo.listHealthTimeline, "listHealthTimeline")(limit);
+    listHealthTimeline({ limit = 10, cursor }: { limit?: number; cursor?: string } = {}): PaginatedListResult<ServiceHealthTimelineEntry> {
+      return paginateItems(requireMethod(repo.listHealthTimeline, "listHealthTimeline")(Math.max(limit * 3, 30)), limit, cursor);
     }
   };
-}
-
-function requireMethod<T>(method: T | undefined, name: string): T {
-  if (!method) throw new Error(`application_repository_missing:${name}`);
-  return method;
-}
-
-function paginateItems<T>(items: T[], limit: number, cursor?: string): { items: T[]; nextCursor?: string } {
-  const pageSize = Math.max(1, Math.floor(limit));
-  const offset = Number.parseInt(cursor ?? "0", 10);
-  const safeOffset = Number.isFinite(offset) && offset >= 0 ? offset : 0;
-  const page = items.slice(safeOffset, safeOffset + pageSize);
-  const nextOffset = safeOffset + page.length;
-  return {
-    items: page,
-    nextCursor: nextOffset < items.length ? String(nextOffset) : undefined
-  };
-}
-
-function diffRecordKeys(left: Record<string, unknown> | undefined, right: Record<string, unknown> | undefined): string[] {
-  const keys = new Set([...Object.keys(left ?? {}), ...Object.keys(right ?? {})]);
-  return [...keys].filter((key) => JSON.stringify(left?.[key]) !== JSON.stringify(right?.[key]));
-}
-
-function buildBundleEntryMetadata(entries: Array<{ id?: string; [key: string]: unknown }>): Record<string, unknown> {
-  return Object.fromEntries(entries.map((entry) => [String(entry.id ?? "missing"), Object.keys(entry).sort()]));
-}
-
-function classifyReplayBundleDiff(diff: {
-  addedEntryIds: string[];
-  removedEntryIds: string[];
-  summaryChanged: boolean;
-  markdownChanged: boolean;
-  changedManifestFields: string[];
-  changedMetadataFields: string[];
-}): ReplayBundleDiff["changeClass"] {
-  if (diff.addedEntryIds.length > 0 || diff.removedEntryIds.length > 0) return "evidence_shape";
-  if (diff.changedMetadataFields.length > 0 || diff.changedManifestFields.length > 0) return "metadata_only";
-  if (diff.summaryChanged || diff.markdownChanged) return "narrative_only";
-  return "unchanged";
-}
-
-function latestEntryAt(entries: JournalEntry[]): string {
-  return entries.reduce((latest, entry) => (entry.timestamp > latest ? entry.timestamp : latest), "");
-}
-
-function titleCase(value: string): string {
-  return value
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }

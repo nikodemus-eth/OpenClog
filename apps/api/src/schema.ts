@@ -166,6 +166,13 @@ export const journalBundleExports = sqliteTable("journal_bundle_exports", {
   exportJson: text("export_json").notNull()
 });
 
+export const journalIncidentActionRecords = sqliteTable("journal_incident_action_records", {
+  id: text("id").primaryKey(),
+  incidentId: text("incident_id").notNull(),
+  createdAt: text("created_at").notNull(),
+  recordJson: text("record_json").notNull()
+});
+
 export const journalAuditLog = sqliteTable("journal_audit_log", {
   id: text("id").primaryKey(),
   action: text("action").notNull(),
@@ -190,6 +197,7 @@ export const journalTableNames = [
   "journal_delivery_receipts",
   "journal_entries",
   "journal_entry_artifacts",
+  "journal_incident_action_records",
   "journal_incidents",
   "journal_integrity_reports",
   "journal_investigation_notes",

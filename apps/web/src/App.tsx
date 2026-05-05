@@ -11,19 +11,23 @@ import {
   type AlertFinding,
   type AlertRule,
   type ApprovalView,
+  type DeliveryReceipt,
   type IncidentSummary,
+  type InvestigationNote,
   type JournalDay,
   type JournalEntry,
   type JournalFilterKey,
   type JournalSearchResult,
+  type OperatorViewPreset,
   type ProfileConfig,
+  type ServiceHealthTimelineEntry,
   type ThemePracticalGroup,
   type ThemeId
 } from "@openclog/core";
 import {
   type BundleExport,
   buildCloseoutPlan,
-  createInvestigationNote,
+  executeIncidentAction,
   deliverIntegration,
   fetchAnalytics,
   fetchCorrelation,
@@ -146,6 +150,9 @@ export function App() {
   const [searchResults, setSearchResults] = useState<JournalSearchResult[]>([]);
   const [searchNextCursor, setSearchNextCursor] = useState<string | undefined>();
   const [searchPresets, setSearchPresets] = useState<SearchPreset[]>([]);
+  const [operatorViews, setOperatorViews] = useState<OperatorViewPreset[]>([]);
+  const [searchLatencyMs, setSearchLatencyMs] = useState<number | null>(null);
+  const [sessionLatencyMs, setSessionLatencyMs] = useState<number | null>(null);
   const [selectedSessionKey, setSelectedSessionKey] = useState("");
   const [sessionDetail, setSessionDetail] = useState<Awaited<ReturnType<typeof fetchSessionDrilldown>> | null>(null);
   const [integrityReport, setIntegrityReport] = useState<Awaited<ReturnType<typeof runIntegrityCheck>> | null>(null);
@@ -154,7 +161,7 @@ export function App() {
   const [selectedIncidentId, setSelectedIncidentId] = useState("");
   const [incidentCaptured, setIncidentCaptured] = useState(false);
   const [incidentWorkspace, setIncidentWorkspace] = useState<Awaited<ReturnType<typeof fetchIncidentWorkspace>> | null>(null);
-  const [investigationNotes, setInvestigationNotes] = useState<Awaited<ReturnType<typeof fetchInvestigationNotes>>>([]);
+  const [investigationNotes, setInvestigationNotes] = useState<InvestigationNote[]>([]);
   const [investigationNoteDraft, setInvestigationNoteDraft] = useState("");
   const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
   const [alertFindings, setAlertFindings] = useState<AlertFinding[]>([]);
@@ -167,8 +174,8 @@ export function App() {
   const [replayBundleDiffState, setReplayBundleDiffState] = useState<Awaited<ReturnType<typeof diffReplayBundles>> | null>(null);
   const [closeoutPlanState, setCloseoutPlanState] = useState<Awaited<ReturnType<typeof buildCloseoutPlan>> | null>(null);
   const [healthHistory, setHealthHistory] = useState<Awaited<ReturnType<typeof fetchHealthHistory>>>([]);
-  const [healthTimeline, setHealthTimeline] = useState<Awaited<ReturnType<typeof fetchHealthTimeline>>>([]);
-  const [deliveryReceipts, setDeliveryReceipts] = useState<Awaited<ReturnType<typeof fetchDeliveryReceipts>>>([]);
+  const [healthTimeline, setHealthTimeline] = useState<ServiceHealthTimelineEntry[]>([]);
+  const [deliveryReceipts, setDeliveryReceipts] = useState<DeliveryReceipt[]>([]);
   const [retentionClasses, setRetentionClasses] = useState<Awaited<ReturnType<typeof fetchRetentionClasses>>>([]);
   const [retentionClassPreviewState, setRetentionClassPreviewState] = useState<Awaited<ReturnType<typeof previewRetentionByClass>>>([]);
   const [lineageRecord, setLineageRecord] = useState<Awaited<ReturnType<typeof fetchLineage>> | null>(null);
@@ -180,6 +187,7 @@ export function App() {
   const [correlationGraph, setCorrelationGraph] = useState<Awaited<ReturnType<typeof fetchCorrelation>> | null>(null);
   const [plugins, setPlugins] = useState<Awaited<ReturnType<typeof fetchPlugins>>>([]);
   const [pluginRunResult, setPluginRunResult] = useState<Awaited<ReturnType<typeof runPlugin>> | null>(null);
+  const [incidentActionNotice, setIncidentActionNotice] = useState("");
   const [pinnedContextCollapsed, setPinnedContextCollapsed] = useState(() => {
     if (typeof window === "undefined") return true;
     try {
@@ -269,6 +277,7 @@ export function App() {
         setShowToolCalls(settings.showToolCalls);
         setThemeId(resolveThemeId(settings.theme));
         setSearchPresets(mergeSearchPresets(settings.searchPresets));
+        setOperatorViews(settings.operatorViews);
       })
       .catch(() => setNotice("Gateway degraded: settings are using local defaults."));
     void fetchVersion().then(setVersion).catch(() => undefined);
@@ -323,11 +332,11 @@ export function App() {
         fetchAlerts().catch(() => ({ rules: [] as AlertRule[], findings: [] as AlertFinding[] })),
         fetchAdapterEvents().catch(() => [] as AdapterEvent[]),
         fetchIncidents().catch(() => [] as IncidentSummary[]),
-        fetchInvestigationNotes({ dayKey: route.selectedDayKey || day.dayKey }).catch(() => []),
+        fetchInvestigationNotes({ dayKey: route.selectedDayKey || day.dayKey }).catch(() => ({ notes: [] as InvestigationNote[] })),
         fetchProfiles().catch(() => ({ selectedProfileId: "default", profiles: [] as ProfileConfig[] })),
         fetchHealthHistory().catch(() => []),
-        fetchHealthTimeline().catch(() => []),
-        fetchDeliveryReceipts().catch(() => []),
+        fetchHealthTimeline().catch(() => ({ timeline: [] as ServiceHealthTimelineEntry[] })),
+        fetchDeliveryReceipts().catch(() => ({ receipts: [] as DeliveryReceipt[] })),
         fetchRetentionClasses().catch(() => []),
         fetchSummaryProfiles().catch(() => []),
         fetchPlugins().catch(() => []),
@@ -338,12 +347,12 @@ export function App() {
       setAlertFindings(alerts.findings);
       setAdapterEvents(adapters);
       setIncidents(incidentList);
-      setInvestigationNotes(noteList);
+      setInvestigationNotes(noteList.notes);
       setProfiles(profileData.profiles);
       setSelectedProfileId(profileData.selectedProfileId);
       setHealthHistory(history);
-      setHealthTimeline(timeline);
-      setDeliveryReceipts(receipts);
+      setHealthTimeline(timeline.timeline);
+      setDeliveryReceipts(receipts.receipts);
       setRetentionClasses(classes);
       setSummaryProfiles(profiles);
       setPlugins(pluginList);
@@ -365,8 +374,12 @@ export function App() {
 
   useEffect(() => {
     if (!selectedSessionKey) return;
+    const startedAt = performance.now();
     void fetchSessionDrilldown(selectedSessionKey)
-      .then(setSessionDetail)
+      .then((detail) => {
+        setSessionDetail(detail);
+        setSessionLatencyMs(Math.round(performance.now() - startedAt));
+      })
       .catch(() => setSessionDetail(null));
   }, [selectedSessionKey]);
 
@@ -660,9 +673,11 @@ export function App() {
   }
 
   async function handleSearch(): Promise<void> {
+    const startedAt = performance.now();
     const result = await searchJournal(searchQuery);
     setSearchResults(result.results);
     setSearchNextCursor(result.nextCursor);
+    setSearchLatencyMs(Math.round(performance.now() - startedAt));
   }
 
   async function handleLoadMoreSearch(): Promise<void> {
@@ -679,11 +694,41 @@ export function App() {
     setNotice("Search preset saved.");
   }
 
+  async function handleSaveOperatorView(): Promise<void> {
+    const label = searchQuery.trim() ? `${visibleDay.dayKey} ${searchQuery.trim()}` : `${visibleDay.dayKey} investigation`;
+    const nextView: OperatorViewPreset = {
+      id: label.toLocaleLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || `view-${operatorViews.length + 1}`,
+      label,
+      dayKey: visibleDay.dayKey,
+      searchQuery,
+      activeFilters,
+      grouped
+    };
+    const next = [nextView, ...operatorViews.filter((view) => view.id !== nextView.id)].slice(0, 8);
+    setOperatorViews(next);
+    await updateSettings({ operatorViews: next });
+    setNotice("Operator view saved.");
+  }
+
   async function handleApplySearchPreset(preset: SearchPreset): Promise<void> {
     route.setSearchQuery(preset.query);
     const result = await searchJournal(preset.query);
     setSearchResults(result.results);
     setSearchNextCursor(result.nextCursor);
+  }
+
+  async function handleApplyOperatorView(view: OperatorViewPreset): Promise<void> {
+    route.setSelectedDayKey(view.dayKey ?? visibleDay.dayKey);
+    route.setSearchQuery(view.searchQuery);
+    setActiveFilters(view.activeFilters);
+    setGrouped(view.grouped);
+    if (view.dayKey && view.dayKey !== route.selectedDayKey) await handleDaySelect(view.dayKey);
+    if (view.searchQuery.trim()) {
+      const result = await searchJournal(view.searchQuery);
+      setSearchResults(result.results);
+      setSearchNextCursor(result.nextCursor);
+    }
+    setNotice(`${view.label} loaded.`);
   }
 
   async function handleRetentionPreview(): Promise<void> {
@@ -703,19 +748,31 @@ export function App() {
     setNotice("Incident workspace updated.");
   }
 
+  async function handleExecuteIncidentAction(actionId: Parameters<typeof executeIncidentAction>[0]["actionId"], options?: { body?: string; pluginId?: string }): Promise<void> {
+    if (!selectedIncidentId) return;
+    const result = await executeIncidentAction({ incidentId: selectedIncidentId, actionId, body: options?.body, pluginId: options?.pluginId });
+    setIncidentWorkspace(result.nextWorkspace);
+    if (result.note) {
+      setInvestigationNotes((current) => [result.note!, ...current.filter((item) => item.id !== result.note!.id)]);
+      setInvestigationNoteDraft("");
+    }
+    if (result.receipt) {
+      setDeliveryReceipts((current) => [result.receipt!, ...current.filter((item) => item.id !== result.receipt!.id)]);
+    }
+    if (result.packet) {
+      try {
+        await navigator.clipboard.writeText(result.packet);
+      } catch {
+        // Keep the action recorded even when clipboard is unavailable.
+      }
+    }
+    setIncidentActionNotice(result.actionRecord.summary);
+    setNotice(result.actionRecord.summary);
+  }
+
   async function handleSaveInvestigationNote(): Promise<void> {
     if (investigationNoteError) return;
-    const note = await createInvestigationNote({
-      dayKey: visibleDay.dayKey,
-      incidentId: selectedIncidentId || undefined,
-      sessionKey: selectedSessionKey || undefined,
-      body: investigationNoteDraft.trim(),
-      linkedEntryIds: visibleDay.entries.slice(0, 3).map((entry) => entry.id)
-    });
-    setInvestigationNotes((current) => [note, ...current]);
-    setIncidentWorkspace((current) => (current ? { ...current, notes: [note, ...current.notes] } : current));
-    setInvestigationNoteDraft("");
-    setNotice("Investigation note recorded.");
+    await handleExecuteIncidentAction("save_note", { body: investigationNoteDraft.trim() });
   }
 
   async function handleSaveAlertRule(): Promise<void> {
@@ -913,14 +970,20 @@ export function App() {
           helpPopoverRef={helpPopoverRef}
           inputRef={searchInputRef}
           nextCursor={searchNextCursor}
+          operatorViews={operatorViews}
           presets={searchPresets}
           query={searchQuery}
           results={searchResults}
+          searchLatencyMs={searchLatencyMs}
           onApplyPreset={(preset) => {
             void handleApplySearchPreset(preset);
           }}
+          onApplyOperatorView={(view) => {
+            void handleApplyOperatorView(view);
+          }}
           onLoadMore={() => void handleLoadMoreSearch()}
           onQueryChange={route.setSearchQuery}
+          onSaveOperatorView={() => void handleSaveOperatorView()}
           onSavePreset={() => void handleSaveSearchPreset()}
           onSearch={() => void handleSearch()}
           onSelectResult={(result) => {
@@ -948,6 +1011,7 @@ export function App() {
             summary={pinnedSummary}
             summaryError={pinnedSummaryError}
             onNoteChange={setPinnedNote}
+            onRefreshSummary={() => void handleExecuteIncidentAction("refresh_summary")}
             onSave={handleSavePinnedContext}
             onSummaryChange={setPinnedSummary}
             onToggleCollapsed={() => setPinnedContextCollapsed((current) => !current)}
@@ -1034,6 +1098,7 @@ export function App() {
         incidents={incidents}
         incidentCaptured={incidentCaptured}
         incidentWorkspace={incidentWorkspace}
+        incidentActionNotice={incidentActionNotice}
         integrityReport={integrityReport}
         integrityReports={integrityReports}
         integrationPayload={integrationPayload}
@@ -1059,6 +1124,7 @@ export function App() {
         selectedIncidentId={selectedIncidentId}
         selectedProfileId={selectedProfileId}
         selectedSessionKey={selectedSessionKey}
+        sessionLatencyMs={sessionLatencyMs}
         sessionDetail={sessionDetail}
         summaryProfiles={summaryProfiles}
         visibleDay={visibleDay}
@@ -1073,6 +1139,9 @@ export function App() {
         onCreateProfile={() => void handleCreateProfile()}
         onDeliverIntegration={(target) => {
           void handleDeliverIntegration(target);
+        }}
+        onExecuteIncidentAction={(actionId, options) => {
+          void handleExecuteIncidentAction(actionId, options);
         }}
         onGenerateSummaryProfile={() => void handleGenerateSummaryProfile()}
         onOfflineReview={() => void handleOfflineReview()}
@@ -1210,6 +1279,7 @@ function PinnedContextPanel(props: {
   summary: string;
   summaryError: string | null;
   onNoteChange: (value: string) => void;
+  onRefreshSummary: () => void;
   onSave: () => void;
   onSummaryChange: (value: string) => void;
   onToggleCollapsed: () => void;
@@ -1260,7 +1330,16 @@ function PinnedContextPanel(props: {
             {props.generatedSummary ? <p className="generated-summary">Generated summary: {props.generatedSummary}</p> : null}
             {props.generatedSummaryCreatedAt ? <p className="generated-summary">Summary generated at {props.generatedSummaryCreatedAt}.</p> : null}
             {props.generatedSummaryLastEntryIncludedAt ? <p className="generated-summary">Last entry included: {props.generatedSummaryLastEntryIncludedAt}.</p> : null}
-            {props.generatedSummaryStale ? <p className="validation-message">Generated summary is stale. Regenerate after reviewing the latest entries.</p> : null}
+            {props.generatedSummaryStale ? (
+              <div className="validation-message">
+                <p>Generated summary is stale. Regenerate after reviewing the latest entries.</p>
+                {!props.offline ? (
+                  <button type="button" onClick={props.onRefreshSummary}>
+                    Refresh summary now
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
             {!props.offline ? (
               <button type="button" disabled={Boolean(props.summaryError)} onClick={props.onSave}>
                 Save pinned context
@@ -1297,12 +1376,16 @@ function SearchPanel(props: {
   helpPopoverRef: RefObject<HTMLDivElement | null>;
   inputRef: RefObject<HTMLInputElement | null>;
   nextCursor?: string;
+  operatorViews: OperatorViewPreset[];
   presets: SearchPreset[];
   query: string;
   results: JournalSearchResult[];
+  searchLatencyMs: number | null;
   onApplyPreset: (preset: SearchPreset) => void;
+  onApplyOperatorView: (view: OperatorViewPreset) => void;
   onLoadMore: () => void;
   onQueryChange: (value: string) => void;
+  onSaveOperatorView: () => void;
   onSavePreset: () => void;
   onSearch: () => void;
   onSelectResult: (result: JournalSearchResult) => void;
@@ -1329,6 +1412,9 @@ function SearchPanel(props: {
           <button aria-label="Save search preset" type="button" onClick={props.onSavePreset}>
             Save preset
           </button>
+          <button aria-label="Save operator view" type="button" onClick={props.onSaveOperatorView}>
+            Save view
+          </button>
         </div>
       </div>
       {props.activeHelpPopover === "journal-search" ? (
@@ -1346,12 +1432,22 @@ function SearchPanel(props: {
           ))}
         </div>
       ) : null}
+      {props.operatorViews.length > 0 ? (
+        <div className="search-presets" aria-label="Saved operator views">
+          {props.operatorViews.map((view) => (
+            <button key={view.id} type="button" onClick={() => props.onApplyOperatorView(view)}>
+              {view.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <div className="search-row">
         <input ref={props.inputRef} aria-label="Journal search input" value={props.query} onChange={(event) => props.onQueryChange(event.target.value)} placeholder="Search titles, bodies, tools, statuses..." />
         <button type="button" onClick={props.onSearch}>
           Search
         </button>
       </div>
+      {props.searchLatencyMs !== null ? <p className="search-meta">Search completed in {props.searchLatencyMs} ms.</p> : null}
       <ul className="search-results">
         {props.results.map((result) => (
           <li key={result.entryId}>
@@ -1383,11 +1479,12 @@ function OperationalPanels(props: {
   closeoutChecklist: string[];
   closeoutPlanText: string | null;
   correlationGraph: Awaited<ReturnType<typeof fetchCorrelation>> | null;
-  deliveryReceipts: Awaited<ReturnType<typeof fetchDeliveryReceipts>>;
+  deliveryReceipts: DeliveryReceipt[];
   generatedProfileSummary: Awaited<ReturnType<typeof generateSummaryProfile>> | null;
   healthHistory: Awaited<ReturnType<typeof fetchHealthHistory>>;
-  healthTimeline: Awaited<ReturnType<typeof fetchHealthTimeline>>;
+  healthTimeline: ServiceHealthTimelineEntry[];
   incidents: IncidentSummary[];
+  incidentActionNotice: string;
   incidentCaptured: boolean;
   incidentWorkspace: Awaited<ReturnType<typeof fetchIncidentWorkspace>> | null;
   incidentsPanelRef: RefObject<HTMLDivElement | null>;
@@ -1396,7 +1493,7 @@ function OperationalPanels(props: {
   integrationPayload: string;
   investigationNoteDraft: string;
   investigationNoteError: string | null;
-  investigationNotes: Awaited<ReturnType<typeof fetchInvestigationNotes>>;
+  investigationNotes: InvestigationNote[];
   lineageRecord: Awaited<ReturnType<typeof fetchLineage>> | null;
   missionReplay: Awaited<ReturnType<typeof fetchReplay>> | null;
   offlineBundleDay: JournalDay | null;
@@ -1411,6 +1508,7 @@ function OperationalPanels(props: {
   selectedIncidentId: string;
   selectedProfileId: string;
   selectedSessionKey: string;
+  sessionLatencyMs: number | null;
   sessionDetail: Awaited<ReturnType<typeof fetchSessionDrilldown>> | null;
   summaryProfiles?: Awaited<ReturnType<typeof fetchSummaryProfiles>>;
   visibleDay: JournalDay;
@@ -1422,6 +1520,7 @@ function OperationalPanels(props: {
   onCreateIncident: () => void;
   onCreateProfile: () => void;
   onDeliverIntegration: (target: "slack" | "generic-webhook" | "email") => void;
+  onExecuteIncidentAction: (actionId: Parameters<typeof executeIncidentAction>[0]["actionId"], options?: { body?: string; pluginId?: string }) => void;
   onGenerateSummaryProfile: () => void;
   onInvestigationNoteChange: (value: string) => void;
   onLoadAnalytics: () => void;
@@ -1470,6 +1569,7 @@ function OperationalPanels(props: {
             <p>
               {props.sessionDetail.toolCount} tools, {props.sessionDetail.approvalCount} approvals, {props.sessionDetail.reconnectCount} reconnects.
             </p>
+            {props.sessionLatencyMs !== null ? <p>API response time: {props.sessionLatencyMs} ms.</p> : null}
             {props.sessionDetail.sanitizedSummary ? <p>{props.sessionDetail.sanitizedSummary}</p> : null}
             <button type="button" onClick={props.onCopySessionSummary}>
               Copy sanitized session summary
@@ -1536,19 +1636,70 @@ function OperationalPanels(props: {
             </label>
             {props.incidentWorkspace ? (
               <div className="incident-workspace">
-                <p>{props.incidentWorkspace.incident.summary}</p>
-                <p>
-                  {props.incidentWorkspace.entries.length} linked entries, {props.incidentWorkspace.notes.length} notes, {props.incidentWorkspace.alertFindings.length} triggered alerts.
-                </p>
-                {props.incidentWorkspace.generatedSummary ? <p>Generated summary: {props.incidentWorkspace.generatedSummary.summary}</p> : null}
-                {props.incidentWorkspace.sessionKeys.length > 0 ? <p>Sessions: {props.incidentWorkspace.sessionKeys.join(", ")}</p> : null}
-                {props.incidentWorkspace.suggestedNextActions.length > 0 ? (
-                  <ul>
-                    {props.incidentWorkspace.suggestedNextActions.map((action) => (
-                      <li key={action}>{action}</li>
-                    ))}
-                  </ul>
-                ) : null}
+                <div className="incident-loop">
+                  <section className="incident-loop-section">
+                    <h4>Detect</h4>
+                    <p>{props.incidentWorkspace.loop.detect.summary}</p>
+                    <p>Sessions: {props.incidentWorkspace.loop.detect.sessionKeys.join(", ") || "none"}</p>
+                    <div className="search-presets">
+                      {props.incidentWorkspace.loop.detect.evidence.map((item) => (
+                        <span key={item} className="timeline-chip">
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+                  </section>
+                  <section className="incident-loop-section">
+                    <h4>Explain</h4>
+                    <p>{props.incidentWorkspace.loop.explain.title}</p>
+                    <p>{props.incidentWorkspace.loop.explain.summary}</p>
+                    {props.incidentWorkspace.loop.explain.degraded ? <p className="validation-message">Fail-closed: evidence is degraded.</p> : null}
+                  </section>
+                  <section className="incident-loop-section">
+                    <h4>Recommend</h4>
+                    <ul>
+                      {props.incidentWorkspace.loop.recommend.map((item) => (
+                        <li key={item.id}>
+                          <strong>{item.title}</strong> {item.rationale}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                  <section className="incident-loop-section">
+                    <h4>Act</h4>
+                    <div className="search-presets">
+                      {props.incidentWorkspace.loop.act.map((action) => (
+                        <button
+                          key={action.id}
+                          type="button"
+                          disabled={action.availability === "blocked"}
+                          title={action.reason ?? action.description}
+                          onClick={() =>
+                            props.onExecuteIncidentAction(action.id, {
+                              ...(action.id === "save_note" || action.id === "record_closeout" ? { body: props.investigationNoteDraft } : {})
+                            })
+                          }
+                        >
+                          {action.label}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                  <section className="incident-loop-section">
+                    <h4>Record</h4>
+                    <p>{props.incidentWorkspace.loop.record.noteCount} note(s); receipts {props.incidentWorkspace.loop.record.latestReceiptIds.join(", ") || "none"}.</p>
+                    {props.incidentActionNotice ? <p>{props.incidentActionNotice}</p> : null}
+                    {props.incidentWorkspace.loop.record.actionRecords.length > 0 ? (
+                      <ul>
+                        {props.incidentWorkspace.loop.record.actionRecords.map((record) => (
+                          <li key={record.id}>
+                            {record.title}: {record.summary}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </section>
+                </div>
               </div>
             ) : null}
             <label>
@@ -1669,7 +1820,8 @@ function OperationalPanels(props: {
           <ul>
             {deliveryReceipts.slice(0, 3).map((receipt) => (
               <li key={receipt.id}>
-                {receipt.target}: {receipt.status}
+                {receipt.target}: {receipt.status} ({receipt.correlationId})
+                {receipt.deadLetterReason ? ` - ${receipt.deadLetterReason}` : ""}
               </li>
             ))}
           </ul>

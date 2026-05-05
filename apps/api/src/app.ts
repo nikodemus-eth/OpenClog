@@ -16,6 +16,7 @@ import {
   type ApprovalView,
   type DeliveryAdapterTarget,
   type GatewayEventLike,
+  type IncidentActionKind,
   type IncidentSummary,
   type JournalDay,
   type JournalEntry,
@@ -102,9 +103,10 @@ export function createApiApp(services: ApiServices): FastifyInstance {
     history: services.repo.listHealthHistory(parsePositiveInt(request.query.limit, 5))
   }));
 
-  app.get<{ Querystring: { limit?: string } }>("/api/health/timeline", async (request) => ({
-    timeline: openclog.listHealthTimeline({ limit: parsePositiveInt(request.query.limit, 10) })
-  }));
+  app.get<{ Querystring: { limit?: string; cursor?: string } }>("/api/health/timeline", async (request) => {
+    const page = openclog.listHealthTimeline({ limit: parsePositiveInt(request.query.limit, 10), cursor: request.query.cursor });
+    return { timeline: page.items, nextCursor: page.nextCursor };
+  });
 
   app.get<{ Querystring: { q?: string; cursor?: string; limit?: string } }>("/api/search", async (request) => {
     const page = openclog.searchEntries({
@@ -120,12 +122,18 @@ export function createApiApp(services: ApiServices): FastifyInstance {
   });
 
   app.get("/api/settings", async () => ({ settings: publicSettings(services) }));
-  app.put<{ Body: { showToolCalls?: boolean; theme?: string; searchPresets?: unknown } }>("/api/settings", async (request) => {
-    if (typeof request.body?.theme === "string") services.repo.setSetting("theme", request.body.theme);
-    if (typeof request.body?.showToolCalls === "boolean") services.repo.setSetting("showToolCalls", request.body.showToolCalls);
-    if (Array.isArray(request.body?.searchPresets)) services.repo.setSetting("searchPresets", request.body.searchPresets);
-    return { ok: true, settings: publicSettings(services) };
-  });
+  app.put<{ Body: { showToolCalls?: boolean; theme?: string; searchPresets?: unknown; operatorViews?: unknown } }>("/api/settings", async (request) => ({
+    ok: true,
+    settings: {
+      ...openclog.updateSettings({
+        ...(typeof request.body?.theme === "string" ? { theme: request.body.theme } : {}),
+        ...(typeof request.body?.showToolCalls === "boolean" ? { showToolCalls: request.body.showToolCalls } : {}),
+        ...(Array.isArray(request.body?.searchPresets) ? { searchPresets: request.body.searchPresets as [] } : {}),
+        ...(Array.isArray(request.body?.operatorViews) ? { operatorViews: request.body.operatorViews as [] } : {})
+      }),
+      gateway: publicGatewayState(services.gateway.getState())
+    }
+  }));
 
   app.get("/api/approvals", async () => {
     const result = await services.gateway.request("exec.approval.list", {});
@@ -270,9 +278,37 @@ export function createApiApp(services: ApiServices): FastifyInstance {
     }
   });
 
-  app.get<{ Querystring: { dayKey?: string; incidentId?: string } }>("/api/investigation-notes", async (request) => ({
-    notes: openclog.listInvestigationNotes({ dayKey: request.query.dayKey, incidentId: request.query.incidentId })
-  }));
+  app.post<{ Params: { id: string; actionId: IncidentActionKind }; Body: { body?: string; pluginId?: string } }>(
+    "/api/incidents/:id/actions/:actionId",
+    async (request, reply) => {
+      try {
+        return {
+          ok: true,
+          ...openclog.executeIncidentAction({
+            incidentId: request.params.id,
+            actionId: request.params.actionId,
+            body: request.body?.body,
+            pluginId: request.body?.pluginId
+          })
+        };
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith("incident_not_found:")) return reply.code(404).send({ error: "incident_not_found" });
+        if (error instanceof Error && error.message === "incident_action_body_required") return reply.code(400).send({ error: "incident_action_body_required" });
+        if (error instanceof Error && error.message === "plugin_not_found") return reply.code(404).send({ error: "plugin_not_found" });
+        throw error;
+      }
+    }
+  );
+
+  app.get<{ Querystring: { dayKey?: string; incidentId?: string; cursor?: string; limit?: string } }>("/api/investigation-notes", async (request) => {
+    const page = openclog.listInvestigationNotes({
+      dayKey: request.query.dayKey,
+      incidentId: request.query.incidentId,
+      cursor: request.query.cursor,
+      limit: parsePositiveInt(request.query.limit, 20)
+    });
+    return { notes: page.items, nextCursor: page.nextCursor };
+  });
 
   app.post<{ Body: { dayKey?: string; incidentId?: string; sessionKey?: string; body?: string; linkedEntryIds?: string[]; author?: string } }>(
     "/api/investigation-notes",
@@ -394,9 +430,10 @@ export function createApiApp(services: ApiServices): FastifyInstance {
     };
   });
 
-  app.get("/api/integrations/receipts", async () => ({
-    receipts: openclog.listDeliveryReceipts()
-  }));
+  app.get<{ Querystring: { cursor?: string; limit?: string } }>("/api/integrations/receipts", async (request) => {
+    const page = openclog.listDeliveryReceipts({ cursor: request.query.cursor, limit: parsePositiveInt(request.query.limit, 20) });
+    return { receipts: page.items, nextCursor: page.nextCursor };
+  });
 
   app.post<{ Body: { day?: { dayKey?: string; entries?: unknown[] }; markdown?: string } }>("/api/replay-bundles/inspect", async (request) => ({
     ok: true,
@@ -518,10 +555,14 @@ function publishJournalEvent(clients: Set<ServerResponse>, entry: JournalEntry, 
 }
 
 function publicSettings(services: ApiServices): Record<string, unknown> {
+  const openclog = createOpenClogApplication({ repo: services.repo });
+  const settings = openclog.getSettings();
   return {
-    theme: services.repo.getSetting("theme", "default"),
-    showToolCalls: services.repo.getSetting("showToolCalls", true),
-    searchPresets: services.repo.getSetting("searchPresets", [] as unknown[]),
+    version: settings.version,
+    theme: settings.theme,
+    showToolCalls: settings.showToolCalls,
+    searchPresets: settings.searchPresets,
+    operatorViews: settings.operatorViews,
     gateway: publicGatewayState(services.gateway.getState())
   };
 }

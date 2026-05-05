@@ -119,3 +119,11 @@ Track OpenClog security posture, Gateway authority boundaries, redaction, and fa
 - Evidence completeness is derived from local summary, note, bundle, and incident presence, so the badge improves operator triage without granting new read authority.
 - Replay-bundle change classification stays at narrative, metadata, or evidence-shape level and does not disclose hidden payload content.
 - Global shortcuts now avoid `Shift+letter` interception, reducing accidental command activation while operators type notes, search queries, or summaries.
+
+## 2026-05-05 Incident Command Loop Hardening
+- The new incident loop remains fail-closed: missing or thin evidence is surfaced as an explicit degraded explanation category rather than being converted into confident remediation guidance.
+- Incident actions execute only through backend routes and recorded local evidence. The browser still does not receive Gateway tokens, device identity, auth headers, raw connect frames, or unredacted payloads while triggering loop actions.
+- Local review actions such as raw-log review, replay, correlation, packet copy, summary refresh, note capture, and closeout recording now generate explicit incident action records, preserving auditability without widening authority.
+- GitHub issue creation and outbound delivery reuse the same bounded handoff path as other incident actions. Failures record typed receipt metadata including `correlationId`, `retryCount`, and `deadLetterReason` instead of silently assuming notification success.
+- Versioned settings now include saved operator views, but they remain local operator preferences only and do not grant new Gateway scopes, mutation authority, or browser-visible secret access.
+- Live Gateway verification now treats a negotiated `operator.admin` scope as satisfying the narrower `operator.approvals` requirement for control-action readiness, while the client still requests only `operator.read`, `operator.write`, and `operator.approvals`.

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import type { AlertStateRecord, RetentionSnapshotRecord } from "@openclog/app";
 import type {
@@ -14,6 +15,7 @@ import type {
   GeneratedSummary,
   GatewayEventLike,
   HealthHistoryEntry,
+  IncidentActionRecord,
   IncidentSummary,
   IntegrityMonitorReport,
   IntegrationPayload,
@@ -51,6 +53,7 @@ export interface OpenClogRepository {
   close(): void;
   countRedactedEvents(): number;
   deleteDays(dayKeys: string[]): void;
+  createGithubIssue(dayKey: string, incidentId?: string): DeliveryReceipt;
   deliverIntegration(target: DeliveryAdapterTarget, dayKey: string, incidentId?: string): DeliveryReceipt;
   evaluateAlertRules(dayKey: string): AlertFinding[];
   generateSummary(dayKey: string, now?: Date): GeneratedSummary;
@@ -72,6 +75,7 @@ export interface OpenClogRepository {
   listHealthHistory(limit: number): HealthHistoryEntry[];
   listHealthTimeline(limit?: number): ServiceHealthTimelineEntry[];
   listIncidents(): IncidentSummary[];
+  listIncidentActionRecords(filter?: { incidentId?: string }): IncidentActionRecord[];
   listIntegrityReports(): IntegrityMonitorReport[];
   listInvestigationNotes(filter?: { dayKey?: string; incidentId?: string }): InvestigationNote[];
   listPlugins(): PluginManifest[];
@@ -87,6 +91,7 @@ export interface OpenClogRepository {
   runIntegrityMonitor(): IntegrityMonitorReport;
   runPlugin(pluginId: string): PluginExecutionResult;
   saveIncident(incident: IncidentSummary): IncidentSummary;
+  saveIncidentActionRecord(record: IncidentActionRecord): IncidentActionRecord;
   saveInvestigationNote(note: InvestigationNote): InvestigationNote;
   saveRetentionClass(retentionClass: RetentionClass): RetentionClass;
   saveRetentionSnapshot(snapshot: RetentionSnapshotRecord): RetentionSnapshotRecord;
@@ -206,6 +211,60 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       const body = `${day.dateLabel}\n\n${exportDayAsMarkdown(day)}\n`;
       return { target, title, body };
     },
+    createGithubIssue(dayKey, incidentId) {
+      const payload = repo.buildIntegrationPayload("github-issue", dayKey);
+      const requestedAt = new Date().toISOString();
+      const correlationId = crypto.randomUUID();
+      try {
+        const repoName = resolveGithubRepo();
+        const created = execFileSync("gh", ["issue", "create", "--repo", repoName, "--title", payload.title, "--body", payload.body], {
+          encoding: "utf8"
+        }).trim();
+        const receipt: DeliveryReceipt = {
+          id: crypto.randomUUID(),
+          target: "github-issue",
+          dayKey,
+          ...(incidentId ? { incidentId } : {}),
+          title: payload.title,
+          status: "delivered",
+          requestedAt,
+          completedAt: new Date().toISOString(),
+          correlationId,
+          retryCount: 0,
+          deliveryReference: created
+        };
+        saveJsonRow(db, "journal_delivery_receipts", receipt.id, JSON.stringify(receipt), {
+          day_key: dayKey,
+          incident_id: incidentId ?? null,
+          target: "github-issue"
+        });
+        if (incidentId) syncLineageForIncident(db, incidentId, repo);
+        return receipt;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "github issue creation failed";
+        const receipt: DeliveryReceipt = {
+          id: crypto.randomUUID(),
+          target: "github-issue",
+          dayKey,
+          ...(incidentId ? { incidentId } : {}),
+          title: payload.title,
+          status: "failed",
+          requestedAt,
+          completedAt: new Date().toISOString(),
+          correlationId,
+          retryCount: 0,
+          errorCategory: /auth|logged in|authentication/i.test(message) ? "authentication" : "unknown",
+          deadLetterReason: message.slice(0, 240)
+        };
+        saveJsonRow(db, "journal_delivery_receipts", receipt.id, JSON.stringify(receipt), {
+          day_key: dayKey,
+          incident_id: incidentId ?? null,
+          target: "github-issue"
+        });
+        if (incidentId) syncLineageForIncident(db, incidentId, repo);
+        return receipt;
+      }
+    },
     buildMissionReplay(incidentId) {
       const incident = repo.getIncident(incidentId);
       if (!incident) return { incidentId, title: "Mission replay", generatedAt: new Date().toISOString(), steps: [] };
@@ -254,6 +313,7 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       const payload = repo.buildIntegrationPayload(target, dayKey);
       const config = deliveryConfigFor(target);
       const requestedAt = new Date().toISOString();
+      const correlationId = crypto.randomUUID();
       let receipt: DeliveryReceipt;
       if (!config.enabled || !config.url) {
         receipt = {
@@ -265,7 +325,10 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
           status: "failed",
           requestedAt,
           completedAt: new Date().toISOString(),
-          errorCategory: "missing_config"
+          correlationId,
+          retryCount: 0,
+          errorCategory: "missing_config",
+          deadLetterReason: "delivery target is not configured"
         };
       } else {
         try {
@@ -291,6 +354,8 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
             status: "delivered",
             requestedAt,
             completedAt: new Date().toISOString(),
+            correlationId,
+            retryCount: 0,
             deliveryReference: config.destinationLabel
           };
         } catch {
@@ -303,7 +368,10 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
             status: "failed",
             requestedAt,
             completedAt: new Date().toISOString(),
-            errorCategory: "network"
+            correlationId,
+            retryCount: 0,
+            errorCategory: "network",
+            deadLetterReason: "network delivery failed"
           };
         }
       }
@@ -546,6 +614,13 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       const stored = db.prepare("SELECT incident_json FROM journal_incidents ORDER BY id ASC").all().map((row) => JSON.parse(String(row.incident_json)) as IncidentSummary);
       return stored.length > 0 ? stored : deriveIncidents(repo.listDays().map((day) => repo.getDay(day.dayKey)).filter((day): day is JournalDay => day !== null));
     },
+    listIncidentActionRecords(filter) {
+      return db
+        .prepare("SELECT record_json FROM journal_incident_action_records ORDER BY created_at DESC, id DESC")
+        .all()
+        .map((row) => JSON.parse(String(row.record_json)) as IncidentActionRecord)
+        .filter((record) => !filter?.incidentId || record.incidentId === filter.incidentId);
+    },
     listIntegrityReports() {
       return db.prepare("SELECT report_json FROM journal_integrity_reports ORDER BY id DESC").all().map((row) => JSON.parse(String(row.report_json)) as IntegrityMonitorReport);
     },
@@ -651,6 +726,18 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       saveJsonRow(db, "journal_incidents", incident.id, JSON.stringify(incident));
       syncLineageForIncident(db, incident.id, repo);
       return incident;
+    },
+    saveIncidentActionRecord(record) {
+      db.prepare(
+        "INSERT INTO journal_incident_action_records (id, incident_id, created_at, record_json) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET incident_id = excluded.incident_id, created_at = excluded.created_at, record_json = excluded.record_json"
+      ).run(record.id, record.incidentId, record.createdAt, JSON.stringify(record));
+      repo.addAudit("incident.action", {
+        target_type: "incident",
+        target_id: record.incidentId,
+        action_kind: record.kind,
+        status: record.status
+      });
+      return record;
     },
     saveInvestigationNote(note) {
       db.prepare(
@@ -793,6 +880,7 @@ function migrate(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS journal_plugins (id TEXT PRIMARY KEY, plugin_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_plugin_runs (id TEXT PRIMARY KEY, plugin_id TEXT, run_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_bundle_exports (id TEXT PRIMARY KEY, export_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_incident_action_records (id TEXT PRIMARY KEY, incident_id TEXT NOT NULL, created_at TEXT NOT NULL, record_json TEXT NOT NULL);
   `);
 }
 
@@ -1082,6 +1170,15 @@ function listIncidentIdsForDay(db: DatabaseSync, dayKey: string): string[] {
     .map((row) => JSON.parse(String(row.incident_json)) as IncidentSummary)
     .filter((incident) => incident.dayKeys.includes(dayKey))
     .map((incident) => incident.id);
+}
+
+function resolveGithubRepo(): string {
+  const explicit = process.env.OPENCLOG_GITHUB_REPO?.trim();
+  if (explicit) return explicit;
+  const remote = execFileSync("git", ["remote", "get-url", "origin"], { encoding: "utf8" }).trim();
+  const match = /github\.com[:/](.+?)(?:\.git)?$/.exec(remote);
+  if (!match) throw new Error("github_remote_not_found");
+  return match[1];
 }
 
 function countRows(db: DatabaseSync, sql: string, value: string): number {

@@ -28,6 +28,7 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
   const resolvedApprovals: Array<{ decision: string; id: string }> = [];
   let showToolCalls = true;
   let searchPresets: Array<{ id: string; label: string; query: string }> = [];
+  let operatorViews: Array<{ id: string; label: string; dayKey?: string; searchQuery: string; activeFilters: string[]; grouped: boolean }> = [];
   const dayTwo = buildDay({
     dayKey: "2026-05-02",
     dateLabel: "Saturday, May 2, 2026",
@@ -104,13 +105,18 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
   });
   await page.route("**/api/settings", async (route) => {
     if (route.request().method() === "PUT") {
-      const body = route.request().postDataJSON() as { showToolCalls?: boolean; searchPresets?: Array<{ id: string; label: string; query: string }> };
+      const body = route.request().postDataJSON() as {
+        showToolCalls?: boolean;
+        searchPresets?: Array<{ id: string; label: string; query: string }>;
+        operatorViews?: Array<{ id: string; label: string; dayKey?: string; searchQuery: string; activeFilters: string[]; grouped: boolean }>;
+      };
       if (typeof body.showToolCalls === "boolean") showToolCalls = body.showToolCalls;
       if (Array.isArray(body.searchPresets)) searchPresets = body.searchPresets;
-      await route.fulfill({ json: { ok: true, settings: { theme: "default", showToolCalls, searchPresets } } });
+      if (Array.isArray(body.operatorViews)) operatorViews = body.operatorViews;
+      await route.fulfill({ json: { ok: true, settings: { version: 2, theme: "default", showToolCalls, searchPresets, operatorViews } } });
       return;
     }
-    await route.fulfill({ json: { settings: { theme: "default", showToolCalls, searchPresets, gateway: { status: gatewayStatus } } } });
+    await route.fulfill({ json: { settings: { version: 2, theme: "default", showToolCalls, searchPresets, operatorViews, gateway: { status: gatewayStatus } } } });
   });
   await page.route("**/api/sessions?**", async (route) => {
     await route.fulfill({
@@ -259,7 +265,88 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
           generatedSummary: { summary: "1 failure, 1 approval, 1 tool event, 2 total journal entries.", createdAt: "2026-05-04T12:02:00.000Z", source: "rules" },
           notes: investigationNotes,
           sessionKeys: ["agent:hugin:main"],
-          suggestedNextActions: ["Check Gateway listener health", "Review active alert findings before export."]
+          suggestedNextActions: ["Check Gateway listener health", "Review active alert findings before export."],
+          loop: {
+            detect: {
+              title: "Operational instability narrative",
+              summary: "2 linked entries across 1 day(s); 1 active alert finding(s).",
+              affectedDayKeys: ["2026-05-03"],
+              sessionKeys: ["agent:hugin:main"],
+              linkedEntryIds: [dayThree.entries[0].id],
+              evidence: ["Reconnect evidence: Gateway ready.", "1 session key(s) linked."]
+            },
+            explain: {
+              category: "reconnect_storm",
+              title: "Gateway reconnect storm",
+              summary: "Repeated reconnect evidence suggests unstable listener continuity.",
+              evidence: ["Reconnect evidence: Gateway ready."],
+              degraded: false
+            },
+            recommend: [
+              { id: "notify-operator", title: "Notify downstream operators through the delivery surfaces.", rationale: "Reconnect instability can invalidate fresh-state assumptions.", priority: "high", actionId: "deliver_slack" },
+              { id: "record-note", title: "Capture an operator note before closeout.", rationale: "Preserves the local interpretation of degraded continuity.", priority: "high", actionId: "save_note" }
+            ],
+            act: [
+              { id: "rebuild_visible_state", label: "Rebuild state", description: "Rebuild visible state from persisted evidence and current subscriptions.", availability: "available", confirmation: "none" },
+              { id: "open_raw_logs", label: "Open raw logs", description: "Review the raw log-oriented evidence path for this incident.", availability: "available", confirmation: "none" },
+              { id: "deliver_slack", label: "Notify Slack", description: "Send the incident packet through the Slack delivery target.", availability: "available", confirmation: "confirm" },
+              { id: "save_note", label: "Save note", description: "Attach a new operator investigation note to this incident.", availability: "available", confirmation: "none" }
+            ],
+            record: {
+              noteCount: investigationNotes.length,
+              latestReceiptIds: [],
+              actionRecords: []
+            }
+          }
+        }
+      }
+    });
+  });
+  await page.route("**/api/incidents/*/actions/*", async (route) => {
+    const segments = new URL(route.request().url()).pathname.split("/");
+    const actionId = segments.at(-1) ?? "save_note";
+    const body = route.request().postDataJSON() as { body?: string };
+    await route.fulfill({
+      json: {
+        ok: true,
+        actionRecord: {
+          id: `record-${actionId}`,
+          incidentId: "incident-1",
+          kind: actionId,
+          title: actionId.replaceAll("_", " "),
+          status: "completed",
+          summary: actionId === "save_note" ? "Investigation note recorded." : `${actionId} completed.`,
+          createdAt: "2026-05-04T12:06:30.000Z"
+        },
+        ...(actionId === "save_note"
+          ? {
+              note: {
+                id: "note-created",
+                dayKey: "2026-05-03",
+                incidentId: "incident-1",
+                author: "local-user",
+                body: body.body ?? "",
+                linkedEntryIds: [dayThree.entries[0].id],
+                createdAt: "2026-05-04T12:06:00.000Z",
+                updatedAt: "2026-05-04T12:06:00.000Z"
+              }
+            }
+          : {}),
+        nextWorkspace: {
+          incident: incidents[0] ?? { id: "incident-1", title: "Operational instability narrative", summary: "Derived incident summary.", dayKeys: ["2026-05-03"], entryIds: [dayThree.entries[0].id], createdAt: "2026-05-04T12:04:00.000Z", runbookSuggestions: [] },
+          entries: dayThree.entries.slice(0, 2),
+          alertFindings: gatewayStatus === "ready" ? [{ ruleId: "reconnect-storm", title: "Reconnect storm", triggered: true, detail: "Reconnect storm triggered for 2026-05-03." }] : [],
+          generatedSummary: { summary: "1 failure, 1 approval, 1 tool event, 2 total journal entries.", createdAt: "2026-05-04T12:02:00.000Z", source: "rules" },
+          notes: investigationNotes,
+          sessionKeys: ["agent:hugin:main"],
+          suggestedNextActions: ["Check Gateway listener health"],
+          loop: {
+            detect: { title: "Operational instability narrative", summary: "2 linked entries across 1 day(s); 1 active alert finding(s).", affectedDayKeys: ["2026-05-03"], sessionKeys: ["agent:hugin:main"], linkedEntryIds: [dayThree.entries[0].id], evidence: ["Reconnect evidence: Gateway ready."] },
+            explain: { category: "reconnect_storm", title: "Gateway reconnect storm", summary: "Repeated reconnect evidence suggests unstable listener continuity.", evidence: ["Reconnect evidence: Gateway ready."], degraded: false },
+            recommend: [{ id: "record-note", title: "Capture an operator note before closeout.", rationale: "Preserves the local interpretation of degraded continuity.", priority: "high", actionId: "save_note" }],
+            act: [{ id: "save_note", label: "Save note", description: "Attach a new operator investigation note to this incident.", availability: "available", confirmation: "none" }],
+            record: { noteCount: 1, latestReceiptIds: [], actionRecords: [{ id: `record-${actionId}`, incidentId: "incident-1", kind: actionId, title: actionId.replaceAll("_", " "), status: "completed", summary: actionId === "save_note" ? "Investigation note recorded." : `${actionId} completed.`, createdAt: "2026-05-04T12:06:30.000Z" }] }
+          }
         }
       }
     });
@@ -332,7 +419,7 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
   });
   await page.route("**/api/integrations/*/deliver", async (route) => {
     const target = new URL(route.request().url()).pathname.split("/").at(-2) ?? "slack";
-    await route.fulfill({ json: { ok: true, receipt: { id: `receipt-${target}`, target, dayKey: "2026-05-03", title: "OpenClog Journal handoff", status: "failed", requestedAt: "2026-05-04T12:12:00.000Z", completedAt: "2026-05-04T12:12:01.000Z", errorCategory: "missing_config" } } });
+    await route.fulfill({ json: { ok: true, receipt: { id: `receipt-${target}`, target, dayKey: "2026-05-03", title: "OpenClog Journal handoff", status: "failed", requestedAt: "2026-05-04T12:12:00.000Z", completedAt: "2026-05-04T12:12:01.000Z", correlationId: `corr-${target}`, retryCount: 0, errorCategory: "missing_config", deadLetterReason: "delivery target is not configured" } } });
   });
   await page.route("**/api/investigation-notes?**", async (route) => {
     await route.fulfill({ json: { notes: investigationNotes } });

@@ -367,7 +367,7 @@ describe("OpenClog application layer", () => {
     expect(app.saveRetentionClass({ id: "entries", keepDays: 14 })).toMatchObject({ id: "entries", policy: { keepDays: 14, includeRollback: true } });
     expect(app.previewRetentionByClass()[0].impact.removedCount).toBe(1);
     expect(app.deliverIntegration({ target: "slack", dayKey: "2026-05-04" })).toMatchObject({ target: "slack", status: "failed" });
-    expect(app.listDeliveryReceipts()).toHaveLength(1);
+    expect(app.listDeliveryReceipts().items).toHaveLength(1);
     expect(app.getLineage({ entryId: "entry-1" })).toMatchObject({ incidentIds: ["incident-1"] });
     expect(app.listSummaryProfiles()).toHaveLength(1);
     expect(app.generateSummaryProfile({ profileId: "escalation", dayKey: "2026-05-04" }).citations).toHaveLength(1);
@@ -379,6 +379,6 @@ describe("OpenClog application layer", () => {
     expect(app.listPlugins()).toHaveLength(1);
     expect(app.registerPlugin({ id: "plugin-2", label: "Plugin 2", version: "0.1.0", capabilities: ["annotation"], readScopes: ["entries"] })).toMatchObject({ id: "plugin-2" });
     expect(app.runPlugin({ pluginId: "plugin-1" })).toMatchObject({ status: "completed" });
-    expect(app.listHealthTimeline({ limit: 5 })[0]).toMatchObject({ category: "reconnect" });
+    expect(app.listHealthTimeline({ limit: 5 }).items[0]).toMatchObject({ category: "reconnect" });
   });
 });
