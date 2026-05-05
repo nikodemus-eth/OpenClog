@@ -10,6 +10,7 @@ export interface ApiFixtureOptions {
   extraEntries?: JournalEntry[];
   gatewayDetails?: Record<string, unknown>;
   gatewayStatus?: "ready" | "blocked" | "degraded";
+  failReplayCorrelation?: boolean;
   searchResults?: Array<{
     bodyPreview: string;
     dayKey: string;
@@ -29,6 +30,8 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
   let showToolCalls = true;
   let searchPresets: Array<{ id: string; label: string; query: string }> = [];
   let operatorViews: Array<{ id: string; label: string; dayKey?: string; searchQuery: string; activeFilters: string[]; grouped: boolean }> = [];
+  let retentionApplied = false;
+  const alertStates = new Map<string, { acknowledgedAt?: string; snoozedUntil?: string }>();
   const dayTwo = buildDay({
     dayKey: "2026-05-02",
     dateLabel: "Saturday, May 2, 2026",
@@ -148,7 +151,7 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
   await page.route("**/api/days", async (route) => {
     await route.fulfill({
       json: {
-        days: [summaryFor(dayThree), summaryFor(dayTwo)]
+        days: retentionApplied ? [summaryFor(dayThree)] : [summaryFor(dayThree), summaryFor(dayTwo)]
       }
     });
   });
@@ -228,6 +231,33 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
   });
   await page.route("**/api/retention/preview", async (route) => {
     await route.fulfill({ json: { ok: true, preview: { keepDays: 1, removedDayKeys: ["2026-05-02"], removedEntryCount: 2, removedSummaryCount: 1, removedAuditCount: 1, removedIncidentCount: 1, removedAlertCount: 1, removedBundleCount: 1 } } });
+  });
+  await page.route("**/api/retention/apply", async (route) => {
+    retentionApplied = true;
+    await route.fulfill({
+      json: {
+        ok: true,
+        snapshot: {
+          id: "retention-fixture-1",
+          createdAt: "2026-05-04T12:13:00.000Z",
+          preview: {
+            keepDays: 1,
+            removedDayKeys: ["2026-05-02"],
+            removedEntryCount: 2,
+            removedSummaryCount: 1,
+            removedAuditCount: 1,
+            removedIncidentCount: 1,
+            removedAlertCount: 1,
+            removedBundleCount: 1
+          },
+          days: [dayThree, dayTwo]
+        }
+      }
+    });
+  });
+  await page.route("**/api/retention/rollback/*", async (route) => {
+    retentionApplied = false;
+    await route.fulfill({ json: { ok: true, restoredDayKeys: ["2026-05-03", "2026-05-02"] } });
   });
   await page.route("**/api/retention/classes", async (route) => {
     if (route.request().method() === "PUT") {
@@ -400,9 +430,17 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
     await route.fulfill({ json: { analytics: { createdAt: "2026-05-04T12:09:00.000Z", noisyTools: [{ toolName: "get_repository_status", count: 2 }], reconnectHeavyDays: [{ dayKey: "2026-05-03", reconnectCount: 1 }], approvalHotspots: [{ dayKey: "2026-05-03", approvalCount: 1 }], recurringFailureClasses: [{ label: "tool_failure", count: 1 }] } } });
   });
   await page.route("**/api/replay/*", async (route) => {
+    if (options.failReplayCorrelation) {
+      await route.fulfill({ status: 503, json: { error: "replay_unavailable" } });
+      return;
+    }
     await route.fulfill({ json: { replay: { incidentId: "incident-1", title: "Operational instability narrative", generatedAt: "2026-05-04T12:10:00.000Z", steps: [{ id: "step-1", kind: "entry", entryIds: ["2026-05-03-entry-1"], timestamp: "2026-05-03T12:01:00.000Z", label: "Session started", derived: false, sourceIds: ["2026-05-03-entry-1"] }] } } });
   });
   await page.route("**/api/correlation/*", async (route) => {
+    if (options.failReplayCorrelation) {
+      await route.fulfill({ status: 503, json: { error: "correlation_unavailable" } });
+      return;
+    }
     await route.fulfill({ json: { graph: { incidentId: "incident-1", nodes: [{ id: "incident-1", type: "incident", label: "Operational instability narrative" }, { id: "2026-05-03-entry-1", type: "entry", label: "Session started" }], edges: [{ id: "edge-1", from: "incident-1", to: "2026-05-03-entry-1", relationship: "includes" }] } } });
   });
   await page.route("**/api/plugins", async (route) => {
@@ -447,17 +485,32 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
     });
   });
   await page.route("**/api/alerts", async (route) => {
+    const findingState = alertStates.get("reconnect-storm") ?? {};
     await route.fulfill({
       json: {
         rules: [{ id: "reconnect-storm", kind: "reconnect_storm", title: "Reconnect storm", threshold: 1, enabled: true }],
         findings: options.emptyAdvancedState
           ? []
-          : [{ ruleId: "reconnect-storm", title: "Reconnect storm", triggered: gatewayStatus === "ready", detail: "Reconnect storm triggered for 2026-05-03." }]
+          : [{ ruleId: "reconnect-storm", title: "Reconnect storm", triggered: gatewayStatus === "ready", detail: "Reconnect storm triggered for 2026-05-03.", ...findingState }]
       }
     });
   });
   await page.route("**/api/alerts/rules/*", async (route) => {
     await route.fulfill({ json: { ok: true, rule: { id: "reconnect-storm", kind: "reconnect_storm", title: "Reconnect storm", threshold: 1, enabled: true } } });
+  });
+  await page.route("**/api/alerts/*/ack", async (route) => {
+    const ruleId = new URL(route.request().url()).pathname.split("/").at(-2) ?? "reconnect-storm";
+    const body = route.request().postDataJSON() as { acknowledgedAt?: string };
+    const state = { ...(alertStates.get(ruleId) ?? {}), acknowledgedAt: body.acknowledgedAt ?? "2026-05-04T12:14:00.000Z" };
+    alertStates.set(ruleId, state);
+    await route.fulfill({ json: { ok: true, state: { ruleId, ...state } } });
+  });
+  await page.route("**/api/alerts/*/snooze", async (route) => {
+    const ruleId = new URL(route.request().url()).pathname.split("/").at(-2) ?? "reconnect-storm";
+    const body = route.request().postDataJSON() as { snoozedUntil?: string };
+    const state = { ...(alertStates.get(ruleId) ?? {}), snoozedUntil: body.snoozedUntil ?? "2026-05-04T12:44:00.000Z" };
+    alertStates.set(ruleId, state);
+    await route.fulfill({ json: { ok: true, state: { ruleId, ...state } } });
   });
   await page.route("**/api/adapters/events", async (route) => {
     await route.fulfill({

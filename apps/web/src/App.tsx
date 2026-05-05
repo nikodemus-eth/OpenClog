@@ -8,7 +8,6 @@ import {
   themeGroups,
   type AdapterEvent,
   type AgentActivity,
-  type AlertFinding,
   type AlertRule,
   type ApprovalView,
   type DeliveryReceipt,
@@ -26,6 +25,8 @@ import {
   type ThemeId
 } from "@openclog/core";
 import {
+  acknowledgeAlert,
+  applyRetention,
   type BundleExport,
   buildCloseoutPlan,
   executeIncidentAction,
@@ -74,6 +75,7 @@ import {
   previewRetentionByClass,
   registerPlugin,
   resolveApproval,
+  rollbackRetention,
   runIntegrityCheck,
   runIntegrityMonitor,
   runPlugin,
@@ -84,9 +86,11 @@ import {
   selectableThemeIds,
   selectProfile,
   sendComposer,
+  snoozeAlert,
   updateDayContext,
   updateSettings,
   type ApprovalView as ApprovalApiView,
+  type RetentionSnapshotResult,
   type VersionResponse
 } from "./api.js";
 import {
@@ -108,19 +112,28 @@ import {
   buildArchiveView,
   buildReconnectTrendText,
   dedupeLiveActionNotice,
+  describeAlertFindingState,
   mergeDiagnosticsCollapsedState,
   mergeSearchPresets,
   createHomeRouteState,
   describeGeneratedSummaryFreshness,
+  formatCorrelationEdge,
+  formatCorrelationNode,
   formatBundleManifestPreview,
   formatCloseoutPlan,
+  formatMissionReplayStep,
   formatReplayBundleDiff,
+  formatRetentionSnapshotImpact,
   findDayByCalendarValue,
   getInitialDiagnosticsCollapsedState,
+  hasRetentionImpact,
   classifyGatewayUrl,
   formatRetentionPreview,
   isGeneratedSummaryStale,
   searchEmptyState,
+  summarizeAlertFindings,
+  thirtyMinuteSnoozeUntil,
+  type AlertFindingView,
   validateInvestigationNote,
   validatePinnedSummary
 } from "./state/operator-workspace.js";
@@ -130,6 +143,7 @@ import "./styles/app.css";
 const PINNED_CONTEXT_COLLAPSED_STORAGE_KEY = "openclog.pinned-context.collapsed";
 const DIAGNOSTICS_COLLAPSED_STORAGE_KEY = "openclog.diagnostics.collapsed";
 const SESSION_DRILLDOWN_STORAGE_KEY = "openclog.session-drilldown.state";
+const RETENTION_EXECUTION_POLICY = { keepDays: 1, includeAudit: true, includeRedactedEvents: true, includeSummaries: true };
 const timelineFilterOptions: Array<{ id: JournalFilterKey; label: string }> = [
   { id: "errors", label: "Errors" },
   { id: "approvals", label: "Approvals" },
@@ -180,7 +194,7 @@ export function App() {
   const [investigationNotes, setInvestigationNotes] = useState<InvestigationNote[]>([]);
   const [investigationNoteDraft, setInvestigationNoteDraft] = useState("");
   const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
-  const [alertFindings, setAlertFindings] = useState<AlertFinding[]>([]);
+  const [alertFindings, setAlertFindings] = useState<AlertFindingView[]>([]);
   const [adapterEvents, setAdapterEvents] = useState<AdapterEvent[]>([]);
   const [profiles, setProfiles] = useState<ProfileConfig[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState("default");
@@ -202,7 +216,10 @@ export function App() {
   const [analyticsSnapshot, setAnalyticsSnapshot] = useState<Awaited<ReturnType<typeof fetchAnalytics>> | null>(null);
   const [missionReplay, setMissionReplay] = useState<Awaited<ReturnType<typeof fetchReplay>> | null>(null);
   const [correlationGraph, setCorrelationGraph] = useState<Awaited<ReturnType<typeof fetchCorrelation>> | null>(null);
+  const [replayUnavailable, setReplayUnavailable] = useState(false);
+  const [correlationUnavailable, setCorrelationUnavailable] = useState(false);
   const [replayWorkspace, setReplayWorkspace] = useState<Awaited<ReturnType<typeof createReplayWorkspace>> | null>(null);
+  const [lastRetentionSnapshot, setLastRetentionSnapshot] = useState<RetentionSnapshotResult | null>(null);
   const [plugins, setPlugins] = useState<Awaited<ReturnType<typeof fetchPlugins>>>([]);
   const [pluginRunResult, setPluginRunResult] = useState<Awaited<ReturnType<typeof runPlugin>> | null>(null);
   const [incidentActionNotice, setIncidentActionNotice] = useState("");
@@ -263,6 +280,8 @@ export function App() {
   const generatedSummaryFreshness = useMemo(() => describeGeneratedSummaryFreshness(day.generatedSummary, day.entries), [day.entries, day.generatedSummary]);
   const generatedSummaryStale = useMemo(() => isGeneratedSummaryStale(day.generatedSummary, day.entries), [day.entries, day.generatedSummary]);
   const retentionPreviewText = useMemo(() => formatRetentionPreview(retentionPreviewState), [retentionPreviewState]);
+  const retentionSnapshotText = useMemo(() => formatRetentionSnapshotImpact(lastRetentionSnapshot), [lastRetentionSnapshot]);
+  const alertSummary = summarizeAlertFindings(alertFindings);
   const searchEmptyMessage = useMemo(() => searchEmptyState(searchQuery, searchResults.length), [searchQuery, searchResults.length]);
   const bundlePreviewText = useMemo(() => (bundlePreview ? formatBundleManifestPreview(bundlePreview) : null), [bundlePreview]);
   const replayBundleDiffText = useMemo(() => formatReplayBundleDiff(replayBundleDiffState), [replayBundleDiffState]);
@@ -382,7 +401,7 @@ export function App() {
     let active = true;
     async function refreshAdvanced() {
       const [alerts, adapters, incidentList, noteList, profileData, history, aggregate, timeline, receipts, classes, profiles, pluginList, reports, slo, operatorRunbook, rulePacks] = await Promise.all([
-        fetchAlerts().catch(() => ({ rules: [] as AlertRule[], findings: [] as AlertFinding[] })),
+        fetchAlerts().catch(() => ({ rules: [] as AlertRule[], findings: [] as AlertFindingView[] })),
         fetchAdapterEvents().catch(() => [] as AdapterEvent[]),
         fetchIncidents().catch(() => [] as IncidentSummary[]),
         fetchInvestigationNotes({ dayKey: route.selectedDayKey || day.dayKey }).catch(() => ({ notes: [] as InvestigationNote[] })),
@@ -478,17 +497,31 @@ export function App() {
       setIncidentActionRecords([]);
       setMissionReplay(null);
       setCorrelationGraph(null);
+      setReplayUnavailable(false);
+      setCorrelationUnavailable(false);
       return;
     }
     void fetchIncidentWorkspace(selectedIncidentId)
       .then(setIncidentWorkspace)
       .catch(() => setIncidentWorkspace(null));
     void fetchReplay(selectedIncidentId)
-      .then(setMissionReplay)
-      .catch(() => setMissionReplay(null));
+      .then((replay) => {
+        setMissionReplay(replay);
+        setReplayUnavailable(false);
+      })
+      .catch(() => {
+        setMissionReplay(null);
+        setReplayUnavailable(true);
+      });
     void fetchCorrelation(selectedIncidentId)
-      .then(setCorrelationGraph)
-      .catch(() => setCorrelationGraph(null));
+      .then((graph) => {
+        setCorrelationGraph(graph);
+        setCorrelationUnavailable(false);
+      })
+      .catch(() => {
+        setCorrelationGraph(null);
+        setCorrelationUnavailable(true);
+      });
     void fetchIncidentActionRecords(selectedIncidentId)
       .then((result) => setIncidentActionRecords(result.records))
       .catch(() => setIncidentActionRecords([]));
@@ -846,11 +879,84 @@ export function App() {
     setNotice(`${view.label} loaded.`);
   }
 
+  async function refreshJournalDayIndex(preferredDayKey = route.selectedDayKey || visibleDay.dayKey): Promise<void> {
+    const fetchedDays = await fetchDays();
+    const targetDayKey = fetchedDays.some((item) => item.dayKey === preferredDayKey)
+      ? preferredDayKey
+      : (fetchedDays[0]?.dayKey ?? sampleJournalDay.dayKey);
+    const fetchedDay = await fetchDay(targetDayKey);
+    setDays(fetchedDays);
+    if (targetDayKey !== route.selectedDayKey) route.setSelectedDayKey(targetDayKey);
+    setDay(fetchedDay);
+    setPinnedNote(fetchedDay.pinnedContext?.note ?? "");
+    setPinnedSummary(fetchedDay.pinnedContext?.summary ?? "");
+  }
+
+  async function refreshAlerts(): Promise<void> {
+    const refreshed = await fetchAlerts();
+    setAlertRules(refreshed.rules);
+    setAlertFindings(refreshed.findings);
+  }
+
   async function handleRetentionPreview(): Promise<void> {
-    const preview = await previewRetention({ keepDays: 1, includeAudit: true, includeRedactedEvents: true, includeSummaries: true });
+    const preview = await previewRetention(RETENTION_EXECUTION_POLICY);
     setRetentionPreviewState(preview);
     if ((preview.removedIncidentCount ?? 0) > 0 || (preview.removedBundleCount ?? 0) > 0) {
       setNotice("Retention warning: preview removes incidents or replay bundles. Review evidence impact before apply.");
+    }
+  }
+
+  async function handleApplyRetention(): Promise<void> {
+    if (!hasRetentionImpact(retentionPreviewState)) {
+      setNotice("Retention apply blocked: preview retention impact before applying cleanup.");
+      return;
+    }
+    try {
+      const snapshot = await applyRetention({
+        ...RETENTION_EXECUTION_POLICY,
+        keepDays: retentionPreviewState?.keepDays ?? RETENTION_EXECUTION_POLICY.keepDays
+      });
+      setLastRetentionSnapshot(snapshot);
+      setRetentionPreviewState(snapshot.preview);
+      await refreshJournalDayIndex();
+      setNotice(`Retention applied with snapshot ${snapshot.id}.`);
+    } catch {
+      setNotice("Retention apply failed closed: cleanup was not confirmed.");
+    }
+  }
+
+  async function handleRollbackRetention(): Promise<void> {
+    if (!lastRetentionSnapshot) {
+      setNotice("Retention rollback blocked: no applied snapshot is selected.");
+      return;
+    }
+    try {
+      const result = await rollbackRetention(lastRetentionSnapshot.id);
+      await refreshJournalDayIndex();
+      setLastRetentionSnapshot(null);
+      setNotice(`Retention rollback restored ${String(result.restoredDayKeys.length)} day(s).`);
+    } catch {
+      setNotice("Retention rollback failed closed: restored state was not confirmed.");
+    }
+  }
+
+  async function handleAcknowledgeAlert(ruleId: string): Promise<void> {
+    try {
+      await acknowledgeAlert(ruleId);
+      await refreshAlerts();
+      setNotice("Alert acknowledged.");
+    } catch {
+      setNotice("Alert acknowledgement failed closed: local alert state was not changed.");
+    }
+  }
+
+  async function handleSnoozeAlert(ruleId: string): Promise<void> {
+    try {
+      await snoozeAlert(ruleId, thirtyMinuteSnoozeUntil());
+      await refreshAlerts();
+      setNotice("Alert snoozed for 30 minutes.");
+    } catch {
+      setNotice("Alert snooze failed closed: local alert state was not changed.");
     }
   }
 
@@ -898,8 +1004,7 @@ export function App() {
   async function handleSaveAlertRule(): Promise<void> {
     const rule = await saveAlertRule({ id: "reconnect-storm", kind: "reconnect_storm", threshold: 1, enabled: true, title: "Reconnect storm" });
     setAlertRules((current) => [rule, ...current.filter((item) => item.id !== rule.id)]);
-    const refreshed = await fetchAlerts();
-    setAlertFindings(refreshed.findings);
+    await refreshAlerts();
   }
 
   async function handleCreateProfile(): Promise<void> {
@@ -1047,13 +1152,13 @@ export function App() {
       tone: "info"
     },
     {
-      body: `${alertFindings.filter((finding) => finding.triggered).length} alert finding(s) currently active.`,
+      body: `${alertSummary.activeCount} alert finding(s) currently active.`,
       icon: resolvedTheme.icons.gateway,
       label: "Alerts",
       meta: alertRules[0]?.title,
-      status: alertFindings.some((finding) => finding.triggered) ? "warning" : "info",
+      status: alertSummary.activeCount > 0 ? "warning" : "info",
       title: "Policy alerts",
-      tone: alertFindings.some((finding) => finding.triggered) ? "warning" : "info"
+      tone: alertSummary.activeCount > 0 ? "warning" : "info"
     },
     {
       body: adapterEvents[0]?.body ?? "No adapter events captured yet.",
@@ -1219,6 +1324,7 @@ export function App() {
       />
       <OperationalPanels
         adapterEvents={adapterEvents}
+        alertSummary={alertSummary}
         alertFindings={alertFindings}
         closeoutChecklist={closeoutPlanState?.checklist ?? []}
         closeoutPlanText={closeoutPlanText}
@@ -1251,10 +1357,14 @@ export function App() {
         recentActionNotices={recentActionNotices}
         replayWorkspace={replayWorkspace}
         replayBundleDiffText={replayBundleDiffText}
+        replayUnavailable={replayUnavailable}
+        correlationUnavailable={correlationUnavailable}
         retentionClasses={retentionClasses}
         retentionClassPreviewState={retentionClassPreviewState}
+        lastRetentionSnapshot={lastRetentionSnapshot}
         retentionPreview={retentionPreviewState}
         retentionPreviewText={retentionPreviewText}
+        retentionSnapshotText={retentionSnapshotText}
         runbook={runbook}
         incidentsPanelRef={incidentsPanelRef}
         alertsPanelRef={alertsPanelRef}
@@ -1268,6 +1378,8 @@ export function App() {
         summaryJob={summaryJob}
         summaryProfiles={summaryProfiles}
         visibleDay={visibleDay}
+        onAcknowledgeAlert={(ruleId) => void handleAcknowledgeAlert(ruleId)}
+        onApplyRetention={() => void handleApplyRetention()}
         onBuildIntegration={() => void handleBuildIntegration()}
         onComparePreviousBundle={() => void handleComparePreviousBundle()}
         onCopySessionSummary={() => void handleCopySessionSummary()}
@@ -1288,11 +1400,17 @@ export function App() {
         onOfflineReview={() => void handleOfflineReview()}
         onInvestigationNoteChange={setInvestigationNoteDraft}
         onLoadAnalytics={() => void handleLoadAnalytics()}
+        onJumpToEntry={(entryId) => {
+          setExpandedEntryId(entryId);
+          route.setFocusedEntryId(entryId);
+          setNotice(`Timeline entry ${entryId} selected from incident evidence.`);
+        }}
         onPrepareCloseout={() => void handlePrepareCloseout()}
         onCreateReplayWorkspace={() => void handleCreateReplayWorkspace()}
         onPreviewBundleManifest={() => void handlePreviewBundleManifest()}
         onPreviewRetentionByClass={() => void handlePreviewRetentionByClass()}
         onPreviewRetention={() => void handleRetentionPreview()}
+        onRollbackRetention={() => void handleRollbackRetention()}
         onRunIntegrityCheck={() => void handleRunIntegrityCheck()}
         onRunIntegrityMonitor={() => void handleRunIntegrityMonitor()}
         onRegisterPlugin={() => void handleRegisterPlugin()}
@@ -1301,6 +1419,7 @@ export function App() {
         }}
         onSaveAlertRule={() => void handleSaveAlertRule()}
         onSaveInvestigationNote={() => void handleSaveInvestigationNote()}
+        onSnoozeAlert={(ruleId) => void handleSnoozeAlert(ruleId)}
         onTightenRetention={() => void handleTightenRetention()}
         onSelectIncident={setSelectedIncidentId}
         onSelectProfile={(id) => {
@@ -1617,7 +1736,8 @@ function SearchPanel(props: {
 function OperationalPanels(props: {
   adapterEvents: AdapterEvent[];
   analyticsSnapshot: Awaited<ReturnType<typeof fetchAnalytics>> | null;
-  alertFindings: AlertFinding[];
+  alertFindings: AlertFindingView[];
+  alertSummary: { activeCount: number; acknowledgedCount: number; snoozedCount: number };
   alertsPanelRef: RefObject<HTMLDivElement | null>;
   bundlePreviewText: string | null;
   closeoutChecklist: string[];
@@ -1650,10 +1770,14 @@ function OperationalPanels(props: {
   recentActionNotices: string[];
   replayWorkspace: Awaited<ReturnType<typeof createReplayWorkspace>> | null;
   replayBundleDiffText: string | null;
+  replayUnavailable: boolean;
+  correlationUnavailable: boolean;
   retentionClasses: Awaited<ReturnType<typeof fetchRetentionClasses>>;
   retentionClassPreviewState: Awaited<ReturnType<typeof previewRetentionByClass>> | null;
+  lastRetentionSnapshot: RetentionSnapshotResult | null;
   retentionPreview: Awaited<ReturnType<typeof previewRetention>> | null;
   retentionPreviewText: string | null;
+  retentionSnapshotText: string | null;
   runbook: Awaited<ReturnType<typeof fetchRunbook>> | null;
   selectedIncidentId: string;
   selectedProfileId: string;
@@ -1665,6 +1789,8 @@ function OperationalPanels(props: {
   summaryJob: Awaited<ReturnType<typeof createSummaryJob>> | null;
   summaryProfiles?: Awaited<ReturnType<typeof fetchSummaryProfiles>>;
   visibleDay: JournalDay;
+  onAcknowledgeAlert: (ruleId: string) => void;
+  onApplyRetention: () => void;
   onBuildIntegration: () => void;
   onComparePreviousBundle: () => void;
   onCopyApiExample: (route: string, payload: Record<string, unknown>) => void;
@@ -1678,18 +1804,21 @@ function OperationalPanels(props: {
   onGenerateSummary: () => void;
   onGenerateSummaryProfile: () => void;
   onInvestigationNoteChange: (value: string) => void;
+  onJumpToEntry: (entryId: string) => void;
   onLoadAnalytics: () => void;
   onOfflineReview: () => void;
   onPrepareCloseout: () => void;
   onPreviewBundleManifest: () => void;
   onPreviewRetentionByClass: () => void;
   onPreviewRetention: () => void;
+  onRollbackRetention: () => void;
   onRunIntegrityCheck: () => void;
   onRunIntegrityMonitor: () => void;
   onRegisterPlugin: () => void;
   onRunPlugin: (pluginId: string) => void;
   onSaveAlertRule: () => void;
   onSaveInvestigationNote: () => void;
+  onSnoozeAlert: (ruleId: string) => void;
   onTightenRetention: () => void;
   onSelectIncident: (id: string) => void;
   onSelectProfile: (id: string) => void;
@@ -1761,11 +1890,20 @@ function OperationalPanels(props: {
         <button type="button" onClick={props.onPreviewRetention}>
           Preview retention
         </button>
+        <button type="button" disabled={!hasRetentionImpact(props.retentionPreview)} onClick={props.onApplyRetention}>
+          Apply retention
+        </button>
+        {props.lastRetentionSnapshot ? (
+          <button type="button" onClick={props.onRollbackRetention}>
+            Rollback retention snapshot
+          </button>
+        ) : null}
         <button type="button" onClick={props.onGenerateSummary}>
           Refresh current summary
         </button>
         {props.integrityReport ? <p>{props.integrityReport.checkedEntries} entries checked; mismatches {props.integrityReport.mismatchedEntryIds.length}.</p> : null}
         {props.retentionPreviewText ? <p>{props.retentionPreviewText}</p> : <p>Preview keeps the newest 1 day before any cleanup is applied.</p>}
+        {props.retentionSnapshotText ? <p>{props.retentionSnapshotText}</p> : null}
         {props.retentionPreview && ((props.retentionPreview.removedIncidentCount ?? 0) > 0 || (props.retentionPreview.removedBundleCount ?? 0) > 0) ? (
           <p className="validation-message">Warning: this retention preview removes incidents or replay bundles.</p>
         ) : null}
@@ -1782,7 +1920,7 @@ function OperationalPanels(props: {
           Save alert rule
         </button>
         {props.incidentCaptured ? <p>Incident snapshot captured.</p> : null}
-        <p>{props.incidents.length} incidents, {props.alertFindings.filter((finding) => finding.triggered).length} active alert findings.</p>
+        <p>{props.incidents.length} incidents, {props.alertSummary.activeCount} active alert finding(s), {props.alertSummary.snoozedCount} snoozed.</p>
         {props.incidents.length === 0 ? (
           <div>
             <p>No incidents captured yet.</p>
@@ -1792,13 +1930,35 @@ function OperationalPanels(props: {
           </div>
         ) : null}
         <div ref={props.alertsPanelRef} tabIndex={-1}>
-          {props.alertFindings.filter((finding) => finding.triggered).length === 0 ? (
+          {props.alertSummary.activeCount === 0 && props.alertSummary.snoozedCount === 0 ? (
             <div>
               <p>No active alert findings right now.</p>
               <button type="button" onClick={props.onSaveAlertRule}>
                 Create reconnect alert rule
               </button>
             </div>
+          ) : null}
+          {props.alertFindings.length > 0 ? (
+            <ul>
+              {props.alertFindings.map((finding) => {
+                const state = describeAlertFindingState(finding);
+                return (
+                  <li key={finding.ruleId}>
+                    <strong>{finding.title}</strong>
+                    <p>{state.label}</p>
+                    <p>{state.detail}</p>
+                    <div className="search-presets">
+                      <button type="button" disabled={!finding.triggered} onClick={() => props.onAcknowledgeAlert(finding.ruleId)}>
+                        Acknowledge {finding.title}
+                      </button>
+                      <button type="button" disabled={!finding.triggered} onClick={() => props.onSnoozeAlert(finding.ruleId)}>
+                        Snooze {finding.title} for 30 minutes
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           ) : null}
         </div>
         {props.incidents.length > 0 ? (
@@ -2057,8 +2217,52 @@ function OperationalPanels(props: {
         <p>{summaryProfiles.length} summary profiles available.</p>
         {props.generatedProfileSummary ? <p>{props.generatedProfileSummary.summary}</p> : <p>No summary profile generated yet.</p>}
         {generatedSummaryCitations.length > 0 ? <p>Citations: {generatedSummaryCitations.map((citation) => citation.entryId).join(", ")}</p> : null}
-        {props.missionReplay ? <p>Mission replay steps: {props.missionReplay.steps.length}</p> : null}
-        {props.correlationGraph ? <p>Correlation graph: {props.correlationGraph.nodes.length} nodes, {props.correlationGraph.edges.length} edges.</p> : null}
+        {props.missionReplay ? (
+          <div>
+            <p>Mission replay generated at {props.missionReplay.generatedAt}; {props.missionReplay.steps.length} step(s).</p>
+            <ol>
+              {props.missionReplay.steps.map((step, index) => (
+                <li key={step.id}>
+                  <p>{formatMissionReplayStep(step, index)}</p>
+                  {step.entryIds.map((entryId) => (
+                    <button key={entryId} type="button" onClick={() => props.onJumpToEntry(entryId)}>
+                      Open entry {entryId}
+                    </button>
+                  ))}
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : (
+          <p>
+            {props.selectedIncidentId
+              ? props.replayUnavailable
+                ? "Mission replay unavailable: local replay endpoint failed closed."
+                : "Mission replay loading from local evidence."
+              : "Mission replay unavailable until an incident is selected."}
+          </p>
+        )}
+        {props.correlationGraph ? (
+          <div>
+            <p>Correlation graph: {props.correlationGraph.nodes.length} nodes, {props.correlationGraph.edges.length} edges.</p>
+            <ul>
+              {props.correlationGraph.nodes.map((node) => (
+                <li key={node.id}>{formatCorrelationNode(node)}</li>
+              ))}
+              {props.correlationGraph.edges.map((edge) => (
+                <li key={edge.id}>{formatCorrelationEdge(edge)}</li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <p>
+            {props.selectedIncidentId
+              ? props.correlationUnavailable
+                ? "Correlation graph unavailable: local correlation endpoint failed closed."
+                : "Correlation graph loading from local evidence."
+              : "Correlation graph unavailable until an incident is selected."}
+          </p>
+        )}
         {integrityReports[0] ? <p>Latest integrity report: {integrityReports[0].ok ? "ok" : "issues found"}.</p> : null}
         {props.analyticsSnapshot ? (
           <p>

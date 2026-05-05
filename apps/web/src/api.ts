@@ -32,8 +32,10 @@ import type {
   PinnedDayContext,
   ProfileConfig,
   ReplayWorkspace,
+  RetentionPolicy,
   RetentionClass,
   RetentionClassPreview,
+  RetentionPreview,
   ReplayBundleDiff,
   ServiceHealthTimelineEntry,
   SessionDrilldown,
@@ -263,6 +265,30 @@ export async function previewRetention(policy: { keepDays: number; includeAudit:
   return result.preview;
 }
 
+export interface RetentionSnapshotResult {
+  id: string;
+  createdAt: string;
+  preview: RetentionPreview;
+  days?: JournalDay[];
+}
+
+export async function applyRetention(policy: RetentionPolicy): Promise<RetentionSnapshotResult> {
+  const response = await fetch("/api/retention/apply", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(policy)
+  });
+  if (!response.ok) throw new Error("Retention apply failed");
+  const result = (await response.json()) as { snapshot: RetentionSnapshotResult };
+  return result.snapshot;
+}
+
+export async function rollbackRetention(snapshotId: string): Promise<{ restoredDayKeys: string[] }> {
+  const response = await fetch(`/api/retention/rollback/${encodeURIComponent(snapshotId)}`, { method: "POST" });
+  if (!response.ok) throw new Error("Retention rollback failed");
+  return (await response.json()) as { restoredDayKeys: string[] };
+}
+
 export async function fetchIncidents(): Promise<IncidentSummary[]> {
   const result = await fetchJson<{ incidents: IncidentSummary[] }>("/api/incidents");
   return result.incidents;
@@ -328,6 +354,34 @@ export async function saveAlertRule(rule: Partial<AlertRule> & { id: string }): 
   if (!response.ok) throw new Error("Alert rule save failed");
   const result = (await response.json()) as { rule: AlertRule };
   return result.rule;
+}
+
+export interface AlertStateResult {
+  ruleId: string;
+  acknowledgedAt?: string;
+  snoozedUntil?: string;
+}
+
+export async function acknowledgeAlert(ruleId: string, acknowledgedAt = new Date().toISOString()): Promise<AlertStateResult> {
+  const response = await fetch(`/api/alerts/${encodeURIComponent(ruleId)}/ack`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ acknowledgedAt })
+  });
+  if (!response.ok) throw new Error("Alert acknowledgement failed");
+  const result = (await response.json()) as { state: AlertStateResult };
+  return result.state;
+}
+
+export async function snoozeAlert(ruleId: string, snoozedUntil: string): Promise<AlertStateResult> {
+  const response = await fetch(`/api/alerts/${encodeURIComponent(ruleId)}/snooze`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ snoozedUntil })
+  });
+  if (!response.ok) throw new Error("Alert snooze failed");
+  const result = (await response.json()) as { state: AlertStateResult };
+  return result.state;
 }
 
 export async function fetchAdapterEvents(): Promise<AdapterEvent[]> {

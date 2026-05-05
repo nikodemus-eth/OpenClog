@@ -90,3 +90,9 @@ Capture durable lessons that should shape future OpenClog work.
 - Visual snapshot updates are expected when archive row content changes, but they should follow targeted behavior assertions for the new badges and controls.
 - Default search presets are safest as a merge helper, not as one-time settings seed data, because stored operator preferences should survive while new canonical presets still appear.
 - Evidence-quality signals are more useful when they show concrete counts and missing pieces than when they hide behind generic “complete” labels.
+
+## 2026-05-05 Workbench Execution Lanes
+- A backend route is not “implemented in the product” until the workbench gives operators a truthful way to execute it, see the result, and recover from failure.
+- Preview-gated mutation controls need tests for the disabled state as much as the success state; otherwise cleanup can drift from “inspect first” into a one-click destructive path.
+- Snoozed and acknowledged alerts are different operator states, so active counts should exclude future-snoozed findings while still keeping the finding visible.
+- Count-only replay/correlation summaries are not enough for incident review; even a small list of steps, nodes, edges, and local jump buttons makes the evidence inspectable without widening authority.

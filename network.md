@@ -99,3 +99,9 @@ Track network behavior, local Gateway assumptions, and remote deployment boundar
 - API example copy buttons generate local clipboard text from existing route shapes; they do not send third-party delivery requests or expose delivery credentials.
 - Gateway readiness and reconnect trend visibility remains sourced from OpenClog API health data, not a new browser socket to OpenClaw Gateway.
 - Final live Gateway verification reached `status: ready` against the local Gateway and probed `health`, `system-presence`, `exec.approval.list`, `sessions.list`, `sessions.subscribe`, and `sessions.messages.subscribe`; mutation testing stayed off.
+
+## 2026-05-05 Workbench Execution Lanes
+- Retention apply/rollback, alert acknowledgement/snooze, replay inspection, and correlation inspection all use existing OpenClog HTTP API routes; the browser still never connects directly to OpenClaw Gateway.
+- The new alert and retention controls do not add outbound third-party delivery, webhook calls, or browser-visible credentials.
+- Replay/correlation entry jump controls are local UI navigation only; they do not trigger Gateway replay, remote fetches, or live session mutation.
+- Network failure for replay or correlation is reported as fail-closed unavailable local evidence, preserving the boundary between deterministic UI fixtures, local API state, and live Gateway verification.

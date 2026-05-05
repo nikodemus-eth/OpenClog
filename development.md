@@ -139,3 +139,9 @@ Track OpenClog implementation decisions, verification passes, refactors, and clo
 - Corrected global keyboard commands away from plain `Shift+letter` chords; command shortcuts now use `Alt+E`, `Alt+A`, `Alt+T`, `Alt+C`, and `Alt+S` so operators can still type capital letters in text fields.
 - Kept the refactor boundary practical: shared behavior lives in `@openclog/app`, core display/types, repository helpers, and frontend state helpers while Fastify routes stay mostly as API adapters.
 - Refreshed deterministic visual baselines after the archive badge and workbench control changes, and added `.gitignore` coverage for repo-local cache/build output that should not be committed as source.
+
+## 2026-05-05 Workbench Execution Lanes
+- Implemented this as a narrow web-workbench activation over existing backend contracts rather than adding new application routes.
+- Added client wrappers for retention apply/rollback and alert acknowledge/snooze, then kept React mutation handlers fail-closed: successful actions refetch authoritative data; failed actions leave existing state untouched and report explicit local notices.
+- Continued the frontend refactor by moving retention impact, alert-state classification, snooze calculation, replay-step formatting, correlation formatting, and workbench-copy redaction into `apps/web/src/state/operator-workspace.ts`.
+- Expanded the fixture-driven browser lane so lifecycle execution, per-finding alert controls, and replay/correlation inspection are tested as operator workflows instead of helper-only behavior.

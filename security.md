@@ -134,3 +134,9 @@ Track OpenClog security posture, Gateway authority boundaries, redaction, and fa
 - Signed replay/export bundles now carry manifest-hash verification metadata so tampering is surfaced as a verification result instead of being silently trusted during external handoff or replay review.
 - Replay workspaces, health aggregates, SLO snapshots, incident rule packs, and generated runbooks are bounded views over persisted redacted evidence and local operator metadata only; none of the new routes expose device identity, browser-visible secrets, or raw Gateway frames.
 - Desktop secret handling is now backend-only and macOS Keychain-backed through Tauri commands; non-macOS native secret operations fail closed rather than silently falling back to weaker browser or plain-text storage.
+
+## 2026-05-05 Workbench Execution Lane Hardening
+- Retention apply is preview-gated in the browser and still executes only through the backend retention route; failed apply or rollback requests leave the current UI state unchanged and report fail-closed local copy.
+- Alert acknowledgement and snooze buttons mutate only stored local alert state through existing backend contracts, then refetch findings; no Gateway scope, token, device identity, or raw event access is added to the browser.
+- Replay and correlation inspection renders sanitized local evidence labels and ids through the same browser-visible redaction helpers used for timeline safety, preventing raw Gateway frame text, token-like values, cookies, and unsafe local paths from leaking through the new lists.
+- Failed replay/correlation reads are shown as unavailable local evidence instead of being converted into successful counts or synthetic narratives.

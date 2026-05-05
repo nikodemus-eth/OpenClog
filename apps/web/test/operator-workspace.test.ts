@@ -6,16 +6,24 @@ import {
   buildReconnectTrendText,
   classifyGatewayErrorCategory,
   classifyGatewayUrl,
+  describeAlertFindingState,
   DEFAULT_SEARCH_PRESETS,
   dedupeLiveActionNotice,
   describeGeneratedSummaryFreshness,
+  formatCorrelationEdge,
+  formatCorrelationNode,
   formatBundleManifestPreview,
   formatCloseoutPlan,
+  formatMissionReplayStep,
   formatReplayBundleDiff,
   formatRetentionPreview,
+  formatRetentionSnapshotImpact,
+  hasRetentionImpact,
   isGeneratedSummaryStale,
   mergeSearchPresets,
   searchEmptyState,
+  summarizeAlertFindings,
+  thirtyMinuteSnoozeUntil,
   validateInvestigationNote,
   validatePinnedSummary
 } from "../src/state/operator-workspace.js";
@@ -70,6 +78,108 @@ describe("operator workspace helpers", () => {
     expect(searchEmptyState("timeout", 0)).toContain("No journal matches");
     expect(searchEmptyState("timeout", 1)).toBeNull();
     expect(searchEmptyState("", 0)).toBeNull();
+  });
+
+  test("formats retention snapshot impact and detects removable state", () => {
+    const preview = {
+      keepDays: 1,
+      removedDayKeys: ["2026-05-01"],
+      removedEntryCount: 2,
+      removedSummaryCount: 1,
+      removedAuditCount: 1,
+      removedIncidentCount: 1,
+      removedAlertCount: 1,
+      removedBundleCount: 1
+    };
+
+    expect(hasRetentionImpact(preview)).toBe(true);
+    expect(hasRetentionImpact(null)).toBe(false);
+    expect(hasRetentionImpact({ ...preview, removedDayKeys: [], removedEntryCount: 0, removedSummaryCount: 0, removedAuditCount: 0, removedIncidentCount: 0, removedAlertCount: 0, removedBundleCount: 0 })).toBe(false);
+    expect(hasRetentionImpact({ keepDays: 1, removedDayKeys: [], removedEntryCount: 0, removedSummaryCount: 0, removedAuditCount: 0 })).toBe(false);
+    expect(formatRetentionSnapshotImpact({ id: "retention-1", createdAt: "2026-05-04T12:00:00.000Z", preview })).toBe(
+      "Applied retention snapshot retention-1 at 2026-05-04T12:00:00.000Z: removed 1 day(s), 2 entries, 1 summaries, 1 audit rows, 1 incidents, 1 alerts, and 1 bundles."
+    );
+    expect(
+      formatRetentionSnapshotImpact({
+        id: "retention-2",
+        createdAt: "2026-05-04T12:01:00.000Z",
+        preview: { keepDays: 1, removedDayKeys: [], removedEntryCount: 0, removedSummaryCount: 0, removedAuditCount: 0 }
+      })
+    ).toContain("0 incidents, 0 alerts, and 0 bundles");
+    expect(formatRetentionSnapshotImpact(null)).toBeNull();
+  });
+
+  test("describes alert active, acknowledged, and snoozed state", () => {
+    const now = new Date("2026-05-04T12:00:00.000Z");
+    const futureSnooze = {
+      ruleId: "reconnect-storm",
+      title: "Reconnect storm",
+      triggered: true,
+      detail: "Reconnect storm triggered.",
+      snoozedUntil: "2026-05-04T12:30:00.000Z"
+    };
+    const expiredSnooze = { ...futureSnooze, snoozedUntil: "2026-05-04T11:59:00.000Z", acknowledgedAt: "2026-05-04T11:50:00.000Z" };
+
+    expect(describeAlertFindingState(futureSnooze, now)).toMatchObject({
+      status: "snoozed",
+      label: "Snoozed until 2026-05-04T12:30:00.000Z",
+      active: false,
+      snoozed: true
+    });
+    expect(describeAlertFindingState(expiredSnooze, now)).toMatchObject({
+      status: "active_acknowledged",
+      label: "Active, acknowledged at 2026-05-04T11:50:00.000Z",
+      active: true,
+      snoozed: false
+    });
+    expect(describeAlertFindingState({ ...futureSnooze, snoozedUntil: "not-a-date" }, now)).toMatchObject({
+      status: "active",
+      label: "Active",
+      active: true,
+      snoozed: false
+    });
+    expect(describeAlertFindingState({ ...futureSnooze, triggered: false, snoozedUntil: undefined }, now)).toMatchObject({
+      status: "inactive",
+      label: "Inactive"
+    });
+    expect(summarizeAlertFindings([futureSnooze, expiredSnooze], now)).toEqual({ activeCount: 1, acknowledgedCount: 1, snoozedCount: 1 });
+    expect(thirtyMinuteSnoozeUntil(now)).toBe("2026-05-04T12:30:00.000Z");
+  });
+
+  test("formats mission replay and correlation details with safe copy", () => {
+    expect(
+      formatMissionReplayStep(
+        {
+          id: "step-1",
+          kind: "entry",
+          entryIds: ["entry-1"],
+          timestamp: "2026-05-04T12:00:00.000Z",
+          label: "Authorization: Bearer live-secret",
+          derived: false,
+          sourceIds: ["entry-1"]
+        },
+        0
+      )
+    ).toBe("Step 1: entry at 2026-05-04T12:00:00.000Z - [REDACTED_SECRET] - entries entry-1 - sources entry-1.");
+    expect(formatCorrelationNode({ id: "node-1", type: "bundle_export", label: "/Users/m4/OpenClog/.env" })).toBe("node-1: [LOCAL_PATH] (bundle export)");
+    expect(formatCorrelationEdge({ id: "edge-1", from: "incident-1", to: "entry-1", relationship: "triggered_by" })).toBe("edge-1: incident-1 triggered by entry-1");
+    expect(formatCorrelationEdge({ id: "edge-2", from: "bundle-1", to: "receipt-1", relationship: "exported_to" })).toBe("edge-2: bundle-1 exported to receipt-1");
+    expect(formatCorrelationEdge({ id: "edge-3", from: "entry-1", to: "incident-1", relationship: "references" })).toBe("edge-3: entry-1 references incident-1");
+    expect(formatCorrelationEdge({ id: "edge-4", from: "entry-1", to: "session-1", relationship: "belongs_to" })).toBe("edge-4: entry-1 belongs to session-1");
+    expect(
+      formatMissionReplayStep(
+        {
+          id: "step-2",
+          kind: "derived",
+          entryIds: [],
+          timestamp: "2026-05-04T12:01:00.000Z",
+          label: "Derived checkpoint",
+          derived: true,
+          sourceIds: []
+        },
+        1
+      )
+    ).toContain("entries none - sources none");
   });
 
   test("ships named operator views and deduplicates live action notices", () => {

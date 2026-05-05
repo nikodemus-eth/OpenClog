@@ -1,5 +1,19 @@
 import type { BundleExport, SearchPreset } from "../api.js";
-import type { CloseoutPlan, GeneratedSummary, JournalDay, JournalEntry, JournalFilterKey, OperatorViewPreset, ReplayBundleDiff, RetentionPreview } from "@openclog/core";
+import {
+  browserVisibleEntryText,
+  type AlertFinding,
+  type CloseoutPlan,
+  type CorrelationEdge,
+  type CorrelationNode,
+  type GeneratedSummary,
+  type JournalDay,
+  type JournalEntry,
+  type JournalFilterKey,
+  type OperatorViewPreset,
+  type ReplayBundleDiff,
+  type ReplayStep,
+  type RetentionPreview
+} from "@openclog/core";
 import type { JournalRouteState } from "../hooks/useJournalRouting.js";
 
 export const DEFAULT_SEARCH_PRESETS: SearchPreset[] = [
@@ -67,6 +81,25 @@ export interface DiagnosticsCollapsedState {
   recentTools: boolean;
 }
 
+export interface RetentionSnapshotView {
+  id: string;
+  createdAt: string;
+  preview: RetentionPreview;
+}
+
+export type AlertFindingView = AlertFinding & {
+  acknowledgedAt?: string;
+  snoozedUntil?: string;
+};
+
+export interface AlertFindingStateDescription {
+  active: boolean;
+  detail: string;
+  label: string;
+  snoozed: boolean;
+  status: "active" | "active_acknowledged" | "inactive" | "snoozed";
+}
+
 export function validatePinnedSummary(summary: string, maxLength = 280): string | null {
   const trimmed = summary.trim();
   if (trimmed.length === 0) return "Pinned summary cannot be empty.";
@@ -124,6 +157,85 @@ export function buildReconnectTrendText(reconnectCount: number): string {
 export function formatRetentionPreview(preview: RetentionPreview | null): string | null {
   if (!preview) return null;
   return `Retention would remove ${String(preview.removedDayKeys.length)} day(s), ${String(preview.removedEntryCount)} entries, ${String(preview.removedSummaryCount)} summaries, and ${String(preview.removedAuditCount)} audit rows; before/after impact includes ${String(preview.removedIncidentCount ?? 0)} incidents, ${String(preview.removedAlertCount ?? 0)} alerts, and ${String(preview.removedBundleCount ?? 0)} bundles.`;
+}
+
+export function hasRetentionImpact(preview: RetentionPreview | null | undefined): boolean {
+  if (!preview) return false;
+  return retentionImpactCounts(preview).reduce((total, count) => total + count, 0) > 0;
+}
+
+export function formatRetentionSnapshotImpact(snapshot: RetentionSnapshotView | null): string | null {
+  if (!snapshot) return null;
+  const counts = retentionImpactLabels(snapshot.preview);
+  return `Applied retention snapshot ${safeWorkbenchCopy(snapshot.id)} at ${safeWorkbenchCopy(snapshot.createdAt)}: removed ${counts.join(", ").replace(/, ([^,]*)$/, ", and $1")}.`;
+}
+
+export function thirtyMinuteSnoozeUntil(now = new Date()): string {
+  return new Date(now.getTime() + 30 * 60 * 1000).toISOString();
+}
+
+export function describeAlertFindingState(finding: AlertFindingView, now = new Date()): AlertFindingStateDescription {
+  if (isFindingSnoozed(finding, now)) {
+    return {
+      active: false,
+      detail: `${safeWorkbenchCopy(finding.title)} is snoozed but still preserved in local alert state.`,
+      label: `Snoozed until ${safeWorkbenchCopy(finding.snoozedUntil!)}`,
+      snoozed: true,
+      status: "snoozed"
+    };
+  }
+  if (finding.triggered && finding.acknowledgedAt) {
+    return {
+      active: true,
+      detail: safeWorkbenchCopy(finding.detail),
+      label: `Active, acknowledged at ${safeWorkbenchCopy(finding.acknowledgedAt)}`,
+      snoozed: false,
+      status: "active_acknowledged"
+    };
+  }
+  if (finding.triggered) {
+    return {
+      active: true,
+      detail: safeWorkbenchCopy(finding.detail),
+      label: "Active",
+      snoozed: false,
+      status: "active"
+    };
+  }
+  return {
+    active: false,
+    detail: safeWorkbenchCopy(finding.detail),
+    label: "Inactive",
+    snoozed: false,
+    status: "inactive"
+  };
+}
+
+export function summarizeAlertFindings(findings: AlertFindingView[], now = new Date()): { activeCount: number; acknowledgedCount: number; snoozedCount: number } {
+  return findings.reduce(
+    (summary, finding) => {
+      const state = describeAlertFindingState(finding, now);
+      if (state.active) summary.activeCount += 1;
+      if (finding.acknowledgedAt) summary.acknowledgedCount += 1;
+      if (state.snoozed) summary.snoozedCount += 1;
+      return summary;
+    },
+    { activeCount: 0, acknowledgedCount: 0, snoozedCount: 0 }
+  );
+}
+
+export function formatMissionReplayStep(step: ReplayStep, index: number): string {
+  const entryText = step.entryIds.length > 0 ? step.entryIds.map(safeWorkbenchCopy).join(", ") : "none";
+  const sourceText = step.sourceIds.length > 0 ? step.sourceIds.map(safeWorkbenchCopy).join(", ") : "none";
+  return `Step ${String(index + 1)}: ${step.kind.replaceAll("_", " ")} at ${safeWorkbenchCopy(step.timestamp)} - ${safeWorkbenchCopy(step.label)} - entries ${entryText} - sources ${sourceText}.`;
+}
+
+export function formatCorrelationNode(node: CorrelationNode): string {
+  return `${safeWorkbenchCopy(node.id)}: ${safeWorkbenchCopy(node.label)} (${node.type.replaceAll("_", " ")})`;
+}
+
+export function formatCorrelationEdge(edge: CorrelationEdge): string {
+  return `${safeWorkbenchCopy(edge.id)}: ${safeWorkbenchCopy(edge.from)} ${correlationRelationshipLabel(edge.relationship)} ${safeWorkbenchCopy(edge.to)}`;
 }
 
 export function searchEmptyState(query: string, resultCount: number): string | null {
@@ -262,4 +374,57 @@ function isPrivateIpv4(host: string): boolean {
   if (!match) return false;
   const second = Number(match[1]);
   return second >= 16 && second <= 31;
+}
+
+function retentionImpactCounts(preview: RetentionPreview): number[] {
+  return [
+    preview.removedDayKeys.length,
+    preview.removedEntryCount,
+    preview.removedSummaryCount,
+    preview.removedAuditCount,
+    preview.removedIncidentCount ?? 0,
+    preview.removedAlertCount ?? 0,
+    preview.removedBundleCount ?? 0
+  ];
+}
+
+function retentionImpactLabels(preview: RetentionPreview): string[] {
+  return [
+    `${String(preview.removedDayKeys.length)} day(s)`,
+    `${String(preview.removedEntryCount)} entries`,
+    `${String(preview.removedSummaryCount)} summaries`,
+    `${String(preview.removedAuditCount)} audit rows`,
+    `${String(preview.removedIncidentCount ?? 0)} incidents`,
+    `${String(preview.removedAlertCount ?? 0)} alerts`,
+    `${String(preview.removedBundleCount ?? 0)} bundles`
+  ];
+}
+
+function isFindingSnoozed(finding: AlertFindingView, now: Date): boolean {
+  if (!finding.snoozedUntil) return false;
+  const snoozedUntilMs = Date.parse(finding.snoozedUntil);
+  return Number.isFinite(snoozedUntilMs) && snoozedUntilMs > now.getTime();
+}
+
+function correlationRelationshipLabel(relationship: CorrelationEdge["relationship"]): string {
+  if (relationship === "belongs_to") return "belongs to";
+  if (relationship === "triggered_by") return "triggered by";
+  if (relationship === "exported_to") return "exported to";
+  return relationship;
+}
+
+function safeWorkbenchCopy(value: string): string {
+  return browserVisibleEntryText(
+    {
+      id: "operator-workspace-copy",
+      dayKey: "operator-workspace",
+      source: "system",
+      kind: "system_status",
+      title: "Operator workspace copy",
+      body: value,
+      timestamp: "1970-01-01T00:00:00.000Z",
+      redacted: true
+    },
+    { expanded: true }
+  ).body;
 }

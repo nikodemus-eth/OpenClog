@@ -97,3 +97,9 @@ Track public API contracts and Gateway RPC usage.
 - Replay-bundle diff responses now include `changeClass` with `unchanged`, `narrative_only`, `metadata_only`, or `evidence_shape` so reviewers can triage bundle changes without re-parsing every manifest field.
 - The new copy controls are UI affordances over existing route examples; they do not add Gateway RPC methods, requested scopes, delivery transports, or browser-side credential paths.
 - Search presets remain settings/view-model data and cap at eight merged defaults plus operator entries, avoiding API drift for saved investigation shortcuts.
+
+## 2026-05-05 Workbench Execution Lanes
+- No new backend routes were introduced for this tranche; the web client now wraps and uses the existing `POST /api/retention/apply`, `POST /api/retention/rollback/:id`, `POST /api/alerts/:id/ack`, and `POST /api/alerts/:id/snooze` contracts.
+- Retention apply sends the same bounded local retention policy used by preview, records the returned snapshot id and preview impact, and refetches the day index after apply or rollback.
+- Alert lifecycle actions remain local operator state layered onto `GET /api/alerts`; the UI refetches from the API after acknowledgement or snooze rather than treating the button click as authoritative.
+- Replay and correlation remain read-only local evidence endpoints through `GET /api/replay/:incidentId` and `GET /api/correlation/:incidentId`; endpoint failures produce browser-visible fail-closed copy, not fabricated counts.

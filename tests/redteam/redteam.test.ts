@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { formatCorrelationNode, formatMissionReplayStep, formatRetentionSnapshotImpact } from "../../apps/web/src/state/operator-workspace.js";
 import { browserVisibleEntryText, classifyComposerInput, redactGatewayPayload, toPersistableRedactedEvent } from "../../packages/core/src/index.js";
 
 describe("red-team fixtures", () => {
@@ -65,6 +66,42 @@ describe("red-team fixtures", () => {
     });
 
     expect(matches).toEqual([]);
+  });
+
+  test("workbench execution-lane copy does not expose raw secrets or local paths", () => {
+    const retention = formatRetentionSnapshotImpact({
+      id: "retention-1",
+      createdAt: "2026-05-04T12:00:00.000Z",
+      preview: {
+        keepDays: 1,
+        removedDayKeys: ["/Users/m4/OpenClog/.env"],
+        removedEntryCount: 1,
+        removedSummaryCount: 0,
+        removedAuditCount: 0,
+        removedIncidentCount: 0,
+        removedAlertCount: 0,
+        removedBundleCount: 0
+      }
+    });
+    const replay = formatMissionReplayStep(
+      {
+        id: "step-1",
+        kind: "entry",
+        entryIds: ["entry-1"],
+        timestamp: "2026-05-04T12:00:00.000Z",
+        label: "OPENCLAW_GATEWAY_TOKEN=oc_token_secret raw Gateway frame {\"authorization\":\"Bearer nope\"}",
+        derived: false,
+        sourceIds: ["entry-1"]
+      },
+      0
+    );
+    const correlation = formatCorrelationNode({
+      id: "node-1",
+      type: "entry",
+      label: "cookie: session=raw-cookie /Users/m4/OpenClog/.env"
+    });
+
+    expect([retention, replay, correlation].join("\n")).not.toMatch(/oc_token_secret|Bearer nope|raw-cookie|\/Users\/m4\/OpenClog\/\.env/);
   });
 });
 

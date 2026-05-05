@@ -182,3 +182,15 @@ Record deterministic verification, live Gateway verification, coverage policy, a
   - `npm run smoke -w @openclog/desktop`
   - `git diff --check`
 - Coverage remains 100 percent statements, branches, functions, and lines in `npm run test:coverage`, and the live Gateway probe ended `ready` with `operator`, `operator.read`, `operator.write`, and negotiated `operator.admin` satisfying control-action readiness.
+
+## 2026-05-05 Workbench Execution Lanes
+- Added operator-workspace unit coverage for retention snapshot impact formatting, preview-gated removable-state detection, active/acknowledged/snoozed alert copy, expired/invalid snooze handling, fixed 30-minute snooze calculation, replay-step display, correlation node/edge display, and browser-safe copy redaction.
+- Expanded Playwright fixture state and browser coverage for preview -> apply -> rollback retention execution, per-finding alert acknowledge/snooze controls, visible replay/correlation evidence rows, entry jump controls, empty-state unavailable copy, and fail-closed replay/correlation endpoint failures on desktop and mobile.
+- Extended red-team coverage so retention, replay, and correlation workbench copy does not expose token-like values, raw Gateway frame text, cookies, or unsafe local paths.
+- Refreshed the 27 mobile visual snapshots after the intentional workbench height/content increase; desktop visual baselines remained stable.
+- Focused verification before the full gate passed:
+  - `npm run test:changed`
+  - `npx playwright test tests/e2e/advanced-features.spec.ts`
+  - `npm run test:redteam`
+  - `npm run test:coverage`
+- Coverage remains 100 percent statements, branches, functions, and lines for the configured measured surface; no coverage exclusions were broadened.

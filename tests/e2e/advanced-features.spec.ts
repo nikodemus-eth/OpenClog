@@ -79,15 +79,26 @@ test("journal quick wins and advanced workbench stay usable together", async ({ 
 
   await page.getByRole("button", { name: "Run integrity check" }).click();
   await expect(page.getByText(/entries checked/i)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Apply retention" })).toBeDisabled();
   await page.getByRole("button", { name: "Preview retention" }).click();
   await expect(page.getByText(/Retention would remove 1 day/)).toBeVisible();
   await expect(page.getByText(/2 entries/)).toBeVisible();
   await expect(page.getByText(/before\/after impact/i)).toBeVisible();
+  await page.getByRole("button", { name: "Apply retention" }).click();
+  await expect(page.getByText(/Applied retention snapshot retention-fixture-1/i)).toBeVisible();
+  await expect(page.getByText(/removed 1 day\(s\), 2 entries, 1 summaries, 1 audit rows, 1 incidents, 1 alerts, and 1 bundles/i)).toBeVisible();
+  await page.getByRole("button", { name: "Rollback retention snapshot" }).click();
+  await expect(page.getByText(/Retention rollback restored 2 day\(s\)/i)).toBeVisible();
 
   await page.getByRole("button", { name: "Capture incident" }).click();
   await expect(page.getByText(/Incident snapshot captured/i)).toBeVisible();
   await page.getByRole("button", { name: "Save alert rule" }).click();
-  await expect(page.getByText(/incidents, 1 active alert findings\./i)).toBeVisible();
+  await expect(page.getByText(/incidents, 1 active alert finding\(s\), 0 snoozed\./i)).toBeVisible();
+  await expect(page.getByText(/Reconnect storm triggered for 2026-05-03/i)).toBeVisible();
+  await page.getByRole("button", { name: "Acknowledge Reconnect storm" }).click();
+  await expect(page.getByText(/Active, acknowledged at/i)).toBeVisible();
+  await page.getByRole("button", { name: "Snooze Reconnect storm for 30 minutes" }).click();
+  await expect(page.getByText(/Snoozed until/i)).toBeVisible();
   await page.getByLabel("Incident workspace selector").selectOption("incident-1");
   await expect(page.getByRole("heading", { name: "Detect", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Explain", exact: true })).toBeVisible();
@@ -115,6 +126,11 @@ test("journal quick wins and advanced workbench stay usable together", async ({ 
   await expect(page.getByText(/API example copied for POST \/api\/integrations\/slack\/deliver/i)).toBeVisible();
   await page.getByRole("button", { name: "Copy replay API example" }).click();
   await expect(page.getByText(/API example copied for GET \/api\/correlation/i)).toBeVisible();
+  await expect(page.getByText(/Mission replay generated at 2026-05-04T12:10:00.000Z/i)).toBeVisible();
+  await expect(page.getByText(/Step 1: entry at 2026-05-03T12:01:00.000Z - Session started - entries 2026-05-03-entry-1 - sources 2026-05-03-entry-1\./i)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open entry 2026-05-03-entry-1" }).first()).toBeVisible();
+  await expect(page.getByText(/incident-1: Operational instability narrative \(incident\)/i)).toBeVisible();
+  await expect(page.getByText(/edge-1: incident-1 includes 2026-05-03-entry-1/i)).toBeVisible();
   await page.getByRole("button", { name: "Copy plugin API example" }).click();
   await expect(page.getByText(/API example copied for POST \/api\/plugins\/register/i)).toBeVisible();
 
@@ -195,6 +211,16 @@ test("shows validation and empty-state guidance for operator panels", async ({ p
   await expect(page.getByRole("button", { name: "Capture incident from this day" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Create reconnect alert rule" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Preview bundle manifest" })).toBeVisible();
+  await expect(page.getByText("Mission replay unavailable until an incident is selected.")).toBeVisible();
+  await expect(page.getByText("Correlation graph unavailable until an incident is selected.")).toBeVisible();
   await page.getByRole("button", { name: "Prepare end-of-day closeout" }).click();
   await expect(page.getByText(/Closeout for 2026-05-03/i)).toBeVisible();
+});
+
+test("fails closed when replay and correlation endpoints are unavailable", async ({ page }) => {
+  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0, failReplayCorrelation: true });
+  await page.goto("/?day=2026-05-03");
+
+  await expect(page.getByText("Mission replay unavailable: local replay endpoint failed closed.")).toBeVisible();
+  await expect(page.getByText("Correlation graph unavailable: local correlation endpoint failed closed.")).toBeVisible();
 });

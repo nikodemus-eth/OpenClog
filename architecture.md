@@ -127,3 +127,9 @@ Track OpenClog architecture, component ownership, and authority boundaries.
 - The Fastify API remains the local compatibility facade, but it now exposes bounded routes for summary-job polling, health aggregates, paginated/sorted receipt and incident-action history, replay workspace creation, rule-pack inspection, SLO status, and runbook generation on top of the shared application seam.
 - SQLite persistence now includes first-class summary-job and replay-workspace tables plus targeted indexes for session drilldowns, statuses, adapter events, tool failures, delivery receipts, and incident action history so the investigation-heavy surfaces stay responsive on larger journals.
 - The desktop shell is now a real native host boundary rather than a placeholder: the Tauri surface exposes a contract snapshot, scheduled self-check entrypoint, and backend-only secure-secret commands backed by the macOS Keychain with explicit fail-closed behavior off macOS.
+
+## 2026-05-05 Workbench Execution Lanes
+- The web workbench now exposes the existing retention execution lane directly: preview remains the gate, apply calls `/api/retention/apply`, rollback calls `/api/retention/rollback/:id`, and the UI shows the applied snapshot impact instead of treating retention as preview-only copy.
+- Alert findings are now operator-actionable per finding through the existing acknowledgement and snooze backend routes; the browser refetches alert state after each mutation instead of inventing optimistic lifecycle state.
+- Mission replay and correlation are now inspectable evidence lists in the incident workbench, with local entry jump affordances and explicit fail-closed unavailable copy when the replay or correlation endpoint cannot serve local evidence.
+- The new view logic stays in `apps/web/src/state/operator-workspace.ts`, keeping `App.tsx` focused on orchestration, route calls, and local focus/navigation state.

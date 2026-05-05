@@ -90,3 +90,9 @@ Record first-person implementation notes from the builder/operator perspective.
 - I treated the user's “commit everything” correction as a scope rule, not a suggestion: all repo-owned non-ignored work belongs in the final local commit.
 - I changed the shortcut chords because `Shift+letter` was a real usability trap in an app where operators type notes, summaries, and searches all day.
 - I kept the last tranche concrete: saved presets, evidence badges, API examples, diff classes, local note confirmation, tests, docs, snapshots, and publication rather than vague roadmap naming.
+
+## 2026-05-05 Workbench Execution Lanes
+- I treated the plan as an activation pass over real backend behavior: the missing work was the browser lane, not another retention or alert API rewrite.
+- I wrote the failing helper, red-team, and browser tests first, then wired the existing routes into the UI with preview-gated retention apply, rollback, acknowledge, snooze, replay details, and correlation details.
+- I kept the mutation path conservative: after apply, rollback, acknowledge, or snooze, the UI refetches from the backend; when a request fails, it says so and leaves the previous state alone.
+- I kept replay and correlation local and inspectable by showing concrete evidence rows and entry jump controls instead of pretending counts were enough for incident review.
