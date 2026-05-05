@@ -2,6 +2,7 @@ import type {
   AdapterEvent,
   AgentActivity,
   AnalyticsSnapshot,
+  HealthAggregate,
   CorrelationGraph,
   DeliveryReceipt,
   GeneratedProfileSummary,
@@ -24,15 +25,20 @@ import type {
   PluginExecutionResult,
   PluginManifest,
   IntegrityReport,
+  IncidentRulePack,
   JournalDay,
   JournalSearchResult,
+  OperatorRunbook,
   PinnedDayContext,
   ProfileConfig,
+  ReplayWorkspace,
   RetentionClass,
   RetentionClassPreview,
   ReplayBundleDiff,
   ServiceHealthTimelineEntry,
   SessionDrilldown,
+  SloSnapshot,
+  SummaryJob,
   SummaryProfile,
   ThemeId
 } from "@openclog/core";
@@ -109,6 +115,18 @@ export async function generateSummary(dayKey: string): Promise<GeneratedSummary>
   if (!response.ok) throw new Error("Summary generation failed");
   const result = (await response.json()) as { generatedSummary: GeneratedSummary };
   return result.generatedSummary;
+}
+
+export async function createSummaryJob(dayKey: string): Promise<SummaryJob> {
+  const response = await fetch(`/api/days/${encodeURIComponent(dayKey)}/summary-jobs`, { method: "POST" });
+  if (!response.ok) throw new Error("Summary job creation failed");
+  const result = (await response.json()) as { job: SummaryJob };
+  return result.job;
+}
+
+export async function fetchSummaryJob(id: string): Promise<SummaryJob> {
+  const result = await fetchJson<{ job: SummaryJob }>(`/api/summary-jobs/${encodeURIComponent(id)}`);
+  return result.job;
 }
 
 export async function fetchSettings(): Promise<OpenClogSettings> {
@@ -198,10 +216,15 @@ export async function exportBundle(dayKey: string): Promise<BundleExport> {
   return fetchJson(`/api/days/${encodeURIComponent(dayKey)}/export/bundle`);
 }
 
-export async function searchJournal(query: string, cursor?: string, limit = 20): Promise<{ query: string; results: JournalSearchResult[]; nextCursor?: string }> {
+export async function searchJournal(
+  query: string,
+  cursor?: string,
+  limit = 20,
+  options?: { signal?: AbortSignal }
+): Promise<{ query: string; results: JournalSearchResult[]; nextCursor?: string }> {
   const params = new URLSearchParams({ q: query, limit: String(limit) });
   if (cursor) params.set("cursor", cursor);
-  return fetchJson<{ query: string; results: JournalSearchResult[]; nextCursor?: string }>(`/api/search?${params.toString()}`);
+  return fetchJson<{ query: string; results: JournalSearchResult[]; nextCursor?: string }>(`/api/search?${params.toString()}`, options);
 }
 
 export async function runIntegrityCheck(): Promise<IntegrityReport> {
@@ -217,6 +240,8 @@ export async function previewRetention(policy: { keepDays: number; includeAudit:
   removedEntryCount: number;
   removedSummaryCount: number;
   removedAuditCount: number;
+  removedIncidentCount?: number;
+  removedBundleCount?: number;
 }> {
   const response = await fetch("/api/retention/preview", {
     method: "POST",
@@ -225,7 +250,15 @@ export async function previewRetention(policy: { keepDays: number; includeAudit:
   });
   if (!response.ok) throw new Error("Retention preview failed");
   const result = (await response.json()) as {
-    preview: { keepDays: number; removedDayKeys: string[]; removedEntryCount: number; removedSummaryCount: number; removedAuditCount: number };
+    preview: {
+      keepDays: number;
+      removedDayKeys: string[];
+      removedEntryCount: number;
+      removedSummaryCount: number;
+      removedAuditCount: number;
+      removedIncidentCount?: number;
+      removedBundleCount?: number;
+    };
   };
   return result.preview;
 }
@@ -307,6 +340,11 @@ export async function fetchHealthHistory(limit = 5): Promise<HealthHistoryEntry[
   return result.history;
 }
 
+export async function fetchHealthAggregate(limit = 20): Promise<HealthAggregate> {
+  const result = await fetchJson<{ aggregate: HealthAggregate }>(`/api/health/aggregate?limit=${String(limit)}`);
+  return result.aggregate;
+}
+
 export async function fetchHealthTimeline(limit = 10, cursor?: string): Promise<{ timeline: ServiceHealthTimelineEntry[]; nextCursor?: string }> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) params.set("cursor", cursor);
@@ -346,10 +384,16 @@ export async function buildIntegrationPayload(target: IntegrationPayload["target
   return result.payload;
 }
 
-export async function deliverIntegration(target: "slack" | "generic-webhook" | "email", payload: { dayKey: string; incidentId?: string }): Promise<DeliveryReceipt> {
+export async function deliverIntegration(
+  target: "slack" | "generic-webhook" | "email",
+  payload: { dayKey: string; incidentId?: string; dryRun?: boolean }
+): Promise<DeliveryReceipt> {
   const response = await fetch(`/api/integrations/${encodeURIComponent(target)}/deliver`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(payload.dryRun ? { "x-openclog-dry-run": "1" } : {})
+    },
     body: JSON.stringify(payload)
   });
   if (!response.ok) throw new Error("Integration delivery failed");
@@ -357,10 +401,31 @@ export async function deliverIntegration(target: "slack" | "generic-webhook" | "
   return result.receipt;
 }
 
-export async function fetchDeliveryReceipts(limit = 20, cursor?: string): Promise<{ receipts: DeliveryReceipt[]; nextCursor?: string }> {
+export async function fetchDeliveryReceipts(
+  limit = 20,
+  cursor?: string,
+  sort: "requestedAt:asc" | "requestedAt:desc" | "status:asc" | "status:desc" = "requestedAt:desc"
+): Promise<{ receipts: DeliveryReceipt[]; nextCursor?: string }> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) params.set("cursor", cursor);
+  params.set("sort", sort);
   return fetchJson<{ receipts: DeliveryReceipt[]; nextCursor?: string }>(`/api/integrations/receipts?${params.toString()}`);
+}
+
+export async function fetchIncidentActionRecords(
+  incidentId: string,
+  limit = 20,
+  cursor?: string,
+  sort: "createdAt:asc" | "createdAt:desc" | "status:asc" | "status:desc" = "createdAt:desc"
+): Promise<{ records: IncidentActionRecord[]; nextCursor?: string }> {
+  const params = new URLSearchParams({ limit: String(limit), sort });
+  if (cursor) params.set("cursor", cursor);
+  return fetchJson<{ records: IncidentActionRecord[]; nextCursor?: string }>(`/api/incidents/${encodeURIComponent(incidentId)}/actions?${params.toString()}`);
+}
+
+export async function fetchIncidentRulePacks(): Promise<IncidentRulePack[]> {
+  const result = await fetchJson<{ rulePacks: IncidentRulePack[] }>("/api/incident-rule-packs");
+  return result.rulePacks;
 }
 
 export async function executeIncidentAction(payload: {
@@ -461,6 +526,16 @@ export async function fetchAnalytics(): Promise<AnalyticsSnapshot> {
   return result.analytics;
 }
 
+export async function fetchSlo(): Promise<SloSnapshot> {
+  const result = await fetchJson<{ slo: SloSnapshot }>("/api/slo");
+  return result.slo;
+}
+
+export async function fetchRunbook(): Promise<OperatorRunbook> {
+  const result = await fetchJson<{ runbook: OperatorRunbook }>("/api/runbook");
+  return result.runbook;
+}
+
 export async function fetchReplay(incidentId: string): Promise<MissionReplay> {
   const result = await fetchJson<{ replay: MissionReplay }>(`/api/replay/${encodeURIComponent(incidentId)}`);
   return result.replay;
@@ -487,17 +562,28 @@ export async function registerPlugin(plugin: PluginManifest): Promise<PluginMani
   return result.plugin;
 }
 
-export async function runPlugin(pluginId: string): Promise<PluginExecutionResult> {
-  const response = await fetch(`/api/plugins/${encodeURIComponent(pluginId)}/run`, { method: "POST" });
+export async function runPlugin(pluginId: string, options?: { dryRun?: boolean }): Promise<PluginExecutionResult> {
+  const response = await fetch(`/api/plugins/${encodeURIComponent(pluginId)}/run`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ dryRun: options?.dryRun === true })
+  });
   if (!response.ok) throw new Error("Plugin run failed");
   const result = (await response.json()) as { result: PluginExecutionResult };
   return result.result;
 }
 
+export async function createReplayWorkspace(dayKey: string): Promise<ReplayWorkspace> {
+  const response = await fetch(`/api/replay-workspaces/${encodeURIComponent(dayKey)}`, { method: "POST" });
+  if (!response.ok) throw new Error("Replay workspace creation failed");
+  const result = (await response.json()) as { workspace: ReplayWorkspace };
+  return result.workspace;
+}
+
 export const selectableThemeIds: ThemeId[] = [...themeIds];
 
-async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+async function fetchJson<T>(url: string, options?: { signal?: AbortSignal }): Promise<T> {
+  const response = await fetch(url, options);
   if (!response.ok) throw new Error(`Request failed: ${url}`);
   return (await response.json()) as T;
 }

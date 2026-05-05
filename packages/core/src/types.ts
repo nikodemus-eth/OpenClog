@@ -266,6 +266,14 @@ export interface SearchPreset {
   query: string;
 }
 
+export type SessionDrilldownTab = "timeline" | "actions" | "deliveries";
+
+export interface SessionDrilldownViewState {
+  sessionKey?: string;
+  tab: SessionDrilldownTab;
+  scrollTop: number;
+}
+
 export interface OperatorViewPreset {
   id: string;
   label: string;
@@ -273,6 +281,8 @@ export interface OperatorViewPreset {
   searchQuery: string;
   activeFilters: JournalFilterKey[];
   grouped: boolean;
+  builtIn?: boolean;
+  drilldown?: SessionDrilldownViewState;
 }
 
 export interface OpenClogSettings {
@@ -281,6 +291,20 @@ export interface OpenClogSettings {
   showToolCalls: boolean;
   searchPresets: SearchPreset[];
   operatorViews: OperatorViewPreset[];
+}
+
+export type SummaryJobStatus = "queued" | "running" | "completed" | "failed";
+
+export interface SummaryJob {
+  id: string;
+  dayKey: string;
+  status: SummaryJobStatus;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  progressLabel: string;
+  generatedSummary?: GeneratedSummary;
+  error?: string;
 }
 
 export type IncidentCauseCategory =
@@ -425,6 +449,18 @@ export interface IntegrationPayload {
   body: string;
 }
 
+export interface DeliverySecretRef {
+  backend: "macos-keychain" | "unsupported";
+  key: string;
+}
+
+export interface DeliveryRequestOptions {
+  incidentId?: string;
+  idempotencyKey?: string;
+  dryRun?: boolean;
+  secretRef?: DeliverySecretRef;
+}
+
 export type HealthHistoryCategory = "reconnect" | "sequence_gap" | "gateway_error" | "tool_failure" | "approval" | "info";
 
 export interface HealthHistoryEntry {
@@ -494,9 +530,22 @@ export interface DeliveryReceipt {
   completedAt: string;
   correlationId: string;
   retryCount: number;
+  idempotencyKey?: string;
+  dryRun?: boolean;
+  secretRef?: DeliverySecretRef;
+  requestFingerprint?: string;
   deliveryReference?: string;
   errorCategory?: "missing_config" | "network" | "authentication" | "validation" | "unknown";
   deadLetterReason?: string;
+}
+
+export interface HealthAggregate {
+  createdAt: string;
+  reconnectCount: number;
+  staleCount: number;
+  recoveryCount: number;
+  adapterFailureCount: number;
+  latestErrorCategory?: string;
 }
 
 export interface ServiceHealthTimelineEntry {
@@ -608,6 +657,10 @@ export interface PluginManifest {
   version: string;
   capabilities: PluginCapability[];
   readScopes: Array<"entries" | "incidents" | "notes" | "exports">;
+  actionIds?: IncidentActionKind[];
+  supportsDryRun?: boolean;
+  validationStatus?: "valid" | "blocked";
+  validationMessage?: string;
 }
 
 export interface PluginExecutionResult {
@@ -615,5 +668,61 @@ export interface PluginExecutionResult {
   pluginId: string;
   status: "completed" | "failed";
   createdAt: string;
+  dryRun?: boolean;
+  validated?: boolean;
+  receiptId?: string;
   summary: string;
+}
+
+export interface BundleSignature {
+  algorithm: "sha256";
+  digest: string;
+}
+
+export interface BundleVerificationResult {
+  verified: boolean;
+  digest: string;
+  reasons: string[];
+}
+
+export interface ReplayWorkspace {
+  id: string;
+  sourceDayKey: string;
+  createdAt: string;
+  entries: JournalEntry[];
+  notes: InvestigationNote[];
+  incidentIds: string[];
+  verification: BundleVerificationResult;
+}
+
+export interface IncidentRulePack {
+  id: string;
+  label: string;
+  rules: Array<{
+    id: string;
+    category: IncidentCauseCategory;
+    title: string;
+    rationale: string;
+    actionId?: IncidentActionKind;
+    priority: IncidentRecommendationPriority;
+  }>;
+}
+
+export interface SloSnapshot {
+  createdAt: string;
+  gatewayFreshnessOk: boolean;
+  staleSummaryCount: number;
+  failedDeliveryCount: number;
+  retryBacklogCount: number;
+  reconnectHeavyDayCount: number;
+}
+
+export interface OperatorRunbookSection {
+  title: string;
+  items: string[];
+}
+
+export interface OperatorRunbook {
+  generatedAt: string;
+  sections: OperatorRunbookSection[];
 }

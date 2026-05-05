@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { FileText, Search, SlidersHorizontal, SquareChartGantt } from "lucide-react";
 import {
   displayProductCopy,
@@ -12,6 +12,7 @@ import {
   type AlertRule,
   type ApprovalView,
   type DeliveryReceipt,
+  type IncidentActionRecord,
   type IncidentSummary,
   type InvestigationNote,
   type JournalDay,
@@ -29,12 +30,17 @@ import {
   buildCloseoutPlan,
   executeIncidentAction,
   deliverIntegration,
+  createReplayWorkspace,
+  createSummaryJob,
   fetchAnalytics,
   fetchCorrelation,
   fetchDeliveryReceipts,
+  fetchHealthAggregate,
   fetchHealthHistory,
   fetchHealthTimeline,
   fetchIntegrityReports,
+  fetchIncidentActionRecords,
+  fetchIncidentRulePacks,
   buildIntegrationPayload,
   createIncidentSnapshot,
   createProfile,
@@ -55,12 +61,14 @@ import {
   fetchProfiles,
   fetchReplay,
   fetchRetentionClasses,
+  fetchRunbook,
   fetchSessionDrilldown,
   fetchSessions,
   fetchSettings,
+  fetchSlo,
+  fetchSummaryJob,
   fetchSummaryProfiles,
   fetchVersion,
-  generateSummary,
   generateSummaryProfile,
   previewRetention,
   previewRetentionByClass,
@@ -96,8 +104,10 @@ import { useJournalRouting } from "./hooks/useJournalRouting.js";
 import {
   addSearchPreset,
   applyEntryFilters,
+  buildNamedOperatorViews,
   buildArchiveView,
   buildReconnectTrendText,
+  dedupeLiveActionNotice,
   mergeDiagnosticsCollapsedState,
   mergeSearchPresets,
   createHomeRouteState,
@@ -119,6 +129,7 @@ import "./styles/app.css";
 
 const PINNED_CONTEXT_COLLAPSED_STORAGE_KEY = "openclog.pinned-context.collapsed";
 const DIAGNOSTICS_COLLAPSED_STORAGE_KEY = "openclog.diagnostics.collapsed";
+const SESSION_DRILLDOWN_STORAGE_KEY = "openclog.session-drilldown.state";
 const timelineFilterOptions: Array<{ id: JournalFilterKey; label: string }> = [
   { id: "errors", label: "Errors" },
   { id: "approvals", label: "Approvals" },
@@ -154,13 +165,18 @@ export function App() {
   const [searchLatencyMs, setSearchLatencyMs] = useState<number | null>(null);
   const [sessionLatencyMs, setSessionLatencyMs] = useState<number | null>(null);
   const [selectedSessionKey, setSelectedSessionKey] = useState("");
+  const [sessionTab, setSessionTab] = useState<"timeline" | "actions" | "deliveries">("timeline");
+  const [sessionScrollTop, setSessionScrollTop] = useState(0);
   const [sessionDetail, setSessionDetail] = useState<Awaited<ReturnType<typeof fetchSessionDrilldown>> | null>(null);
+  const [summaryJob, setSummaryJob] = useState<Awaited<ReturnType<typeof createSummaryJob>> | null>(null);
   const [integrityReport, setIntegrityReport] = useState<Awaited<ReturnType<typeof runIntegrityCheck>> | null>(null);
   const [retentionPreviewState, setRetentionPreviewState] = useState<Awaited<ReturnType<typeof previewRetention>> | null>(null);
   const [incidents, setIncidents] = useState<IncidentSummary[]>([]);
   const [selectedIncidentId, setSelectedIncidentId] = useState("");
   const [incidentCaptured, setIncidentCaptured] = useState(false);
   const [incidentWorkspace, setIncidentWorkspace] = useState<Awaited<ReturnType<typeof fetchIncidentWorkspace>> | null>(null);
+  const [incidentActionRecords, setIncidentActionRecords] = useState<IncidentActionRecord[]>([]);
+  const [incidentRulePacks, setIncidentRulePacks] = useState<Awaited<ReturnType<typeof fetchIncidentRulePacks>>>([]);
   const [investigationNotes, setInvestigationNotes] = useState<InvestigationNote[]>([]);
   const [investigationNoteDraft, setInvestigationNoteDraft] = useState("");
   const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
@@ -174,6 +190,7 @@ export function App() {
   const [replayBundleDiffState, setReplayBundleDiffState] = useState<Awaited<ReturnType<typeof diffReplayBundles>> | null>(null);
   const [closeoutPlanState, setCloseoutPlanState] = useState<Awaited<ReturnType<typeof buildCloseoutPlan>> | null>(null);
   const [healthHistory, setHealthHistory] = useState<Awaited<ReturnType<typeof fetchHealthHistory>>>([]);
+  const [healthAggregate, setHealthAggregate] = useState<Awaited<ReturnType<typeof fetchHealthAggregate>> | null>(null);
   const [healthTimeline, setHealthTimeline] = useState<ServiceHealthTimelineEntry[]>([]);
   const [deliveryReceipts, setDeliveryReceipts] = useState<DeliveryReceipt[]>([]);
   const [retentionClasses, setRetentionClasses] = useState<Awaited<ReturnType<typeof fetchRetentionClasses>>>([]);
@@ -185,9 +202,13 @@ export function App() {
   const [analyticsSnapshot, setAnalyticsSnapshot] = useState<Awaited<ReturnType<typeof fetchAnalytics>> | null>(null);
   const [missionReplay, setMissionReplay] = useState<Awaited<ReturnType<typeof fetchReplay>> | null>(null);
   const [correlationGraph, setCorrelationGraph] = useState<Awaited<ReturnType<typeof fetchCorrelation>> | null>(null);
+  const [replayWorkspace, setReplayWorkspace] = useState<Awaited<ReturnType<typeof createReplayWorkspace>> | null>(null);
   const [plugins, setPlugins] = useState<Awaited<ReturnType<typeof fetchPlugins>>>([]);
   const [pluginRunResult, setPluginRunResult] = useState<Awaited<ReturnType<typeof runPlugin>> | null>(null);
   const [incidentActionNotice, setIncidentActionNotice] = useState("");
+  const [recentActionNotices, setRecentActionNotices] = useState<string[]>([]);
+  const [sloSnapshot, setSloSnapshot] = useState<Awaited<ReturnType<typeof fetchSlo>> | null>(null);
+  const [runbook, setRunbook] = useState<Awaited<ReturnType<typeof fetchRunbook>> | null>(null);
   const [pinnedContextCollapsed, setPinnedContextCollapsed] = useState(() => {
     if (typeof window === "undefined") return true;
     try {
@@ -231,6 +252,7 @@ export function App() {
   const resolvedTheme = useMemo(() => getTheme(themeId), [themeId]);
   const effectiveDay = offlineBundleDay ?? day;
   const searchQuery = route.searchQuery;
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const filteredEntries = useMemo(
     () => applyEntryFilters(effectiveDay.entries, activeFilters, showToolCalls),
     [activeFilters, effectiveDay.entries, showToolCalls]
@@ -272,12 +294,43 @@ export function App() {
   }, [diagnosticsCollapsed]);
 
   useEffect(() => {
+    try {
+      const key = `${route.selectedDayKey}:${searchQuery}`;
+      window.localStorage.setItem(
+        SESSION_DRILLDOWN_STORAGE_KEY,
+        JSON.stringify({
+          key,
+          sessionKey: selectedSessionKey,
+          tab: sessionTab,
+          scrollTop: sessionScrollTop
+        })
+      );
+    } catch {
+      // Ignore drilldown persistence failures.
+    }
+  }, [route.selectedDayKey, searchQuery, selectedSessionKey, sessionScrollTop, sessionTab]);
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(SESSION_DRILLDOWN_STORAGE_KEY);
+      if (!stored) return;
+      const parsed = JSON.parse(stored) as { key?: string; sessionKey?: string; tab?: "timeline" | "actions" | "deliveries"; scrollTop?: number };
+      if (parsed.key !== `${route.selectedDayKey}:${searchQuery}`) return;
+      if (typeof parsed.sessionKey === "string") setSelectedSessionKey(parsed.sessionKey);
+      if (parsed.tab === "actions" || parsed.tab === "deliveries" || parsed.tab === "timeline") setSessionTab(parsed.tab);
+      if (typeof parsed.scrollTop === "number") setSessionScrollTop(parsed.scrollTop);
+    } catch {
+      // Ignore malformed drilldown state.
+    }
+  }, [route.selectedDayKey, searchQuery]);
+
+  useEffect(() => {
     void fetchSettings()
       .then((settings) => {
         setShowToolCalls(settings.showToolCalls);
         setThemeId(resolveThemeId(settings.theme));
         setSearchPresets(mergeSearchPresets(settings.searchPresets));
-        setOperatorViews(settings.operatorViews);
+        setOperatorViews(settings.operatorViews.length > 0 ? settings.operatorViews : buildNamedOperatorViews(sampleJournalDay.dayKey));
       })
       .catch(() => setNotice("Gateway degraded: settings are using local defaults."));
     void fetchVersion().then(setVersion).catch(() => undefined);
@@ -328,19 +381,23 @@ export function App() {
   useEffect(() => {
     let active = true;
     async function refreshAdvanced() {
-      const [alerts, adapters, incidentList, noteList, profileData, history, timeline, receipts, classes, profiles, pluginList, reports] = await Promise.all([
+      const [alerts, adapters, incidentList, noteList, profileData, history, aggregate, timeline, receipts, classes, profiles, pluginList, reports, slo, operatorRunbook, rulePacks] = await Promise.all([
         fetchAlerts().catch(() => ({ rules: [] as AlertRule[], findings: [] as AlertFinding[] })),
         fetchAdapterEvents().catch(() => [] as AdapterEvent[]),
         fetchIncidents().catch(() => [] as IncidentSummary[]),
         fetchInvestigationNotes({ dayKey: route.selectedDayKey || day.dayKey }).catch(() => ({ notes: [] as InvestigationNote[] })),
         fetchProfiles().catch(() => ({ selectedProfileId: "default", profiles: [] as ProfileConfig[] })),
         fetchHealthHistory().catch(() => []),
+        fetchHealthAggregate().catch(() => null),
         fetchHealthTimeline().catch(() => ({ timeline: [] as ServiceHealthTimelineEntry[] })),
         fetchDeliveryReceipts().catch(() => ({ receipts: [] as DeliveryReceipt[] })),
         fetchRetentionClasses().catch(() => []),
         fetchSummaryProfiles().catch(() => []),
         fetchPlugins().catch(() => []),
-        fetchIntegrityReports().catch(() => [])
+        fetchIntegrityReports().catch(() => []),
+        fetchSlo().catch(() => null),
+        fetchRunbook().catch(() => null),
+        fetchIncidentRulePacks().catch(() => [])
       ]);
       if (!active) return;
       setAlertRules(alerts.rules);
@@ -351,12 +408,16 @@ export function App() {
       setProfiles(profileData.profiles);
       setSelectedProfileId(profileData.selectedProfileId);
       setHealthHistory(history);
+      setHealthAggregate(aggregate);
       setHealthTimeline(timeline.timeline);
       setDeliveryReceipts(receipts.receipts);
       setRetentionClasses(classes);
       setSummaryProfiles(profiles);
       setPlugins(pluginList);
       setIntegrityReports(reports);
+      setSloSnapshot(slo);
+      setRunbook(operatorRunbook);
+      setIncidentRulePacks(rulePacks);
       if (incidentList[0]?.id) setSelectedIncidentId((current) => current || incidentList[0]?.id || "");
     }
     void refreshAdvanced();
@@ -384,8 +445,37 @@ export function App() {
   }, [selectedSessionKey]);
 
   useEffect(() => {
+    const query = deferredSearchQuery.trim();
+    if (!query) {
+      setSearchResults([]);
+      setSearchNextCursor(undefined);
+      setSearchLatencyMs(null);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      const startedAt = performance.now();
+      void searchJournal(query, undefined, 20, { signal: controller.signal })
+        .then((result) => {
+          setSearchResults(result.results);
+          setSearchNextCursor(result.nextCursor);
+          setSearchLatencyMs(Math.round(performance.now() - startedAt));
+        })
+        .catch((error) => {
+          if (error instanceof Error && error.name === "AbortError") return;
+          setNotice("Search request failed.");
+        });
+    }, 220);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [deferredSearchQuery]);
+
+  useEffect(() => {
     if (!selectedIncidentId) {
       setIncidentWorkspace(null);
+      setIncidentActionRecords([]);
       setMissionReplay(null);
       setCorrelationGraph(null);
       return;
@@ -399,6 +489,9 @@ export function App() {
     void fetchCorrelation(selectedIncidentId)
       .then(setCorrelationGraph)
       .catch(() => setCorrelationGraph(null));
+    void fetchIncidentActionRecords(selectedIncidentId)
+      .then((result) => setIncidentActionRecords(result.records))
+      .catch(() => setIncidentActionRecords([]));
   }, [selectedIncidentId]);
 
   useEffect(() => {
@@ -414,8 +507,11 @@ export function App() {
 
   useEffect(() => {
     if (day.generatedSummary || day.entries.length === 0 || offlineBundleDay) return;
-    void generateSummary(day.dayKey)
-      .then((generatedSummary) => setDay((current) => ({ ...current, generatedSummary })))
+    void createSummaryJob(day.dayKey)
+      .then((job) => {
+        setSummaryJob(job);
+        if (job.generatedSummary) setDay((current) => ({ ...current, generatedSummary: job.generatedSummary }));
+      })
       .catch(() => undefined);
   }, [day, offlineBundleDay]);
 
@@ -672,6 +768,17 @@ export function App() {
     setNotice("Pinned day context saved.");
   }
 
+  async function handleRefreshSummary(): Promise<void> {
+    const job = await createSummaryJob(day.dayKey);
+    setSummaryJob(job);
+    const refreshed = await fetchSummaryJob(job.id);
+    setSummaryJob(refreshed);
+    if (refreshed.generatedSummary) {
+      setDay((current) => ({ ...current, generatedSummary: refreshed.generatedSummary }));
+      setNotice("Generated summary refreshed.");
+    }
+  }
+
   async function handleSearch(): Promise<void> {
     const startedAt = performance.now();
     const result = await searchJournal(searchQuery);
@@ -702,9 +809,14 @@ export function App() {
       dayKey: visibleDay.dayKey,
       searchQuery,
       activeFilters,
-      grouped
+      grouped,
+      drilldown: {
+        sessionKey: selectedSessionKey || undefined,
+        tab: sessionTab,
+        scrollTop: sessionScrollTop
+      }
     };
-    const next = [nextView, ...operatorViews.filter((view) => view.id !== nextView.id)].slice(0, 8);
+    const next = [...buildNamedOperatorViews(visibleDay.dayKey, selectedSessionKey), nextView, ...operatorViews.filter((view) => view.id !== nextView.id && view.builtIn !== true)].slice(0, 12);
     setOperatorViews(next);
     await updateSettings({ operatorViews: next });
     setNotice("Operator view saved.");
@@ -722,6 +834,9 @@ export function App() {
     route.setSearchQuery(view.searchQuery);
     setActiveFilters(view.activeFilters);
     setGrouped(view.grouped);
+    setSelectedSessionKey(view.drilldown?.sessionKey ?? "");
+    setSessionTab(view.drilldown?.tab ?? "timeline");
+    setSessionScrollTop(view.drilldown?.scrollTop ?? 0);
     if (view.dayKey && view.dayKey !== route.selectedDayKey) await handleDaySelect(view.dayKey);
     if (view.searchQuery.trim()) {
       const result = await searchJournal(view.searchQuery);
@@ -732,7 +847,11 @@ export function App() {
   }
 
   async function handleRetentionPreview(): Promise<void> {
-    setRetentionPreviewState(await previewRetention({ keepDays: 1, includeAudit: true, includeRedactedEvents: true, includeSummaries: true }));
+    const preview = await previewRetention({ keepDays: 1, includeAudit: true, includeRedactedEvents: true, includeSummaries: true });
+    setRetentionPreviewState(preview);
+    if ((preview.removedIncidentCount ?? 0) > 0 || (preview.removedBundleCount ?? 0) > 0) {
+      setNotice("Retention warning: preview removes incidents or replay bundles. Review evidence impact before apply.");
+    }
   }
 
   async function handleRunIntegrityCheck(): Promise<void> {
@@ -767,6 +886,7 @@ export function App() {
       }
     }
     setIncidentActionNotice(result.actionRecord.summary);
+    setRecentActionNotices((current) => dedupeLiveActionNotice(current, result.actionRecord.summary));
     setNotice(result.actionRecord.summary);
   }
 
@@ -800,6 +920,7 @@ export function App() {
   async function handleDeliverIntegration(target: "slack" | "generic-webhook" | "email"): Promise<void> {
     const receipt = await deliverIntegration(target, { dayKey: visibleDay.dayKey, incidentId: selectedIncidentId || undefined });
     setDeliveryReceipts((current) => [receipt, ...current.filter((item) => item.id !== receipt.id)]);
+    setRecentActionNotices((current) => dedupeLiveActionNotice(current, `${target} delivery ${receipt.status}.`));
     setNotice(`${target} delivery ${receipt.status}.`);
   }
 
@@ -807,6 +928,12 @@ export function App() {
     const bundle = await exportBundle(day.dayKey);
     setOfflineBundleDay(bundle.day);
     setNotice(`Offline review loaded for ${bundle.day.dayKey}.`);
+  }
+
+  async function handleCreateReplayWorkspace(): Promise<void> {
+    const workspace = await createReplayWorkspace(visibleDay.dayKey);
+    setReplayWorkspace(workspace);
+    setNotice(`Replay workspace created for ${workspace.sourceDayKey}.`);
   }
 
   async function handlePreviewBundleManifest(): Promise<void> {
@@ -868,13 +995,17 @@ export function App() {
       label: "Local Annotation Plugin",
       version: "0.1.0",
       capabilities: ["annotation"],
-      readScopes: ["entries", "incidents", "notes"]
+      readScopes: ["entries", "incidents", "notes"],
+      supportsDryRun: true,
+      actionIds: ["run_plugin"]
     });
     setPlugins((current) => [plugin, ...current.filter((item) => item.id !== plugin.id)]);
   }
 
   async function handleRunPlugin(pluginId: string): Promise<void> {
-    setPluginRunResult(await runPlugin(pluginId));
+    const result = await runPlugin(pluginId, { dryRun: true });
+    setPluginRunResult(result);
+    setRecentActionNotices((current) => dedupeLiveActionNotice(current, result.summary));
   }
 
   async function handleCopySessionSummary(): Promise<void> {
@@ -1011,7 +1142,7 @@ export function App() {
             summary={pinnedSummary}
             summaryError={pinnedSummaryError}
             onNoteChange={setPinnedNote}
-            onRefreshSummary={() => void handleExecuteIncidentAction("refresh_summary")}
+            onRefreshSummary={() => void handleRefreshSummary()}
             onSave={handleSavePinnedContext}
             onSummaryChange={setPinnedSummary}
             onToggleCollapsed={() => setPinnedContextCollapsed((current) => !current)}
@@ -1094,9 +1225,12 @@ export function App() {
         correlationGraph={correlationGraph}
         deliveryReceipts={deliveryReceipts}
         generatedProfileSummary={generatedProfileSummary}
+        healthAggregate={healthAggregate}
         healthTimeline={healthTimeline}
         incidents={incidents}
         incidentCaptured={incidentCaptured}
+        incidentActionRecords={incidentActionRecords}
+        incidentRulePacks={incidentRulePacks}
         incidentWorkspace={incidentWorkspace}
         incidentActionNotice={incidentActionNotice}
         integrityReport={integrityReport}
@@ -1114,18 +1248,24 @@ export function App() {
         plugins={plugins}
         pluginRunResult={pluginRunResult}
         profiles={profiles}
+        recentActionNotices={recentActionNotices}
+        replayWorkspace={replayWorkspace}
         replayBundleDiffText={replayBundleDiffText}
         retentionClasses={retentionClasses}
         retentionClassPreviewState={retentionClassPreviewState}
         retentionPreview={retentionPreviewState}
         retentionPreviewText={retentionPreviewText}
+        runbook={runbook}
         incidentsPanelRef={incidentsPanelRef}
         alertsPanelRef={alertsPanelRef}
         selectedIncidentId={selectedIncidentId}
         selectedProfileId={selectedProfileId}
         selectedSessionKey={selectedSessionKey}
+        sessionTab={sessionTab}
         sessionLatencyMs={sessionLatencyMs}
         sessionDetail={sessionDetail}
+        sloSnapshot={sloSnapshot}
+        summaryJob={summaryJob}
         summaryProfiles={summaryProfiles}
         visibleDay={visibleDay}
         onBuildIntegration={() => void handleBuildIntegration()}
@@ -1144,10 +1284,12 @@ export function App() {
           void handleExecuteIncidentAction(actionId, options);
         }}
         onGenerateSummaryProfile={() => void handleGenerateSummaryProfile()}
+        onGenerateSummary={() => void handleRefreshSummary()}
         onOfflineReview={() => void handleOfflineReview()}
         onInvestigationNoteChange={setInvestigationNoteDraft}
         onLoadAnalytics={() => void handleLoadAnalytics()}
         onPrepareCloseout={() => void handlePrepareCloseout()}
+        onCreateReplayWorkspace={() => void handleCreateReplayWorkspace()}
         onPreviewBundleManifest={() => void handlePreviewBundleManifest()}
         onPreviewRetentionByClass={() => void handlePreviewRetentionByClass()}
         onPreviewRetention={() => void handleRetentionPreview()}
@@ -1165,6 +1307,8 @@ export function App() {
           void handleSelectProfile(id);
         }}
         onSelectSession={setSelectedSessionKey}
+        onSessionScrollChange={setSessionScrollTop}
+        onSessionTabChange={setSessionTab}
       />
     </AppShell>
   );
@@ -1481,11 +1625,14 @@ function OperationalPanels(props: {
   correlationGraph: Awaited<ReturnType<typeof fetchCorrelation>> | null;
   deliveryReceipts: DeliveryReceipt[];
   generatedProfileSummary: Awaited<ReturnType<typeof generateSummaryProfile>> | null;
+  healthAggregate: Awaited<ReturnType<typeof fetchHealthAggregate>> | null;
   healthHistory: Awaited<ReturnType<typeof fetchHealthHistory>>;
   healthTimeline: ServiceHealthTimelineEntry[];
   incidents: IncidentSummary[];
+  incidentActionRecords: IncidentActionRecord[];
   incidentActionNotice: string;
   incidentCaptured: boolean;
+  incidentRulePacks: Awaited<ReturnType<typeof fetchIncidentRulePacks>>;
   incidentWorkspace: Awaited<ReturnType<typeof fetchIncidentWorkspace>> | null;
   incidentsPanelRef: RefObject<HTMLDivElement | null>;
   integrityReport: Awaited<ReturnType<typeof runIntegrityCheck>> | null;
@@ -1500,16 +1647,22 @@ function OperationalPanels(props: {
   plugins: Awaited<ReturnType<typeof fetchPlugins>>;
   pluginRunResult: Awaited<ReturnType<typeof runPlugin>> | null;
   profiles: ProfileConfig[];
+  recentActionNotices: string[];
+  replayWorkspace: Awaited<ReturnType<typeof createReplayWorkspace>> | null;
   replayBundleDiffText: string | null;
   retentionClasses: Awaited<ReturnType<typeof fetchRetentionClasses>>;
   retentionClassPreviewState: Awaited<ReturnType<typeof previewRetentionByClass>> | null;
   retentionPreview: Awaited<ReturnType<typeof previewRetention>> | null;
   retentionPreviewText: string | null;
+  runbook: Awaited<ReturnType<typeof fetchRunbook>> | null;
   selectedIncidentId: string;
   selectedProfileId: string;
   selectedSessionKey: string;
+  sessionTab: "timeline" | "actions" | "deliveries";
   sessionLatencyMs: number | null;
   sessionDetail: Awaited<ReturnType<typeof fetchSessionDrilldown>> | null;
+  sloSnapshot: Awaited<ReturnType<typeof fetchSlo>> | null;
+  summaryJob: Awaited<ReturnType<typeof createSummaryJob>> | null;
   summaryProfiles?: Awaited<ReturnType<typeof fetchSummaryProfiles>>;
   visibleDay: JournalDay;
   onBuildIntegration: () => void;
@@ -1519,8 +1672,10 @@ function OperationalPanels(props: {
   onCopyOfflineBundle: () => void;
   onCreateIncident: () => void;
   onCreateProfile: () => void;
+  onCreateReplayWorkspace: () => void;
   onDeliverIntegration: (target: "slack" | "generic-webhook" | "email") => void;
   onExecuteIncidentAction: (actionId: Parameters<typeof executeIncidentAction>[0]["actionId"], options?: { body?: string; pluginId?: string }) => void;
+  onGenerateSummary: () => void;
   onGenerateSummaryProfile: () => void;
   onInvestigationNoteChange: (value: string) => void;
   onLoadAnalytics: () => void;
@@ -1539,6 +1694,8 @@ function OperationalPanels(props: {
   onSelectIncident: (id: string) => void;
   onSelectProfile: (id: string) => void;
   onSelectSession: (id: string) => void;
+  onSessionScrollChange: (value: number) => void;
+  onSessionTabChange: (value: "timeline" | "actions" | "deliveries") => void;
 }) {
   const sessionOptions = Array.from(new Set(props.visibleDay.entries.map((entry) => entry.sessionId).filter(Boolean))) as string[];
   const selectedProfile = props.profiles.find((profile) => profile.id === props.selectedProfileId) ?? props.profiles[0];
@@ -1557,6 +1714,17 @@ function OperationalPanels(props: {
         <div className="panel-header">
           <h3>Session drilldown</h3>
         </div>
+        <div className="search-presets">
+          <button type="button" onClick={() => props.onSessionTabChange("timeline")}>
+            Timeline
+          </button>
+          <button type="button" onClick={() => props.onSessionTabChange("actions")}>
+            Actions
+          </button>
+          <button type="button" onClick={() => props.onSessionTabChange("deliveries")}>
+            Deliveries
+          </button>
+        </div>
         <select aria-label="Session drilldown" value={props.selectedSessionKey} onChange={(event) => props.onSelectSession(event.target.value)}>
           {sessionOptions.map((sessionKey) => (
             <option key={sessionKey} value={sessionKey}>
@@ -1570,7 +1738,11 @@ function OperationalPanels(props: {
               {props.sessionDetail.toolCount} tools, {props.sessionDetail.approvalCount} approvals, {props.sessionDetail.reconnectCount} reconnects.
             </p>
             {props.sessionLatencyMs !== null ? <p>API response time: {props.sessionLatencyMs} ms.</p> : null}
+            <p>Current drilldown tab: {props.sessionTab}. Saved scroll offset marker: {props.sessionDetail.entries.length}.</p>
             {props.sessionDetail.sanitizedSummary ? <p>{props.sessionDetail.sanitizedSummary}</p> : null}
+            <button type="button" onClick={() => props.onSessionScrollChange(props.sessionDetail?.entries.length ?? 0)}>
+              Save current drilldown position
+            </button>
             <button type="button" onClick={props.onCopySessionSummary}>
               Copy sanitized session summary
             </button>
@@ -1589,8 +1761,15 @@ function OperationalPanels(props: {
         <button type="button" onClick={props.onPreviewRetention}>
           Preview retention
         </button>
+        <button type="button" onClick={props.onGenerateSummary}>
+          Refresh current summary
+        </button>
         {props.integrityReport ? <p>{props.integrityReport.checkedEntries} entries checked; mismatches {props.integrityReport.mismatchedEntryIds.length}.</p> : null}
         {props.retentionPreviewText ? <p>{props.retentionPreviewText}</p> : <p>Preview keeps the newest 1 day before any cleanup is applied.</p>}
+        {props.retentionPreview && ((props.retentionPreview.removedIncidentCount ?? 0) > 0 || (props.retentionPreview.removedBundleCount ?? 0) > 0) ? (
+          <p className="validation-message">Warning: this retention preview removes incidents or replay bundles.</p>
+        ) : null}
+        {props.summaryJob ? <p>Summary job {props.summaryJob.status}: {props.summaryJob.progressLabel}</p> : null}
       </section>
       <section className="workspace-panel" ref={props.incidentsPanelRef} tabIndex={-1}>
         <div className="panel-header">
@@ -1697,7 +1876,10 @@ function OperationalPanels(props: {
                           </li>
                         ))}
                       </ul>
-                    ) : null}
+                    ) : (
+                      <p>No incident action records recorded yet.</p>
+                    )}
+                    {props.incidentRulePacks.length > 0 ? <p>Rule packs: {props.incidentRulePacks.map((pack) => pack.label).join(", ")}.</p> : null}
                   </section>
                 </div>
               </div>
@@ -1745,10 +1927,14 @@ function OperationalPanels(props: {
         <button type="button" onClick={props.onComparePreviousBundle}>
           Compare previous day bundle
         </button>
+        <button type="button" onClick={props.onCreateReplayWorkspace}>
+          Create replay workspace
+        </button>
         <p>{props.adapterEvents[0]?.body ?? "No adapter events recorded yet."}</p>
         {props.bundlePreviewText ? <p>{props.bundlePreviewText}</p> : null}
         {props.offlineBundleDay ? <p>Offline bundle loaded for {props.offlineBundleDay.dayKey}.</p> : null}
         {props.replayBundleDiffText ? <p>{props.replayBundleDiffText}</p> : null}
+        {props.replayWorkspace ? <p>Replay workspace verified: {props.replayWorkspace.verification.verified ? "yes" : "no"}.</p> : null}
       </section>
       <section className="workspace-panel">
         <div className="panel-header">
@@ -1781,6 +1967,11 @@ function OperationalPanels(props: {
         </button>
         {props.integrationPayload ? <textarea readOnly value={props.integrationPayload} /> : <p>No integration payload generated yet.</p>}
         {props.closeoutPlanText ? <p>{props.closeoutPlanText}</p> : null}
+        {props.healthAggregate ? (
+          <p>
+            Aggregate: reconnects {props.healthAggregate.reconnectCount}, stale windows {props.healthAggregate.staleCount}, recoveries {props.healthAggregate.recoveryCount}.
+          </p>
+        ) : null}
         {props.closeoutChecklist.length > 0 ? (
           <ul>
             {props.closeoutChecklist.map((item) => (
@@ -1797,6 +1988,7 @@ function OperationalPanels(props: {
             ))}
           </ul>
         ) : null}
+        {props.recentActionNotices.length > 0 ? <p>Recent actions: {props.recentActionNotices.join(" | ")}</p> : null}
       </section>
       <section className="workspace-panel">
         <div className="panel-header">
@@ -1873,6 +2065,12 @@ function OperationalPanels(props: {
             Analytics: {props.analyticsSnapshot.noisyTools[0]?.toolName ?? "no noisy tool"} / reconnect-heavy days {props.analyticsSnapshot.reconnectHeavyDays.length}.
           </p>
         ) : null}
+        {props.sloSnapshot ? (
+          <p>
+            SLO: gateway freshness {props.sloSnapshot.gatewayFreshnessOk ? "ok" : "degraded"}, stale summaries {props.sloSnapshot.staleSummaryCount}, failed deliveries {props.sloSnapshot.failedDeliveryCount}.
+          </p>
+        ) : null}
+        {props.runbook ? <p>Runbook sections: {props.runbook.sections.map((section) => section.title).join(", ")}.</p> : null}
       </section>
       <section className="workspace-panel">
         <div className="panel-header">
@@ -1889,7 +2087,7 @@ function OperationalPanels(props: {
             <ul>
               {plugins.map((plugin) => (
                 <li key={plugin.id}>
-                  {plugin.label} ({plugin.capabilities.join(", ")})
+                  {plugin.label} ({plugin.capabilities.join(", ")}) {plugin.supportsDryRun === false ? "live-only" : "dry-run ready"}
                   <button type="button" onClick={() => props.onRunPlugin(plugin.id)}>
                     Run
                   </button>
@@ -1901,6 +2099,7 @@ function OperationalPanels(props: {
         ) : (
           <p>No plugins registered yet.</p>
         )}
+        {props.incidentActionRecords.length > 0 ? <p>Recent incident actions: {props.incidentActionRecords.length}.</p> : null}
         {healthTimeline.length > 0 ? (
           <ul>
             {healthTimeline.slice(0, 4).map((event) => (

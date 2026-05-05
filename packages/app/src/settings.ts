@@ -1,13 +1,43 @@
-import type { OpenClogSettings } from "@openclog/core";
+import type { OpenClogSettings, OperatorViewPreset } from "@openclog/core";
 import type { SettingsRepository, UpdateSettingsInput } from "./contracts.js";
 import { requireMethod } from "./utils.js";
+
+export const defaultOperatorViews: OperatorViewPreset[] = [
+  {
+    id: "reconnect-triage",
+    label: "Reconnect triage",
+    searchQuery: "gateway reconnect",
+    activeFilters: ["errors"],
+    grouped: true,
+    builtIn: true,
+    drilldown: { tab: "timeline", scrollTop: 0 }
+  },
+  {
+    id: "pending-approvals",
+    label: "Pending approvals",
+    searchQuery: "approval pending",
+    activeFilters: ["approvals"],
+    grouped: true,
+    builtIn: true,
+    drilldown: { tab: "actions", scrollTop: 0 }
+  },
+  {
+    id: "delivery-failures",
+    label: "Delivery failures",
+    searchQuery: "delivery receipt",
+    activeFilters: ["errors"],
+    grouped: false,
+    builtIn: true,
+    drilldown: { tab: "deliveries", scrollTop: 0 }
+  }
+];
 
 const defaultSettings: OpenClogSettings = {
   version: 2,
   theme: "default",
   showToolCalls: true,
   searchPresets: [],
-  operatorViews: []
+  operatorViews: defaultOperatorViews
 };
 
 export function getSettings(repo: Partial<SettingsRepository>): OpenClogSettings {
@@ -50,8 +80,14 @@ function normalizeSettings(value: OpenClogSettings): OpenClogSettings {
     searchPresets: Array.isArray(value.searchPresets)
       ? value.searchPresets.filter((preset) => typeof preset?.id === "string" && typeof preset?.label === "string" && typeof preset?.query === "string")
       : [],
-    operatorViews: Array.isArray(value.operatorViews)
-      ? value.operatorViews.filter(
+    operatorViews: mergeOperatorViews(value.operatorViews)
+  };
+}
+
+function mergeOperatorViews(value: OpenClogSettings["operatorViews"] | unknown): OperatorViewPreset[] {
+  const stored: OperatorViewPreset[] = Array.isArray(value)
+    ? value
+        .filter(
           (preset) =>
             typeof preset?.id === "string" &&
             typeof preset?.label === "string" &&
@@ -59,6 +95,27 @@ function normalizeSettings(value: OpenClogSettings): OpenClogSettings {
             Array.isArray(preset?.activeFilters) &&
             typeof preset?.grouped === "boolean"
         )
-      : []
-  };
+        .map((preset): OperatorViewPreset => ({
+          id: preset.id,
+          label: preset.label,
+          dayKey: typeof preset.dayKey === "string" ? preset.dayKey : undefined,
+          searchQuery: preset.searchQuery,
+          activeFilters: preset.activeFilters,
+          grouped: preset.grouped,
+          builtIn: preset.builtIn === true,
+          drilldown: {
+            sessionKey: typeof preset.drilldown?.sessionKey === "string" ? preset.drilldown.sessionKey : undefined,
+            tab:
+              preset.drilldown?.tab === "actions" || preset.drilldown?.tab === "deliveries"
+                ? preset.drilldown.tab
+                : "timeline",
+            scrollTop: typeof preset.drilldown?.scrollTop === "number" ? preset.drilldown.scrollTop : 0
+          }
+        }))
+    : [];
+  const merged = [...stored];
+  for (const builtIn of defaultOperatorViews) {
+    if (!merged.some((view) => view.id === builtIn.id)) merged.push(builtIn);
+  }
+  return merged.slice(0, 12);
 }

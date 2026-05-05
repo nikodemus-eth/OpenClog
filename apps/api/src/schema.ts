@@ -166,6 +166,20 @@ export const journalBundleExports = sqliteTable("journal_bundle_exports", {
   exportJson: text("export_json").notNull()
 });
 
+export const journalSummaryJobs = sqliteTable("journal_summary_jobs", {
+  id: text("id").primaryKey(),
+  dayKey: text("day_key").notNull(),
+  status: text("status").notNull(),
+  createdAt: text("created_at").notNull(),
+  jobJson: text("job_json").notNull()
+});
+
+export const journalReplayWorkspaces = sqliteTable("journal_replay_workspaces", {
+  id: text("id").primaryKey(),
+  dayKey: text("day_key").notNull(),
+  workspaceJson: text("workspace_json").notNull()
+});
+
 export const journalIncidentActionRecords = sqliteTable("journal_incident_action_records", {
   id: text("id").primaryKey(),
   incidentId: text("incident_id").notNull(),
@@ -206,9 +220,11 @@ export const journalTableNames = [
   "journal_plugin_runs",
   "journal_plugins",
   "journal_profiles",
+  "journal_replay_workspaces",
   "journal_retention_classes",
   "journal_retention_snapshots",
   "journal_sessions",
   "journal_settings",
+  "journal_summary_jobs",
   "journal_summary_profiles"
 ] as const;

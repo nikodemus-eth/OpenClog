@@ -127,3 +127,10 @@ Track OpenClog security posture, Gateway authority boundaries, redaction, and fa
 - GitHub issue creation and outbound delivery reuse the same bounded handoff path as other incident actions. Failures record typed receipt metadata including `correlationId`, `retryCount`, and `deadLetterReason` instead of silently assuming notification success.
 - Versioned settings now include saved operator views, but they remain local operator preferences only and do not grant new Gateway scopes, mutation authority, or browser-visible secret access.
 - Live Gateway verification now treats a negotiated `operator.admin` scope as satisfying the narrower `operator.approvals` requirement for control-action readiness, while the client still requests only `operator.read`, `operator.write`, and `operator.approvals`.
+
+## 2026-05-05 Full Campaign Hardening
+- Saved operator views now persist only local investigation preferences such as filters, selected session, and drilldown UI state; they do not carry tokens, secret values, raw Gateway payloads, or new browser-side authority.
+- Summary refresh, outbound delivery, GitHub issue creation, and plugin execution all run through explicit backend contracts with idempotency-aware receipts and optional dry-run behavior, preventing duplicate escalations while preserving auditable action history.
+- Signed replay/export bundles now carry manifest-hash verification metadata so tampering is surfaced as a verification result instead of being silently trusted during external handoff or replay review.
+- Replay workspaces, health aggregates, SLO snapshots, incident rule packs, and generated runbooks are bounded views over persisted redacted evidence and local operator metadata only; none of the new routes expose device identity, browser-visible secrets, or raw Gateway frames.
+- Desktop secret handling is now backend-only and macOS Keychain-backed through Tauri commands; non-macOS native secret operations fail closed rather than silently falling back to weaker browser or plain-text storage.

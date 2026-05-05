@@ -2,10 +2,12 @@ import { describe, expect, test } from "vitest";
 import type { GeneratedSummary, JournalEntry } from "@openclog/core";
 import {
   addSearchPreset,
+  buildNamedOperatorViews,
   buildReconnectTrendText,
   classifyGatewayErrorCategory,
   classifyGatewayUrl,
   DEFAULT_SEARCH_PRESETS,
+  dedupeLiveActionNotice,
   describeGeneratedSummaryFreshness,
   formatBundleManifestPreview,
   formatCloseoutPlan,
@@ -68,6 +70,17 @@ describe("operator workspace helpers", () => {
     expect(searchEmptyState("timeout", 0)).toContain("No journal matches");
     expect(searchEmptyState("timeout", 1)).toBeNull();
     expect(searchEmptyState("", 0)).toBeNull();
+  });
+
+  test("ships named operator views and deduplicates live action notices", () => {
+    expect(buildNamedOperatorViews("2026-05-04", "agent:hugin:main")).toEqual([
+      expect.objectContaining({ id: "reconnect-triage", builtIn: true, drilldown: { sessionKey: "agent:hugin:main", tab: "timeline", scrollTop: 0 } }),
+      expect.objectContaining({ id: "pending-approvals", builtIn: true, drilldown: { sessionKey: "agent:hugin:main", tab: "actions", scrollTop: 0 } }),
+      expect.objectContaining({ id: "delivery-failures", builtIn: true, drilldown: { sessionKey: "agent:hugin:main", tab: "deliveries", scrollTop: 0 } })
+    ]);
+    expect(dedupeLiveActionNotice([], "  ")).toEqual([]);
+    expect(dedupeLiveActionNotice(["saved"], "saved")).toEqual(["saved"]);
+    expect(dedupeLiveActionNotice(["alpha", "beta", "gamma"], "delta")).toEqual(["delta", "alpha", "beta"]);
   });
 
   test("formats closeout plans, replay diffs, and investigation notes", () => {

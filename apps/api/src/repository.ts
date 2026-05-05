@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import type { AlertStateRecord, RetentionSnapshotRecord } from "@openclog/app";
 import type {
@@ -6,17 +7,23 @@ import type {
   AlertFinding,
   AlertRule,
   AnalyticsSnapshot,
+  BundleSignature,
+  BundleVerificationResult,
   CorrelationEdge,
   CorrelationGraph,
   CorrelationNode,
   DeliveryAdapterTarget,
   DeliveryReceipt,
+  DeliveryRequestOptions,
   GeneratedProfileSummary,
   GeneratedSummary,
   GatewayEventLike,
+  HealthAggregate,
   HealthHistoryEntry,
+  IncidentRulePack,
   IncidentActionRecord,
   IncidentSummary,
+  OperatorRunbook,
   IntegrityMonitorReport,
   IntegrationPayload,
   InvestigationNote,
@@ -30,14 +37,17 @@ import type {
   PluginExecutionResult,
   PluginManifest,
   ProfileConfig,
+  ReplayWorkspace,
   ReplayStep,
   RetentionClass,
   RetentionClassId,
   RetentionClassPreview,
   RetentionPolicy,
   RetentionPreview,
+  SloSnapshot,
   ServiceHealthTimelineEntry,
   SessionDrilldown,
+  SummaryJob,
   SummaryCitation,
   SummaryProfile
 } from "@openclog/core";
@@ -53,21 +63,27 @@ export interface OpenClogRepository {
   close(): void;
   countRedactedEvents(): number;
   deleteDays(dayKeys: string[]): void;
-  createGithubIssue(dayKey: string, incidentId?: string): DeliveryReceipt;
-  deliverIntegration(target: DeliveryAdapterTarget, dayKey: string, incidentId?: string): DeliveryReceipt;
+  createGithubIssue(dayKey: string, options?: DeliveryRequestOptions): DeliveryReceipt;
+  createReplayWorkspace(dayKey: string): ReplayWorkspace;
+  createSummaryJob(dayKey: string): SummaryJob;
+  deliverIntegration(target: DeliveryAdapterTarget, dayKey: string, options?: DeliveryRequestOptions): DeliveryReceipt;
   evaluateAlertRules(dayKey: string): AlertFinding[];
   generateSummary(dayKey: string, now?: Date): GeneratedSummary;
   generateSummaryProfile(profileId: SummaryProfile["id"], dayKey: string): GeneratedProfileSummary;
   getAnalytics(): AnalyticsSnapshot;
   getDay(dayKey: string): JournalDay | null;
   getDrilldown(sessionKey: string): SessionDrilldown;
+  getHealthAggregate(limit?: number): HealthAggregate;
   getIncident(id: string): IncidentSummary | undefined;
   getIntegrityReport(): { checkedEntries: number; mismatchedEntryIds: string[]; missingRedactedHashes: string[]; ok: boolean };
   getLineage(entryId: string): LineageRecord | undefined;
   getPinnedDayContext(dayKey: string): PinnedDayContext | undefined;
   getRetentionSnapshot(id: string): RetentionSnapshotRecord | undefined;
   getSetting<T>(key: string, fallback: T): T;
+  getSloSnapshot(): SloSnapshot;
+  getSummaryJob(id: string): SummaryJob | undefined;
   getAlertState(ruleId: string): AlertStateRecord | undefined;
+  generateOperatorRunbook(): OperatorRunbook;
   listAdapterEvents(): AdapterEvent[];
   listAlertRules(): AlertRule[];
   listDays(): Omit<JournalDay, "entries">[];
@@ -76,6 +92,7 @@ export interface OpenClogRepository {
   listHealthTimeline(limit?: number): ServiceHealthTimelineEntry[];
   listIncidents(): IncidentSummary[];
   listIncidentActionRecords(filter?: { incidentId?: string }): IncidentActionRecord[];
+  listIncidentRulePacks(): IncidentRulePack[];
   listIntegrityReports(): IntegrityMonitorReport[];
   listInvestigationNotes(filter?: { dayKey?: string; incidentId?: string }): InvestigationNote[];
   listPlugins(): PluginManifest[];
@@ -89,7 +106,7 @@ export interface OpenClogRepository {
   registerPlugin(plugin: PluginManifest): PluginManifest;
   restoreRetentionSnapshot(snapshot: RetentionSnapshotRecord): void;
   runIntegrityMonitor(): IntegrityMonitorReport;
-  runPlugin(pluginId: string): PluginExecutionResult;
+  runPlugin(pluginId: string, options?: { dryRun?: boolean }): PluginExecutionResult;
   saveIncident(incident: IncidentSummary): IncidentSummary;
   saveIncidentActionRecord(record: IncidentActionRecord): IncidentActionRecord;
   saveInvestigationNote(note: InvestigationNote): InvestigationNote;
@@ -104,6 +121,7 @@ export interface OpenClogRepository {
   upsertAlertRule(rule: AlertRule): AlertRule;
   upsertDay(day: JournalDay): void;
   upsertProfile(profile: ProfileConfig): ProfileConfig;
+  verifyReplayBundle(bundle: { manifest?: Record<string, unknown>; day?: { dayKey?: string; entries?: unknown[] }; markdown?: string }): BundleVerificationResult;
 }
 
 const defaultRetentionClasses: RetentionClass[] = [
@@ -122,6 +140,39 @@ const summaryProfiles: SummaryProfile[] = [
   { id: "default-operator", label: "Default operator summary", audience: "operator", instructions: "Summarize the day for the next operator shift." },
   { id: "escalation", label: "Escalation summary", audience: "incident commander", instructions: "Summarize operator risk and the most important evidence." },
   { id: "export", label: "Export summary", audience: "external evidence consumer", instructions: "Summarize the exported bundle with citations only." }
+];
+
+const incidentRulePacks: IncidentRulePack[] = [
+  {
+    id: "default-incident-loop",
+    label: "Default incident loop",
+    rules: [
+      {
+        id: "reconnect-storm",
+        category: "reconnect_storm",
+        title: "Route reconnect storms toward notification and note capture.",
+        rationale: "Repeated reconnect evidence increases the risk of stale handoff assumptions.",
+        actionId: "deliver_slack",
+        priority: "high"
+      },
+      {
+        id: "stale-summary",
+        category: "stale_summary",
+        title: "Refresh summaries before closeout.",
+        rationale: "Escalation copy should not lag the newest journal evidence.",
+        actionId: "refresh_summary",
+        priority: "high"
+      },
+      {
+        id: "delivery-failure",
+        category: "delivery_failure",
+        title: "Keep failed delivery visible and retryable.",
+        rationale: "Escalations must fail closed rather than silently dropping handoff attempts.",
+        actionId: "create_github_issue",
+        priority: "medium"
+      }
+    ]
+  }
 ];
 
 export function createSqliteRepository(filename: string): OpenClogRepository {
@@ -211,10 +262,37 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       const body = `${day.dateLabel}\n\n${exportDayAsMarkdown(day)}\n`;
       return { target, title, body };
     },
-    createGithubIssue(dayKey, incidentId) {
+    createGithubIssue(dayKey, options) {
       const payload = repo.buildIntegrationPayload("github-issue", dayKey);
       const requestedAt = new Date().toISOString();
       const correlationId = crypto.randomUUID();
+      const existing = findExistingReceipt(repo.listDeliveryReceipts(), "github-issue", dayKey, options?.idempotencyKey);
+      if (existing) return existing;
+      if (options?.dryRun) {
+        const receipt: DeliveryReceipt = {
+          id: crypto.randomUUID(),
+          target: "github-issue",
+          dayKey,
+          ...(options.incidentId ? { incidentId: options.incidentId } : {}),
+          title: payload.title,
+          status: "delivered",
+          requestedAt,
+          completedAt: requestedAt,
+          correlationId,
+          retryCount: 0,
+          idempotencyKey: options.idempotencyKey,
+          dryRun: true,
+          secretRef: options.secretRef,
+          requestFingerprint: buildReceiptFingerprint("github-issue", dayKey, options.incidentId, options.idempotencyKey),
+          deliveryReference: "dry-run"
+        };
+        saveJsonRow(db, "journal_delivery_receipts", receipt.id, JSON.stringify(receipt), {
+          day_key: dayKey,
+          incident_id: options.incidentId ?? null,
+          target: "github-issue"
+        });
+        return receipt;
+      }
       try {
         const repoName = resolveGithubRepo();
         const created = execFileSync("gh", ["issue", "create", "--repo", repoName, "--title", payload.title, "--body", payload.body], {
@@ -224,21 +302,25 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
           id: crypto.randomUUID(),
           target: "github-issue",
           dayKey,
-          ...(incidentId ? { incidentId } : {}),
+          ...(options?.incidentId ? { incidentId: options.incidentId } : {}),
           title: payload.title,
           status: "delivered",
           requestedAt,
           completedAt: new Date().toISOString(),
           correlationId,
           retryCount: 0,
+          idempotencyKey: options?.idempotencyKey,
+          dryRun: false,
+          secretRef: options?.secretRef,
+          requestFingerprint: buildReceiptFingerprint("github-issue", dayKey, options?.incidentId, options?.idempotencyKey),
           deliveryReference: created
         };
         saveJsonRow(db, "journal_delivery_receipts", receipt.id, JSON.stringify(receipt), {
           day_key: dayKey,
-          incident_id: incidentId ?? null,
+          incident_id: options?.incidentId ?? null,
           target: "github-issue"
         });
-        if (incidentId) syncLineageForIncident(db, incidentId, repo);
+        if (options?.incidentId) syncLineageForIncident(db, options.incidentId, repo);
         return receipt;
       } catch (error) {
         const message = error instanceof Error ? error.message : "github issue creation failed";
@@ -246,22 +328,26 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
           id: crypto.randomUUID(),
           target: "github-issue",
           dayKey,
-          ...(incidentId ? { incidentId } : {}),
+          ...(options?.incidentId ? { incidentId: options.incidentId } : {}),
           title: payload.title,
           status: "failed",
           requestedAt,
           completedAt: new Date().toISOString(),
           correlationId,
           retryCount: 0,
+          idempotencyKey: options?.idempotencyKey,
+          dryRun: false,
+          secretRef: options?.secretRef,
+          requestFingerprint: buildReceiptFingerprint("github-issue", dayKey, options?.incidentId, options?.idempotencyKey),
           errorCategory: /auth|logged in|authentication/i.test(message) ? "authentication" : "unknown",
           deadLetterReason: message.slice(0, 240)
         };
         saveJsonRow(db, "journal_delivery_receipts", receipt.id, JSON.stringify(receipt), {
           day_key: dayKey,
-          incident_id: incidentId ?? null,
+          incident_id: options?.incidentId ?? null,
           target: "github-issue"
         });
-        if (incidentId) syncLineageForIncident(db, incidentId, repo);
+        if (options?.incidentId) syncLineageForIncident(db, options.incidentId, repo);
         return receipt;
       }
     },
@@ -309,24 +395,48 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       const row = db.prepare("SELECT COUNT(*) AS count FROM journal_entries WHERE raw_event_hash IS NOT NULL").get() as { count: number };
       return Number(row.count);
     },
-    deliverIntegration(target, dayKey, incidentId) {
+    deliverIntegration(target, dayKey, options) {
       const payload = repo.buildIntegrationPayload(target, dayKey);
       const config = deliveryConfigFor(target);
       const requestedAt = new Date().toISOString();
       const correlationId = crypto.randomUUID();
+      const existing = findExistingReceipt(repo.listDeliveryReceipts(), target, dayKey, options?.idempotencyKey);
+      if (existing) return existing;
       let receipt: DeliveryReceipt;
-      if (!config.enabled || !config.url) {
+      if (options?.dryRun) {
         receipt = {
           id: crypto.randomUUID(),
           target,
           dayKey,
-          ...(incidentId ? { incidentId } : {}),
+          ...(options.incidentId ? { incidentId: options.incidentId } : {}),
+          title: payload.title,
+          status: "delivered",
+          requestedAt,
+          completedAt: requestedAt,
+          correlationId,
+          retryCount: 0,
+          idempotencyKey: options.idempotencyKey,
+          dryRun: true,
+          secretRef: options.secretRef,
+          requestFingerprint: buildReceiptFingerprint(target, dayKey, options.incidentId, options.idempotencyKey),
+          deliveryReference: "dry-run"
+        };
+      } else if (!config.enabled || !config.url) {
+        receipt = {
+          id: crypto.randomUUID(),
+          target,
+          dayKey,
+          ...(options?.incidentId ? { incidentId: options.incidentId } : {}),
           title: payload.title,
           status: "failed",
           requestedAt,
           completedAt: new Date().toISOString(),
           correlationId,
           retryCount: 0,
+          idempotencyKey: options?.idempotencyKey,
+          dryRun: false,
+          secretRef: options?.secretRef,
+          requestFingerprint: buildReceiptFingerprint(target, dayKey, options?.incidentId, options?.idempotencyKey),
           errorCategory: "missing_config",
           deadLetterReason: "delivery target is not configured"
         };
@@ -349,13 +459,17 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
             id: crypto.randomUUID(),
             target,
             dayKey,
-            ...(incidentId ? { incidentId } : {}),
+            ...(options?.incidentId ? { incidentId: options.incidentId } : {}),
             title: payload.title,
             status: "delivered",
             requestedAt,
             completedAt: new Date().toISOString(),
             correlationId,
             retryCount: 0,
+            idempotencyKey: options?.idempotencyKey,
+            dryRun: false,
+            secretRef: options?.secretRef,
+            requestFingerprint: buildReceiptFingerprint(target, dayKey, options?.incidentId, options?.idempotencyKey),
             deliveryReference: config.destinationLabel
           };
         } catch {
@@ -363,20 +477,28 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
             id: crypto.randomUUID(),
             target,
             dayKey,
-            ...(incidentId ? { incidentId } : {}),
+            ...(options?.incidentId ? { incidentId: options.incidentId } : {}),
             title: payload.title,
             status: "failed",
             requestedAt,
             completedAt: new Date().toISOString(),
             correlationId,
             retryCount: 0,
+            idempotencyKey: options?.idempotencyKey,
+            dryRun: false,
+            secretRef: options?.secretRef,
+            requestFingerprint: buildReceiptFingerprint(target, dayKey, options?.incidentId, options?.idempotencyKey),
             errorCategory: "network",
             deadLetterReason: "network delivery failed"
           };
         }
       }
-      saveJsonRow(db, "journal_delivery_receipts", receipt.id, JSON.stringify(receipt), { day_key: dayKey, incident_id: incidentId ?? null, target });
-      if (incidentId) syncLineageForIncident(db, incidentId, repo);
+      saveJsonRow(db, "journal_delivery_receipts", receipt.id, JSON.stringify(receipt), {
+        day_key: dayKey,
+        incident_id: options?.incidentId ?? null,
+        target
+      });
+      if (options?.incidentId) syncLineageForIncident(db, options.incidentId, repo);
       return receipt;
     },
     deleteDays(dayKeys) {
@@ -412,6 +534,28 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       const generatedSummary: GeneratedSummary = { summary, createdAt: now.toISOString(), source: "rules" };
       db.prepare("INSERT INTO journal_daily_summaries (day_key, summary, created_at) VALUES (?, ?, ?) ON CONFLICT(day_key) DO UPDATE SET summary = excluded.summary, created_at = excluded.created_at").run(dayKey, generatedSummary.summary, generatedSummary.createdAt);
       return generatedSummary;
+    },
+    createSummaryJob(dayKey) {
+      const createdAt = new Date().toISOString();
+      const generatedSummary = repo.generateSummary(dayKey);
+      const job: SummaryJob = {
+        id: crypto.randomUUID(),
+        dayKey,
+        status: "completed",
+        createdAt,
+        startedAt: createdAt,
+        completedAt: new Date().toISOString(),
+        progressLabel: "Summary generated from current journal evidence.",
+        generatedSummary
+      };
+      db.prepare("INSERT INTO journal_summary_jobs (id, day_key, status, created_at, job_json) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET job_json = excluded.job_json").run(
+        job.id,
+        dayKey,
+        job.status,
+        job.createdAt,
+        JSON.stringify(job)
+      );
+      return job;
     },
     generateSummaryProfile(profileId, dayKey) {
       const day = repo.getDay(dayKey) ?? emptyDay(dayKey);
@@ -536,9 +680,36 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       const row = db.prepare("SELECT value_json FROM journal_settings WHERE key = ?").get(key);
       return row ? (JSON.parse(String(row.value_json)) as typeof fallback) : fallback;
     },
+    getSummaryJob(id) {
+      const row = db.prepare("SELECT job_json FROM journal_summary_jobs WHERE id = ?").get(id);
+      return row ? (JSON.parse(String(row.job_json)) as SummaryJob) : undefined;
+    },
     getAlertState(ruleId) {
       const row = db.prepare("SELECT state_json FROM journal_alert_states WHERE id = ?").get(ruleId);
       return row ? (JSON.parse(String(row.state_json)) as AlertStateRecord) : undefined;
+    },
+    generateOperatorRunbook() {
+      return {
+        generatedAt: new Date().toISOString(),
+        sections: [
+          {
+            title: "Routes",
+            items: ["/api/health", "/api/search", "/api/incidents/:id/workspace", "/api/integrations/:target/deliver", "/api/closeout/plan"]
+          },
+          {
+            title: "Security boundaries",
+            items: [
+              "Gateway tokens and raw frames remain backend-only.",
+              "Delivery secrets stay in secure storage or fail closed.",
+              "Replay verification must pass before treating exported evidence as trusted."
+            ]
+          },
+          {
+            title: "Verification",
+            items: ["npm run verify", "npm run verify:gateway", "npm run smoke -w @openclog/desktop", "git diff --check"]
+          }
+        ]
+      };
     },
     listAdapterEvents() {
       return db.prepare("SELECT adapter_event_json FROM journal_adapter_events ORDER BY id ASC").all().map((row) => JSON.parse(String(row.adapter_event_json)) as AdapterEvent);
@@ -610,6 +781,18 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
         .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
         .slice(0, Math.max(1, limit));
     },
+    getHealthAggregate(limit = 20) {
+      const history = repo.listHealthHistory(limit);
+      const timeline = repo.listHealthTimeline(limit);
+      return {
+        createdAt: new Date().toISOString(),
+        reconnectCount: history.filter((entry) => entry.category === "reconnect").length,
+        staleCount: timeline.filter((entry) => entry.category === "stale").length,
+        recoveryCount: timeline.filter((entry) => entry.category === "recovery").length,
+        adapterFailureCount: timeline.filter((entry) => entry.category === "adapter_failure").length,
+        latestErrorCategory: repo.listDeliveryReceipts().find((receipt) => receipt.status === "failed")?.errorCategory
+      };
+    },
     listIncidents() {
       const stored = db.prepare("SELECT incident_json FROM journal_incidents ORDER BY id ASC").all().map((row) => JSON.parse(String(row.incident_json)) as IncidentSummary);
       return stored.length > 0 ? stored : deriveIncidents(repo.listDays().map((day) => repo.getDay(day.dayKey)).filter((day): day is JournalDay => day !== null));
@@ -620,6 +803,9 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
         .all()
         .map((row) => JSON.parse(String(row.record_json)) as IncidentActionRecord)
         .filter((record) => !filter?.incidentId || record.incidentId === filter.incidentId);
+    },
+    listIncidentRulePacks() {
+      return incidentRulePacks;
     },
     listIntegrityReports() {
       return db.prepare("SELECT report_json FROM journal_integrity_reports ORDER BY id DESC").all().map((row) => JSON.parse(String(row.report_json)) as IntegrityMonitorReport);
@@ -677,6 +863,25 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       saveJsonRow(db, "journal_plugins", plugin.id, JSON.stringify(plugin));
       return plugin;
     },
+    createReplayWorkspace(dayKey) {
+      const day = repo.getDay(dayKey) ?? emptyDay(dayKey);
+      const bundle = buildSignedBundle(day);
+      const workspace: ReplayWorkspace = {
+        id: crypto.randomUUID(),
+        sourceDayKey: day.dayKey,
+        createdAt: new Date().toISOString(),
+        entries: day.entries,
+        notes: repo.listInvestigationNotes({ dayKey }),
+        incidentIds: listIncidentIdsForDay(db, dayKey),
+        verification: repo.verifyReplayBundle(bundle)
+      };
+      db.prepare("INSERT INTO journal_replay_workspaces (id, day_key, workspace_json) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET workspace_json = excluded.workspace_json").run(
+        workspace.id,
+        dayKey,
+        JSON.stringify(workspace)
+      );
+      return workspace;
+    },
     restoreRetentionSnapshot(snapshot) {
       for (const day of snapshot.days) {
         repo.upsertDay(day);
@@ -710,14 +915,33 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       saveJsonRow(db, "journal_integrity_reports", report.id, JSON.stringify(report));
       return report;
     },
-    runPlugin(pluginId) {
+    getSloSnapshot() {
+      const days = repo.listDays().map((day) => repo.getDay(day.dayKey)).filter((day): day is JournalDay => day !== null);
+      const failedDeliveryCount = repo.listDeliveryReceipts().filter((receipt) => receipt.status === "failed").length;
+      const staleSummaryCount = days.filter((day) => day.generatedSummary && latestTimestampForEntries(day.entries) > day.generatedSummary.createdAt).length;
+      const retryBacklogCount = repo.listDeliveryReceipts().filter((receipt) => receipt.status === "failed" && receipt.retryCount > 0).length;
+      const reconnectHeavyDayCount = days.filter((day) => day.entries.some((entry) => /reconnect/i.test(`${entry.title} ${entry.body ?? ""}`))).length;
+      return {
+        createdAt: new Date().toISOString(),
+        gatewayFreshnessOk: repo.getHealthAggregate(10).staleCount === 0,
+        staleSummaryCount,
+        failedDeliveryCount,
+        retryBacklogCount,
+        reconnectHeavyDayCount
+      };
+    },
+    runPlugin(pluginId, options) {
       const plugin = repo.listPlugins().find((item) => item.id === pluginId);
       const result: PluginExecutionResult = {
         id: crypto.randomUUID(),
         pluginId,
         status: plugin ? "completed" : "failed",
         createdAt: new Date().toISOString(),
-        summary: plugin ? `Plugin ${plugin.label} ran with ${plugin.capabilities.join(", ")} capability boundaries.` : "Plugin not found."
+        dryRun: options?.dryRun === true,
+        validated: plugin?.validationStatus !== "blocked",
+        summary: plugin
+          ? `${options?.dryRun ? "Dry-run " : ""}plugin ${plugin.label} ran with ${plugin.capabilities.join(", ")} capability boundaries.`
+          : "Plugin not found."
       };
       saveJsonRow(db, "journal_plugin_runs", result.id, JSON.stringify(result), { plugin_id: pluginId });
       return result;
@@ -816,6 +1040,17 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
     upsertProfile(profile) {
       saveJsonRow(db, "journal_profiles", profile.id, JSON.stringify(profile));
       return profile;
+    },
+    verifyReplayBundle(bundle) {
+      const digest = sha256(JSON.stringify(bundle.day ?? {}));
+      const manifestDigest =
+        typeof bundle.manifest?.signature === "object" && bundle.manifest.signature && "digest" in bundle.manifest.signature
+          ? String((bundle.manifest.signature as { digest?: unknown }).digest ?? "")
+          : "";
+      const reasons: string[] = [];
+      if (!manifestDigest) reasons.push("manifest signature missing");
+      if (manifestDigest && manifestDigest !== digest) reasons.push("manifest digest mismatch");
+      return { verified: reasons.length === 0, digest, reasons };
     }
   };
 
@@ -880,7 +1115,15 @@ function migrate(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS journal_plugins (id TEXT PRIMARY KEY, plugin_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_plugin_runs (id TEXT PRIMARY KEY, plugin_id TEXT, run_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_bundle_exports (id TEXT PRIMARY KEY, export_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_summary_jobs (id TEXT PRIMARY KEY, day_key TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, job_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_replay_workspaces (id TEXT PRIMARY KEY, day_key TEXT NOT NULL, workspace_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_incident_action_records (id TEXT PRIMARY KEY, incident_id TEXT NOT NULL, created_at TEXT NOT NULL, record_json TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS idx_journal_entries_session ON journal_entries(session_id, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_journal_entries_status ON journal_entries(status, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_journal_entries_tool_name ON journal_entries(tool_name, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_journal_adapter_events_id ON journal_adapter_events(id);
+    CREATE INDEX IF NOT EXISTS idx_journal_delivery_receipts_requested ON journal_delivery_receipts(requested_at, target);
+    CREATE INDEX IF NOT EXISTS idx_journal_incident_action_records_created ON journal_incident_action_records(created_at, incident_id);
   `);
 }
 
@@ -1084,6 +1327,28 @@ function buildRetentionClass(id: RetentionClassId, label: string, description: s
   return { id, label, description, policy: { keepDays, includeRollback: true }, updatedAt: "2026-05-04T00:00:00.000Z" };
 }
 
+function buildSignedBundle(day: JournalDay): {
+  manifest: { dayKey: string; exportedAt: string; version: string; signature: BundleSignature };
+  day: JournalDay;
+  markdown: string;
+} {
+  const exportedAt = new Date().toISOString();
+  const signature: BundleSignature = {
+    algorithm: "sha256",
+    digest: sha256(JSON.stringify(day))
+  };
+  return {
+    manifest: {
+      dayKey: day.dayKey,
+      exportedAt,
+      version: "0.1.0",
+      signature
+    },
+    day,
+    markdown: exportDayAsMarkdown(day)
+  };
+}
+
 function buildRetentionClassImpact(
   db: DatabaseSync,
   repo: OpenClogRepository,
@@ -1179,6 +1444,33 @@ function resolveGithubRepo(): string {
   const match = /github\.com[:/](.+?)(?:\.git)?$/.exec(remote);
   if (!match) throw new Error("github_remote_not_found");
   return match[1];
+}
+
+function findExistingReceipt(
+  receipts: DeliveryReceipt[],
+  target: DeliveryReceipt["target"],
+  dayKey: string,
+  idempotencyKey: string | undefined
+): DeliveryReceipt | undefined {
+  if (!idempotencyKey) return undefined;
+  return receipts.find((receipt) => receipt.target === target && receipt.dayKey === dayKey && receipt.idempotencyKey === idempotencyKey);
+}
+
+function buildReceiptFingerprint(
+  target: DeliveryReceipt["target"],
+  dayKey: string,
+  incidentId: string | undefined,
+  idempotencyKey: string | undefined
+): string {
+  return sha256([target, dayKey, incidentId ?? "", idempotencyKey ?? ""].join("|"));
+}
+
+function latestTimestampForEntries(entries: JournalEntry[]): string {
+  return entries.reduce((latest, entry) => (entry.timestamp > latest ? entry.timestamp : latest), "");
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function countRows(db: DatabaseSync, sql: string, value: string): number {

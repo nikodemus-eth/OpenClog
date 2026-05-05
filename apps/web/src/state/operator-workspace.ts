@@ -1,5 +1,5 @@
 import type { BundleExport, SearchPreset } from "../api.js";
-import type { CloseoutPlan, GeneratedSummary, JournalDay, JournalEntry, JournalFilterKey, ReplayBundleDiff, RetentionPreview } from "@openclog/core";
+import type { CloseoutPlan, GeneratedSummary, JournalDay, JournalEntry, JournalFilterKey, OperatorViewPreset, ReplayBundleDiff, RetentionPreview } from "@openclog/core";
 import type { JournalRouteState } from "../hooks/useJournalRouting.js";
 
 export const DEFAULT_SEARCH_PRESETS: SearchPreset[] = [
@@ -12,6 +12,41 @@ export const DEFAULT_SEARCH_PRESETS: SearchPreset[] = [
   { id: "delivery-receipts", label: "Delivery receipts", query: "delivery receipt" },
   { id: "plugin-runs", label: "Plugin runs", query: "plugin run" }
 ];
+
+export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): OperatorViewPreset[] {
+  return [
+    {
+      id: "reconnect-triage",
+      label: "Reconnect triage",
+      dayKey,
+      searchQuery: "gateway reconnect",
+      activeFilters: ["errors"],
+      grouped: true,
+      builtIn: true,
+      drilldown: { sessionKey, tab: "timeline", scrollTop: 0 }
+    },
+    {
+      id: "pending-approvals",
+      label: "Pending approvals",
+      dayKey,
+      searchQuery: "approval pending",
+      activeFilters: ["approvals"],
+      grouped: true,
+      builtIn: true,
+      drilldown: { sessionKey, tab: "actions", scrollTop: 0 }
+    },
+    {
+      id: "delivery-failures",
+      label: "Delivery failures",
+      dayKey,
+      searchQuery: "delivery receipt",
+      activeFilters: ["errors"],
+      grouped: false,
+      builtIn: true,
+      drilldown: { sessionKey, tab: "deliveries", scrollTop: 0 }
+    }
+  ];
+}
 
 export interface GatewayUrlSafety {
   kind: "unset" | "invalid" | "loopback" | "lan" | "remote";
@@ -95,6 +130,12 @@ export function searchEmptyState(query: string, resultCount: number): string | n
   const trimmed = query.trim();
   if (!trimmed || resultCount > 0) return null;
   return `No journal matches for “${trimmed}”. Try a tool name, status, or session key.`;
+}
+
+export function dedupeLiveActionNotice(current: string[], next: string, maxItems = 3): string[] {
+  const normalized = next.trim();
+  if (!normalized) return current;
+  return [normalized, ...current.filter((item) => item !== normalized)].slice(0, maxItems);
 }
 
 export function classifyGatewayErrorCategory(reason: string | undefined): string {

@@ -163,3 +163,22 @@ Record deterministic verification, live Gateway verification, coverage policy, a
   - `npm run smoke -w @openclog/desktop`
   - `git diff --check`
 - Coverage remains fully closed on measured code after the refactor: 100% statements, branches, functions, and lines in `npm run test:coverage`.
+
+## 2026-05-05 Full Campaign Closeout
+- Added focused coverage for the new modular application seams and operator workspace helpers, including named operator views, drilldown persistence helpers, idempotent receipt reuse, dry-run plugin metadata, summary-job contracts, replay-workspace creation, signed bundle verification, and desktop contract exposure.
+- Refreshed all 54 visual snapshots after the expanded operator surfaces introduced summary-job state, retention evidence-loss warnings, health/SLO panels, replay workspace status, rule-pack visibility, and runbook summaries across desktop and mobile themes.
+- Final acceptance commands passed on the closeout tree:
+  - `npm run test:changed`
+  - `npm run test:coverage`
+  - `npm run lint`
+  - `npm run build`
+  - `npm run test:e2e`
+  - `npm run test:visual`
+  - `npm run test:redteam`
+  - `npm run verify:desktop-native`
+  - `npm run verify:gateway`
+  - `npm run docs:check`
+  - `npm run verify`
+  - `npm run smoke -w @openclog/desktop`
+  - `git diff --check`
+- Coverage remains 100 percent statements, branches, functions, and lines in `npm run test:coverage`, and the live Gateway probe ended `ready` with `operator`, `operator.read`, `operator.write`, and negotiated `operator.admin` satisfying control-action readiness.

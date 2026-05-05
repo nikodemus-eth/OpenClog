@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ReplayBundleDiff } from "@openclog/core";
 
 export function requireMethod<T>(method: T | undefined, name: string): T {
@@ -50,4 +51,16 @@ export function titleCase(value: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+export function sortByTimestamp<T, K extends keyof T>(items: T[], key: K, direction: "asc" | "desc" = "desc"): T[] {
+  return [...items].sort((left, right) => {
+    const leftValue = String(left[key] ?? "");
+    const rightValue = String(right[key] ?? "");
+    return direction === "asc" ? leftValue.localeCompare(rightValue) : rightValue.localeCompare(leftValue);
+  });
+}
+
+export function sha256Digest(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }

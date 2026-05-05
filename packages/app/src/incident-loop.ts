@@ -135,7 +135,10 @@ export function executeIncidentAction(
   }
 
   if (input.actionId === "create_github_issue") {
-    const receipt = requireMethod(repo.createGithubIssue, "createGithubIssue")(dayKey, input.incidentId);
+    const receipt = requireMethod(repo.createGithubIssue, "createGithubIssue")(dayKey, {
+      incidentId: input.incidentId,
+      idempotencyKey: `${input.incidentId}:github-issue`
+    });
     const actionRecord = record({
       kind: input.actionId,
       title: "Create GitHub issue",
@@ -148,7 +151,10 @@ export function executeIncidentAction(
 
   if (input.actionId === "deliver_slack" || input.actionId === "deliver_generic_webhook" || input.actionId === "deliver_email") {
     const target = input.actionId === "deliver_slack" ? "slack" : input.actionId === "deliver_generic_webhook" ? "generic-webhook" : "email";
-    const receipt = requireMethod(repo.deliverIntegration, "deliverIntegration")(target, dayKey, input.incidentId);
+    const receipt = requireMethod(repo.deliverIntegration, "deliverIntegration")(target, dayKey, {
+      incidentId: input.incidentId,
+      idempotencyKey: `${input.incidentId}:${target}`
+    });
     const actionRecord = record({
       kind: input.actionId,
       title: `Deliver to ${target}`,
@@ -162,7 +168,7 @@ export function executeIncidentAction(
   if (input.actionId === "run_plugin") {
     const pluginId = input.pluginId ?? requireMethod(repo.listPlugins, "listPlugins")()[0]?.id;
     if (!pluginId) throw new Error("plugin_not_found");
-    const result = requireMethod(repo.runPlugin, "runPlugin")(pluginId);
+    const result = requireMethod(repo.runPlugin, "runPlugin")(pluginId, { dryRun: false });
     const actionRecord = record({
       kind: input.actionId,
       title: "Run plugin",

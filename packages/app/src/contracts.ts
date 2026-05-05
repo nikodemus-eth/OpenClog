@@ -2,8 +2,14 @@ import type {
   AlertFinding,
   AlertRule,
   AnalyticsSnapshot,
+  BundleVerificationResult,
   DeliveryReceipt,
+  DeliveryRequestOptions,
+  DeliverySecretRef,
   GeneratedProfileSummary,
+  HealthAggregate,
+  HealthHistoryEntry,
+  IncidentRulePack,
   IncidentActionRecord,
   IncidentSummary,
   InvestigationNote,
@@ -13,8 +19,10 @@ import type {
   LineageRecord,
   MissionReplay,
   OpenClogSettings,
+  OperatorRunbook,
   PluginExecutionResult,
   PluginManifest,
+  ReplayWorkspace,
   RetentionClass,
   RetentionClassPreview,
   RetentionPolicy,
@@ -22,8 +30,10 @@ import type {
   SearchPreset,
   ServiceHealthTimelineEntry,
   SessionDrilldown,
+  SummaryJob,
   SummaryProfile,
   CorrelationGraph,
+  SloSnapshot,
   IntegrityMonitorReport
 } from "@openclog/core";
 
@@ -94,12 +104,13 @@ export interface IncidentRepository {
   listIncidentActionRecords(filter?: { incidentId?: string }): IncidentActionRecord[];
   saveIncidentActionRecord(record: IncidentActionRecord): IncidentActionRecord;
   generateSummary(dayKey: string): JournalDay["generatedSummary"];
+  listIncidentRulePacks?(): IncidentRulePack[];
 }
 
 export interface IntegrationRepository {
   buildIntegrationPayload(target: IntegrationPayload["target"], dayKey: string): IntegrationPayload;
-  deliverIntegration(target: DeliveryReceipt["target"], dayKey: string, incidentId?: string): DeliveryReceipt;
-  createGithubIssue(dayKey: string, incidentId?: string): DeliveryReceipt;
+  deliverIntegration(target: DeliveryReceipt["target"], dayKey: string, options?: DeliveryRequestOptions): DeliveryReceipt;
+  createGithubIssue(dayKey: string, options?: DeliveryRequestOptions): DeliveryReceipt;
   listDeliveryReceipts(): DeliveryReceipt[];
 }
 
@@ -114,14 +125,28 @@ export interface GovernanceRepository {
   buildCorrelationGraph(incidentId: string): CorrelationGraph;
   listPlugins(): PluginManifest[];
   registerPlugin(plugin: PluginManifest): PluginManifest;
-  runPlugin(pluginId: string): PluginExecutionResult;
+  runPlugin(pluginId: string, options?: { dryRun?: boolean }): PluginExecutionResult;
   listHealthTimeline(limit?: number): ServiceHealthTimelineEntry[];
+  listHealthHistory(limit: number): HealthHistoryEntry[];
+  createSummaryJob(dayKey: string): SummaryJob;
+  getSummaryJob(jobId: string): SummaryJob | undefined;
+  verifyReplayBundle(bundle: { manifest?: Record<string, unknown>; day?: { dayKey?: string; entries?: unknown[] }; markdown?: string }): BundleVerificationResult;
+  createReplayWorkspace(dayKey: string): ReplayWorkspace;
+  getSloSnapshot(): SloSnapshot;
+  generateOperatorRunbook(): OperatorRunbook;
+  getHealthAggregate(limit?: number): HealthAggregate;
   getIntegrityReport(): {
     checkedEntries: number;
     mismatchedEntryIds: string[];
     missingRedactedHashes: string[];
     ok: boolean;
   };
+}
+
+export interface SecureStorageRepository {
+  deleteSecret?(ref: DeliverySecretRef): boolean;
+  getSecret?(ref: DeliverySecretRef): string | undefined;
+  setSecret?(ref: DeliverySecretRef, value: string): DeliverySecretRef;
 }
 
 export interface SettingsRepository {
@@ -137,6 +162,7 @@ export type ApplicationRepository = Partial<
     IncidentRepository &
     IntegrationRepository &
     GovernanceRepository &
+    SecureStorageRepository &
     SettingsRepository
 >;
 

@@ -97,10 +97,25 @@ export function createApiApp(services: ApiServices): FastifyInstance {
     generatedSummary: services.repo.generateSummary(request.params.dayKey)
   }));
 
+  app.post<{ Params: { dayKey: string } }>("/api/days/:dayKey/summary-jobs", async (request) => ({
+    ok: true,
+    job: openclog.createSummaryJob(request.params.dayKey)
+  }));
+
+  app.get<{ Params: { id: string } }>("/api/summary-jobs/:id", async (request, reply) => {
+    const job = openclog.getSummaryJob(request.params.id);
+    if (!job) return reply.code(404).send({ error: "summary_job_not_found" });
+    return { ok: true, job };
+  });
+
   app.get("/api/themes", async () => ({ themes: getThemes() }));
 
   app.get<{ Querystring: { limit?: string } }>("/api/health/history", async (request) => ({
     history: services.repo.listHealthHistory(parsePositiveInt(request.query.limit, 5))
+  }));
+
+  app.get<{ Querystring: { limit?: string } }>("/api/health/aggregate", async (request) => ({
+    aggregate: openclog.getHealthAggregate(parsePositiveInt(request.query.limit, 20))
   }));
 
   app.get<{ Querystring: { limit?: string; cursor?: string } }>("/api/health/timeline", async (request) => {
@@ -203,11 +218,16 @@ export function createApiApp(services: ApiServices): FastifyInstance {
 
   app.get<{ Params: { dayKey: string } }>("/api/days/:dayKey/export/bundle", async (request) => {
     const day = services.repo.getDay(request.params.dayKey) ?? sampleJournalDay;
+    const signature = services.repo.verifyReplayBundle({ day }).digest;
     return {
       manifest: {
         dayKey: day.dayKey,
         exportedAt: new Date().toISOString(),
-        version: buildVersionInfo().version
+        version: buildVersionInfo().version,
+        signature: {
+          algorithm: "sha256",
+          digest: signature
+        }
       },
       day,
       markdown: exportDayAsMarkdown(day)
@@ -299,6 +319,25 @@ export function createApiApp(services: ApiServices): FastifyInstance {
       }
     }
   );
+
+  app.get<{ Params: { id: string }; Querystring: { cursor?: string; limit?: string; sort?: string } }>("/api/incidents/:id/actions", async (request) => {
+    const page = openclog.listIncidentActionRecords({
+      incidentId: request.params.id,
+      cursor: request.query.cursor,
+      limit: parsePositiveInt(request.query.limit, 20),
+      sort:
+        request.query.sort === "createdAt:asc" ||
+        request.query.sort === "status:asc" ||
+        request.query.sort === "status:desc"
+          ? request.query.sort
+          : "createdAt:desc"
+    });
+    return { records: page.items, nextCursor: page.nextCursor };
+  });
+
+  app.get("/api/incident-rule-packs", async () => ({
+    rulePacks: openclog.listIncidentRulePacks()
+  }));
 
   app.get<{ Querystring: { dayKey?: string; incidentId?: string; cursor?: string; limit?: string } }>("/api/investigation-notes", async (request) => {
     const page = openclog.listInvestigationNotes({
@@ -425,13 +464,24 @@ export function createApiApp(services: ApiServices): FastifyInstance {
       receipt: openclog.deliverIntegration({
         target: request.params.target,
         dayKey: request.body?.dayKey ?? todayKey(),
-        incidentId: request.body?.incidentId
+        incidentId: request.body?.incidentId,
+        idempotencyKey: typeof request.body?.incidentId === "string" ? `${request.body.incidentId}:${request.params.target}` : undefined,
+        dryRun: request.headers["x-openclog-dry-run"] === "1"
       })
     };
   });
 
-  app.get<{ Querystring: { cursor?: string; limit?: string } }>("/api/integrations/receipts", async (request) => {
-    const page = openclog.listDeliveryReceipts({ cursor: request.query.cursor, limit: parsePositiveInt(request.query.limit, 20) });
+  app.get<{ Querystring: { cursor?: string; limit?: string; sort?: string } }>("/api/integrations/receipts", async (request) => {
+    const page = openclog.listDeliveryReceipts({
+      cursor: request.query.cursor,
+      limit: parsePositiveInt(request.query.limit, 20),
+      sort:
+        request.query.sort === "requestedAt:asc" ||
+        request.query.sort === "status:asc" ||
+        request.query.sort === "status:desc"
+          ? request.query.sort
+          : "requestedAt:desc"
+    });
     return { receipts: page.items, nextCursor: page.nextCursor };
   });
 
@@ -451,6 +501,11 @@ export function createApiApp(services: ApiServices): FastifyInstance {
       left: request.body?.left ?? {},
       right: request.body?.right ?? {}
     })
+  }));
+
+  app.post<{ Params: { dayKey: string } }>("/api/replay-workspaces/:dayKey", async (request) => ({
+    ok: true,
+    workspace: openclog.createReplayWorkspace(request.params.dayKey)
   }));
 
   app.post<{ Body: { dayKey?: string; keepDays?: number; exportTargets?: string[] } }>("/api/closeout/plan", async (request, reply) => {
@@ -500,6 +555,14 @@ export function createApiApp(services: ApiServices): FastifyInstance {
     analytics: openclog.getAnalytics()
   }));
 
+  app.get("/api/slo", async () => ({
+    slo: openclog.getSloSnapshot()
+  }));
+
+  app.get("/api/runbook", async () => ({
+    runbook: services.repo.generateOperatorRunbook()
+  }));
+
   app.get<{ Params: { incidentId: string } }>("/api/replay/:incidentId", async (request) => ({
     replay: openclog.buildMissionReplay({ incidentId: request.params.incidentId })
   }));
@@ -517,9 +580,9 @@ export function createApiApp(services: ApiServices): FastifyInstance {
     plugin: openclog.registerPlugin(request.body)
   }));
 
-  app.post<{ Params: { id: string } }>("/api/plugins/:id/run", async (request) => ({
+  app.post<{ Params: { id: string }; Body: { dryRun?: boolean } }>("/api/plugins/:id/run", async (request) => ({
     ok: true,
-    result: openclog.runPlugin({ pluginId: request.params.id })
+    result: openclog.runPlugin({ pluginId: request.params.id, dryRun: request.body?.dryRun === true })
   }));
 
   app.get<{ Querystring: { once?: string } }>("/api/stream", (request, reply) => {
