@@ -73,6 +73,7 @@ export interface OpenClogRepository {
   createGithubIssue(dayKey: string, options?: DeliveryRequestOptions): DeliveryReceipt;
   createReplayWorkspace(dayKey: string): ReplayWorkspace;
   createSummaryJob(dayKey: string): SummaryJob;
+  listSummaryJobs(): SummaryJob[];
   completeCloseout(dayKey: string, exportTargets: string[]): CloseoutCompletion;
   deliverIntegration(target: DeliveryAdapterTarget, dayKey: string, options?: DeliveryRequestOptions): DeliveryReceipt;
   evaluateAlertRules(dayKey: string): AlertFinding[];
@@ -432,7 +433,7 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       const config = deliveryConfigFor(target);
       const requestedAt = new Date().toISOString();
       const correlationId = crypto.randomUUID();
-      const existing = findExistingReceipt(repo.listDeliveryReceipts(), target, dayKey, options?.idempotencyKey);
+      const existing = options?.forceNewAttempt ? undefined : findExistingReceipt(repo.listDeliveryReceipts(), target, dayKey, options?.idempotencyKey);
       if (existing) return existing;
       let receipt: DeliveryReceipt;
       if (options?.dryRun) {
@@ -591,7 +592,8 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
         dayKey,
         status: "queued",
         createdAt,
-        progressLabel: "Summary job queued for local evidence review."
+        progressLabel: "Summary job queued for local evidence review.",
+        correlationId: crypto.randomUUID()
       };
       db.prepare("INSERT INTO journal_summary_jobs (id, day_key, status, created_at, job_json) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET job_json = excluded.job_json").run(
         job.id,
@@ -601,6 +603,12 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
         JSON.stringify(job)
       );
       return job;
+    },
+    listSummaryJobs() {
+      return db
+        .prepare("SELECT job_json FROM journal_summary_jobs ORDER BY created_at DESC, id DESC")
+        .all()
+        .map((row) => JSON.parse(String(row.job_json)) as SummaryJob);
     },
     generateSummaryProfile(profileId, dayKey) {
       const day = repo.getDay(dayKey) ?? emptyDay(dayKey);
@@ -1207,19 +1215,19 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       if (!original) throw new Error(`delivery_receipt_not_found:${id}`);
       if (original.status !== "failed") return original;
       const retryCount = (original.retryCount ?? 0) + 1;
-      const retryIdempotencyKey = `${original.id}:retry:${String(retryCount)}`;
+      const retryIdempotencyKey = original.idempotencyKey ?? original.requestFingerprint ?? original.id;
       const candidate = repo.deliverIntegration(original.target, original.dayKey, {
         incidentId: original.incidentId,
         dryRun: original.dryRun,
         secretRef: original.secretRef,
-        idempotencyKey: retryIdempotencyKey
+        idempotencyKey: retryIdempotencyKey,
+        forceNewAttempt: true
       });
       const receipt: DeliveryReceipt = {
         ...candidate,
         retryOfReceiptId: original.id,
         retryCount,
         attemptNumber: (original.attemptNumber ?? 1) + 1,
-        requestFingerprint: original.requestFingerprint ?? candidate.requestFingerprint,
         idempotencyKey: retryIdempotencyKey
       };
       saveJsonRow(db, "journal_delivery_receipts", receipt.id, JSON.stringify(receipt), {

@@ -146,6 +146,7 @@ test("journal quick wins and advanced workbench stay usable together", async ({ 
   await page.getByRole("button", { name: "Verify Slack dry run" }).click();
   await expect(page.getByLabel("Delivery target verification").getByText(/slack dry-run verification failed/i)).toBeVisible();
   await expect(page.getByLabel("Delivery target verification").getByText(/Delivery reference dry-run/i)).toBeVisible();
+  await expect(page.getByText(/Dry-run verification failed for Slack; jump to the delivery target card/i)).toBeVisible();
   await page.getByRole("button", { name: "Copy replay API example" }).click();
   await expect(page.getByText(/API example copied for GET \/api\/correlation/i)).toBeVisible();
   await expect(page.getByText(/Mission replay generated at 2026-05-04T12:10:00.000Z/i)).toBeVisible();
@@ -169,9 +170,16 @@ test("journal quick wins and advanced workbench stay usable together", async ({ 
   await expect(page.getByText(/characters remaining/i).first()).toBeVisible();
   await page.getByRole("button", { name: "Backend mismatch" }).click();
   await expect(page.getByText(/Built-in view: Backend mismatch/i)).toBeVisible();
+  await expect(page.getByLabel("Saved operator views").getByRole("button", { name: "Only unresolved incidents", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Verification Center")).toContainText("Last successful verify:gateway 2026-05-04T12:18:00.000Z");
+  await expect(page.getByLabel("Operations backlog surfaces")).toContainText("Evidence checklist");
+  await expect(page.getByLabel("Operations backlog surfaces")).toContainText("same-key retry requires confirmation");
+  await expect(page.getByLabel("Operations backlog surfaces")).toContainText("Role-aware simulations");
   await expect(page.getByText(/Evidence [0-4]\/4/i).first()).toBeVisible();
   await expect(page.getByText(/Theme and background settings are decorative only/i)).toBeVisible();
   await expect(page.getByText(/Health poll .* last success/i)).toBeVisible();
+  await page.getByRole("button", { name: "Retry receipt receipt-1" }).click();
+  await expect(page.getByLabel("Operational workbench").getByText(/Retry failed delivery receipt-1 with the same idempotency key incident-1:slack/i)).toBeVisible();
   await page.getByRole("button", { name: "Retry receipt receipt-1" }).click();
   await expect(page.getByLabel("Operational workbench").getByText(/receipt-1 retry failed/i)).toBeVisible();
   await expect(page.getByText(/retries 0|retries 1/i).first()).toBeVisible();

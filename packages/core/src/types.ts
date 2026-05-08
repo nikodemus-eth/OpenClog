@@ -288,6 +288,8 @@ export interface OperatorViewPreset {
   grouped: boolean;
   builtIn?: boolean;
   drilldown?: SessionDrilldownViewState;
+  hypothesis?: string;
+  validationSteps?: string[];
 }
 
 export interface OpenClogSettings {
@@ -310,6 +312,7 @@ export interface SummaryJob {
   progressLabel: string;
   generatedSummary?: GeneratedSummary;
   error?: string;
+  correlationId?: string;
 }
 
 export interface BackendFingerprint {
@@ -493,6 +496,7 @@ export interface DeliveryRequestOptions {
   idempotencyKey?: string;
   dryRun?: boolean;
   secretRef?: DeliverySecretRef;
+  forceNewAttempt?: boolean;
 }
 
 export type HealthHistoryCategory = "reconnect" | "sequence_gap" | "gateway_error" | "tool_failure" | "approval" | "info";
@@ -922,4 +926,190 @@ export interface RemoteOpsPolicy {
   environmentLabel: string;
   allowedOrigins: string[];
   secretAccess: "fail-closed";
+}
+
+export type OperationsGateStatus = "passed" | "warning" | "blocked" | "unknown";
+
+export interface SummaryJobHistoryItem extends SummaryJob {
+  queuedForMs: number;
+  runningForMs: number;
+  totalMs: number;
+  medianCompletionMs: number;
+  failureReason?: string;
+}
+
+export interface SummaryJobDayHistory {
+  dayKey: string;
+  retries: number;
+  failureReasons: string[];
+  medianCompletionMs: number;
+}
+
+export interface SummaryJobHistoryPanel {
+  jobs: SummaryJobHistoryItem[];
+  days: SummaryJobDayHistory[];
+}
+
+export interface IncidentEvidenceChecklistItem {
+  id: "timeline" | "receipts" | "replay" | "correlation" | "notes" | "handoff_packet";
+  label: string;
+  present: boolean;
+  evidenceIds: string[];
+}
+
+export interface IncidentEvidenceChecklist {
+  incidentId: string;
+  ready: boolean;
+  items: IncidentEvidenceChecklistItem[];
+}
+
+export interface InvestigationBundlePreviewItem {
+  id: string;
+  label: string;
+  kind: "timeline" | "receipt" | "replay" | "correlation" | "note" | "handoff" | "summary";
+  redacted: boolean;
+  evidenceIds: string[];
+}
+
+export interface InvestigationBundlePreview {
+  incidentId?: string;
+  dayKey: string;
+  items: InvestigationBundlePreviewItem[];
+  redactionWarnings: string[];
+}
+
+export interface ReadinessHistorySparklinePoint {
+  timestamp: string;
+  gatewayReady: boolean;
+  missingScopeCount: number;
+  reconnectCount: number;
+  backendRestartCount: number;
+}
+
+export interface ReadinessHistorySparkline {
+  windowHours: 24;
+  points: ReadinessHistorySparklinePoint[];
+}
+
+export interface DeliveryLedgerItem extends DeliveryReceipt {
+  sameKeyRetryRequiresConfirmation: boolean;
+}
+
+export interface DeliveryLedger {
+  items: DeliveryLedgerItem[];
+}
+
+export interface RoutePerformanceBudget {
+  route: "/api/summary-jobs" | "/api/incidents" | "/api/health";
+  budgetMs: number;
+  observedMs: number;
+  status: "ok" | "breach";
+}
+
+export interface ChaosTestScenario {
+  id: "stale-backend-fingerprint" | "summary-poll-timeout" | "delivery-dead-letter";
+  title: string;
+  deterministic: true;
+  expectedOutcome: string;
+}
+
+export interface RecommendationRationale {
+  recommendationId: string;
+  whyThisRecommendation: string;
+  evidenceIds: string[];
+  rulePackIds: string[];
+}
+
+export interface VerificationCenterGate {
+  id:
+    | "summary_freshness"
+    | "delivery_dry_runs"
+    | "replay_integrity"
+    | "gateway_readiness"
+    | "desktop_self_check"
+    | "route_budgets";
+  label: string;
+  status: OperationsGateStatus;
+  detail: string;
+  evidenceIds: string[];
+}
+
+export interface VerificationCenterReport {
+  generatedAt: string;
+  gates: VerificationCenterGate[];
+  lastSuccessfulGatewayVerifyAt?: string;
+}
+
+export interface GovernedSdkManifest {
+  id: "slack" | "email" | "github" | "plugins";
+  permissions: string[];
+  expiresAt: string;
+  supportsDryRun: boolean;
+  failureModes: string[];
+}
+
+export interface EvidenceQualityScore {
+  incidentId: string;
+  score: number;
+  grade: "excellent" | "good" | "needs-work" | "blocked";
+  freshness: number;
+  completeness: number;
+  provenance: number;
+  actionOutcomeCoverage: number;
+}
+
+export interface RoleAwareIncidentSimulation {
+  id: "stale-backend" | "missing-scopes" | "delivery-dead-letter";
+  role: "operator" | "incident-commander";
+  title: string;
+  liveSideEffects: false;
+  expectedValidationSteps: string[];
+}
+
+export interface OperationsLedgerEntry {
+  id: string;
+  action: string;
+  timestamp: string;
+  status: "completed" | "failed" | "blocked" | "unknown";
+  actor: "local-operator" | "openclog";
+  targetId?: string;
+  correlationId?: string;
+  evidenceIds: string[];
+}
+
+export interface NativeTruthMonitorReport {
+  status: OperationsGateStatus;
+  checks: Array<{
+    id: "api_health" | "gateway_readiness" | "launch_agent" | "backend_fingerprint" | "desktop_self_check";
+    status: OperationsGateStatus;
+    detail: string;
+  }>;
+}
+
+export interface PolicyRecommendationPack {
+  id: "stale-backend" | "missing-scopes" | "failed-summaries" | "delivery-dead-letters";
+  label: string;
+  recommendations: RecommendationRationale[];
+}
+
+export interface OperationsBacklogReport {
+  dayKey: string;
+  incidentId?: string;
+  generatedAt: string;
+  summaryJobHistory: SummaryJobHistoryPanel;
+  incidentEvidenceChecklist: IncidentEvidenceChecklist;
+  investigationBundlePreview: InvestigationBundlePreview;
+  readinessHistory: ReadinessHistorySparkline;
+  deliveryLedger: DeliveryLedger;
+  routePerformanceBudgets: RoutePerformanceBudget[];
+  chaosScenarios: ChaosTestScenario[];
+  recommendationRationales: RecommendationRationale[];
+  verificationCenter: VerificationCenterReport;
+  governedSdkManifests: GovernedSdkManifest[];
+  evidenceQualityScores: EvidenceQualityScore[];
+  roleAwareSimulations: RoleAwareIncidentSimulation[];
+  causalityGraph: CorrelationGraph;
+  operationsLedger: { entries: OperationsLedgerEntry[] };
+  nativeTruthMonitor: NativeTruthMonitorReport;
+  policyRecommendationPacks: PolicyRecommendationPack[];
 }

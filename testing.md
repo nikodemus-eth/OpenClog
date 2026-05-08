@@ -229,3 +229,18 @@ Record deterministic verification, live Gateway verification, coverage policy, a
 - Focused rerun after fixes passed:
   - `npx playwright test tests/e2e/interaction-refinements.spec.ts:133 tests/e2e/advanced-features.spec.ts:4 tests/e2e/advanced-features.spec.ts:271 tests/e2e/interaction-refinements.spec.ts:491 --project=chromium --project=mobile`
 - Final closeout gate remains `npm run verify`, followed by `npm run verify:gateway`, `npm run verify:desktop-native`, `npm run smoke -w @openclog/desktop`, and `git diff --check` before local-main commit and GitHub push.
+
+## 2026-05-08 Operations Backlog Master Plan
+- Added failing-first shared app/API/helper coverage for operations reports, summary-job durations, evidence checklists, Verification Center gates, delivery ledger filtering and confirmation, SDK manifests, simulations, policy packs, native truth monitor, retry confirmation, stale-summary warning, correlation badges, dry-run jump links, and per-view timeline preferences.
+- Expanded Playwright coverage for the operator-visible backlog: persistent backend recovery, `Only unresolved incidents`, Verification Center, operations backlog panel, same-key retry confirmation, copyable correlation ids, inline missing-scope labels, stale-summary warnings, and failed dry-run target jumps.
+- Focused verification passed during implementation:
+  - `npm run test -- packages/app/test/application.test.ts apps/web/test/operator-workspace.test.ts apps/api/test/advanced-features.test.ts apps/web/test/api-summary-jobs.test.ts`
+  - `npm run typecheck`
+  - `npx playwright test tests/e2e/advanced-features.spec.ts --project=chromium`
+- `npm run test:coverage` passed with 20 Vitest files, 161 tests, and 100 percent measured statements, branches, functions, and lines: 728/728 statements, 696/696 branches, 201/201 functions, and 576/576 lines.
+- The first full `npm run verify` exposed intentional visual snapshot drift from the new operations panels; the actual desktop and mobile screenshots were inspected, all 54 visual baselines were refreshed, and the rerun passed with 206 E2E tests, 54 visual snapshots, 7 red-team tests, and docs check.
+- Final closeout commands passed:
+  - `npm run verify`
+  - `npm run verify:gateway` with `status: ready`, no missing scopes, and mutation testing disabled
+  - `npm run verify:desktop-native`
+  - `npm run smoke -w @openclog/desktop`

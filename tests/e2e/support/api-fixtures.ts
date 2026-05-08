@@ -599,7 +599,7 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
           retryCount: 1,
           attemptNumber: 2,
           retryOfReceiptId: "receipt-1",
-          idempotencyKey: "receipt-1:retry:1",
+          idempotencyKey: "incident-1:slack",
           requestFingerprint: "fingerprint-1",
           errorCategory: "missing_config",
           deadLetterReason: "delivery target is not configured"
@@ -653,6 +653,133 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
           deliveryReference: "dry-run",
           errorCategory: "missing_config",
           deadLetterReason: "delivery target is not configured"
+        }
+      }
+    });
+  });
+  await page.route("**/api/operations/center?**", async (route) => {
+    await route.fulfill({
+      json: {
+        report: {
+          dayKey: "2026-05-03",
+          incidentId: incidents[0]?.id,
+          generatedAt: "2026-05-04T12:20:00.000Z",
+          summaryJobHistory: {
+            jobs: [
+              {
+                id: "summary-job-fixture",
+                dayKey: "2026-05-03",
+                status: "completed",
+                createdAt: "2026-05-04T12:02:00.000Z",
+                startedAt: "2026-05-04T12:02:01.000Z",
+                completedAt: "2026-05-04T12:02:02.000Z",
+                progressLabel: "Summary generated from current journal evidence.",
+                correlationId: "corr-summary",
+                queuedForMs: 1000,
+                runningForMs: 1000,
+                totalMs: 2000,
+                medianCompletionMs: 2000
+              }
+            ],
+            days: [{ dayKey: "2026-05-03", retries: 0, failureReasons: [], medianCompletionMs: 2000 }]
+          },
+          incidentEvidenceChecklist: {
+            incidentId: incidents[0]?.id ?? "unscoped",
+            ready: !options.emptyAdvancedState,
+            items: [
+              { id: "timeline", label: "Timeline evidence", present: true, evidenceIds: dayThree.entries.map((entry) => entry.id) },
+              { id: "receipts", label: "Delivery receipts", present: !options.emptyAdvancedState, evidenceIds: ["receipt-1"] },
+              { id: "replay", label: "Replay evidence", present: !options.emptyAdvancedState, evidenceIds: ["replay:incident-1"] },
+              { id: "correlation", label: "Correlation graph", present: !options.emptyAdvancedState, evidenceIds: ["incident-1"] },
+              { id: "notes", label: "Operator notes", present: investigationNotes.length > 0, evidenceIds: investigationNotes.map((note) => note.id) },
+              { id: "handoff_packet", label: "Handoff packet", present: !options.emptyAdvancedState, evidenceIds: ["packet-1"] }
+            ]
+          },
+          investigationBundlePreview: {
+            dayKey: "2026-05-03",
+            incidentId: incidents[0]?.id,
+            items: [
+              { id: "timeline:2026-05-03", label: "Timeline", kind: "timeline", redacted: true, evidenceIds: dayThree.entries.map((entry) => entry.id) },
+              { id: "receipt-1", label: "Slack receipt", kind: "receipt", redacted: true, evidenceIds: ["receipt-1"] }
+            ],
+            redactionWarnings: []
+          },
+          readinessHistory: {
+            windowHours: 24,
+            points: [{ timestamp: "2026-05-03T12:05:00.000Z", gatewayReady: gatewayStatus === "ready", missingScopeCount: missingScopes.length, reconnectCount: 2, backendRestartCount: 0 }]
+          },
+          deliveryLedger: {
+            items: [
+              {
+                id: "receipt-1",
+                target: "slack",
+                dayKey: "2026-05-03",
+                title: "OpenClog Journal handoff",
+                status: "failed",
+                requestedAt: "2026-05-04T12:12:00.000Z",
+                completedAt: "2026-05-04T12:12:01.000Z",
+                correlationId: "corr-slack",
+                retryCount: 0,
+                attemptNumber: 1,
+                idempotencyKey: "incident-1:slack",
+                requestFingerprint: "fingerprint-1",
+                errorCategory: "missing_config",
+                deadLetterReason: "delivery target is not configured",
+                sameKeyRetryRequiresConfirmation: true
+              }
+            ]
+          },
+          routePerformanceBudgets: [
+            { route: "/api/summary-jobs", budgetMs: 250, observedMs: 120, status: "ok" },
+            { route: "/api/incidents", budgetMs: 300, observedMs: 150, status: "ok" },
+            { route: "/api/health", budgetMs: 100, observedMs: 60, status: "ok" }
+          ],
+          chaosScenarios: [
+            { id: "stale-backend-fingerprint", title: "Stale backend fingerprint rejects live requests", deterministic: true, expectedOutcome: "stale_backend_fingerprint" },
+            { id: "summary-poll-timeout", title: "Summary polling times out fail-closed", deterministic: true, expectedOutcome: "summary_job_polling_timed_out" },
+            { id: "delivery-dead-letter", title: "Delivery dead-letter remains retryable with confirmation", deterministic: true, expectedOutcome: "retry_requires_same_idempotency_confirmation" }
+          ],
+          recommendationRationales: [{ recommendationId: "summary-refresh-before-handoff", whyThisRecommendation: "Newer local evidence exists than the generated summary includes.", evidenceIds: ["2026-05-03-entry-1"], rulePackIds: ["default-incident-loop"] }],
+          verificationCenter: {
+            generatedAt: "2026-05-04T12:20:00.000Z",
+            lastSuccessfulGatewayVerifyAt: "2026-05-04T12:18:00.000Z",
+            gates: [
+              { id: "summary_freshness", label: "Summary freshness", status: "warning", detail: "Summary may exclude latest entries.", evidenceIds: [] },
+              { id: "delivery_dry_runs", label: "Delivery dry-runs", status: "blocked", detail: "Failed dry-run receipt is present.", evidenceIds: ["receipt-slack-verify"] },
+              { id: "replay_integrity", label: "Replay integrity", status: "passed", detail: "Replay evidence is reconstructable.", evidenceIds: ["replay:incident-1"] },
+              { id: "gateway_readiness", label: "Gateway readiness", status: gatewayStatus === "ready" ? "passed" : "blocked", detail: "Gateway readiness fixture.", evidenceIds: ["verification-gateway"] },
+              { id: "desktop_self_check", label: "Desktop self-check", status: "unknown", detail: "Desktop self-check fixture unavailable.", evidenceIds: [] },
+              { id: "route_budgets", label: "Route budgets", status: "passed", detail: "Route budgets are within fixture baselines.", evidenceIds: ["/api/summary-jobs", "/api/incidents", "/api/health"] }
+            ]
+          },
+          governedSdkManifests: [
+            { id: "slack", permissions: ["delivery:slack"], expiresAt: "2026-06-08", supportsDryRun: true, failureModes: ["missing_config"] },
+            { id: "email", permissions: ["delivery:email"], expiresAt: "2026-06-08", supportsDryRun: true, failureModes: ["missing_config"] },
+            { id: "github", permissions: ["delivery:github-issue"], expiresAt: "2026-06-08", supportsDryRun: true, failureModes: ["missing_config"] },
+            { id: "plugins", permissions: ["plugin:run"], expiresAt: "2026-06-08", supportsDryRun: true, failureModes: ["validation_blocked"] }
+          ],
+          evidenceQualityScores: incidents.length > 0 ? [{ incidentId: "incident-1", score: 82, grade: "good", freshness: 70, completeness: 100, provenance: 90, actionOutcomeCoverage: 70 }] : [],
+          roleAwareSimulations: [
+            { id: "stale-backend", role: "operator", title: "Stale backend fingerprint rehearsal", liveSideEffects: false, expectedValidationSteps: ["Detect fingerprint drift"] },
+            { id: "missing-scopes", role: "operator", title: "Missing Gateway scopes rehearsal", liveSideEffects: false, expectedValidationSteps: ["Inspect scopes"] },
+            { id: "delivery-dead-letter", role: "incident-commander", title: "Delivery dead-letter rehearsal", liveSideEffects: false, expectedValidationSteps: ["Confirm same-key retry"] }
+          ],
+          causalityGraph: { incidentId: "incident-1", nodes: [{ id: "incident-1", type: "incident", label: "Operational instability narrative" }], edges: [] },
+          operationsLedger: { entries: [{ id: "ledger-delivery-receipt-1", action: "delivery.failed", timestamp: "2026-05-04T12:12:01.000Z", status: "failed", actor: "openclog", targetId: "receipt-1", correlationId: "corr-slack", evidenceIds: ["receipt-1"] }] },
+          nativeTruthMonitor: {
+            status: gatewayStatus === "ready" ? "passed" : "blocked",
+            checks: [
+              { id: "api_health", status: "passed", detail: "API health route is represented in local diagnostics." },
+              { id: "gateway_readiness", status: gatewayStatus === "ready" ? "passed" : "blocked", detail: "Gateway readiness fixture." },
+              { id: "launch_agent", status: "unknown", detail: "LaunchAgent status requires native host inspection." },
+              { id: "backend_fingerprint", status: "passed", detail: "Backend fingerprint is present." },
+              { id: "desktop_self_check", status: "unknown", detail: "Desktop self-check fixture unavailable." }
+            ]
+          },
+          policyRecommendationPacks: [
+            { id: "failed-summaries", label: "Failed summaries", recommendations: [{ recommendationId: "summary-refresh-before-handoff", whyThisRecommendation: "Derived from local evidence.", evidenceIds: ["2026-05-03-entry-1"], rulePackIds: ["default-incident-loop"] }] },
+            { id: "delivery-dead-letters", label: "Delivery dead letters", recommendations: [{ recommendationId: "delivery-dead-letter-retry", whyThisRecommendation: "Failed delivery evidence exists.", evidenceIds: ["receipt-1"], rulePackIds: ["default-incident-loop"] }] }
+          ]
         }
       }
     });

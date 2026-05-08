@@ -25,6 +25,7 @@ import type {
   LineageRecord,
   MissionReplay,
   OpenClogSettings,
+  OperationsBacklogReport,
   OperatorRunbook,
   PinnedDayContext,
   PluginExecutionResult,
@@ -146,6 +147,7 @@ export interface GovernanceRepository {
   listHealthHistory(limit: number): HealthHistoryEntry[];
   createSummaryJob(dayKey: string): SummaryJob;
   getSummaryJob(jobId: string): SummaryJob | undefined;
+  listSummaryJobs?(): SummaryJob[];
   verifyReplayBundle(bundle: { manifest?: Record<string, unknown>; day?: { dayKey?: string; entries?: unknown[] }; markdown?: string }): BundleVerificationResult;
   createReplayWorkspace(dayKey: string): ReplayWorkspace;
   getSloSnapshot(): SloSnapshot;
@@ -186,6 +188,7 @@ export type ApplicationRepository = Partial<
     IncidentRepository &
     IntegrationRepository &
     GovernanceRepository &
+    OperationsRepository &
     SecureStorageRepository &
     SettingsRepository
 >;
@@ -195,4 +198,20 @@ export interface UpdateSettingsInput {
   showToolCalls?: boolean;
   searchPresets?: SearchPreset[];
   operatorViews?: OpenClogSettings["operatorViews"];
+}
+
+export interface OperationsBacklogInput {
+  dayKey: string;
+  incidentId?: string;
+}
+
+export interface DeliveryLedgerInput {
+  q?: string;
+  status?: DeliveryReceipt["status"];
+  target?: DeliveryReceipt["target"];
+  requestFingerprint?: string;
+}
+
+export interface OperationsRepository {
+  getOperationsBacklog?(input: OperationsBacklogInput): OperationsBacklogReport;
 }

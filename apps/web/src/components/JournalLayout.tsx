@@ -510,11 +510,16 @@ export function GatewayReadinessBanner(props: { gateway: GatewayViewState; theme
   );
 }
 
-export function BackendMismatchBanner(props: { detail: string }) {
+export function BackendMismatchBanner(props: { detail: string; onRecover?: () => void }) {
   return (
     <section className="readiness-banner danger" role="status" aria-label="Backend mismatch">
       <StatusChip label="Backend mismatch" status="stale" tone="danger" />
       <p>{props.detail}</p>
+      {props.onRecover ? (
+        <button type="button" onClick={props.onRecover}>
+          Reload diagnostics and active day
+        </button>
+      ) : null}
     </section>
   );
 }

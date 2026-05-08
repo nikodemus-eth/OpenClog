@@ -103,6 +103,8 @@ function mergeOperatorViews(value: OpenClogSettings["operatorViews"] | unknown):
           activeFilters: preset.activeFilters,
           grouped: preset.grouped,
           builtIn: preset.builtIn === true,
+          hypothesis: typeof preset.hypothesis === "string" ? preset.hypothesis : undefined,
+          validationSteps: Array.isArray(preset.validationSteps) ? (preset.validationSteps as unknown[]).filter((step): step is string => typeof step === "string" && step.trim().length > 0) : undefined,
           drilldown: {
             sessionKey: typeof preset.drilldown?.sessionKey === "string" ? preset.drilldown.sessionKey : undefined,
             tab:

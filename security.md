@@ -167,3 +167,9 @@ Track OpenClog security posture, Gateway authority boundaries, redaction, and fa
 - The dry-run verification formatter now has explicit coverage for missing delivery references and absent dead-letter reasons, so optional receipt fields cannot collapse into misleading blank handoff text.
 - The fail-closed replay/correlation browser check now waits for a real incident selection before asserting endpoint failure copy, proving the local evidence route fails closed instead of only testing a no-incident placeholder state.
 - Mobile header constraints keep utility metadata and icon buttons from intercepting the brand/home control, preserving keyboard and pointer recovery paths during degraded investigations.
+
+## 2026-05-08 Operations Backlog Hardening
+- Verification Center and operations backlog routes remain local evidence views only; they aggregate redacted journal data, receipts, summaries, health, verification, and policy metadata without exposing Gateway credentials, device identity, raw frames, or delivery secrets.
+- Failed delivery retry now requires explicit same-idempotency-key confirmation, performs a new backend attempt, and records a new receipt instead of silently reusing success copy; dead-letter and dry-run paths remain fail-closed.
+- Role-aware simulations are declared with `liveSideEffects: false`, and governed SDK manifests expose permissions, expiry, and dry-run metadata rather than secret material.
+- Backend recovery reload refreshes health, active day, and operations report state but does not bypass stale runtime guards or Gateway scope negotiation.

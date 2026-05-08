@@ -16,7 +16,8 @@ import {
   type OperatorViewPreset,
   type ReplayBundleDiff,
   type ReplayStep,
-  type RetentionPreview
+  type RetentionPreview,
+  type SummaryJob
 } from "@openclog/core";
 import type { JournalRouteState } from "../hooks/useJournalRouting.js";
 
@@ -94,6 +95,18 @@ export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): Op
       grouped: true,
       builtIn: true,
       drilldown: { sessionKey, tab: "timeline", scrollTop: 0 }
+    },
+    {
+      id: "only-unresolved-incidents",
+      label: "Only unresolved incidents",
+      dayKey,
+      searchQuery: "open alert failed action stale summary unresolved",
+      activeFilters: ["errors", "approvals"],
+      grouped: true,
+      builtIn: true,
+      hypothesis: "Unresolved incidents combine open alerts, failed actions, and stale summaries.",
+      validationSteps: ["Review active alerts.", "Retry or record failed actions.", "Refresh stale summaries before handoff."],
+      drilldown: { sessionKey, tab: "actions", scrollTop: 0 }
     },
     {
       id: "scope-missing",
@@ -202,6 +215,64 @@ export function describeSummaryJobState(summaryJob: { status: string } | null, g
   }
   if (generatedSummary?.summary) return "Generated summary available.";
   return "Summary never generated for this day yet.";
+}
+
+export function formatSummaryJobDurations(summaryJob: Pick<SummaryJob, "createdAt" | "startedAt" | "completedAt">): {
+  queuedFor: string;
+  runningFor: string;
+  lastCompleted: string | null;
+  total: string;
+} {
+  return {
+    queuedFor: formatDuration(durationMs(summaryJob.createdAt, summaryJob.startedAt ?? summaryJob.completedAt)),
+    runningFor: formatDuration(durationMs(summaryJob.startedAt, summaryJob.completedAt)),
+    lastCompleted: summaryJob.completedAt ?? null,
+    total: formatDuration(durationMs(summaryJob.createdAt, summaryJob.completedAt))
+  };
+}
+
+export function buildRetryReceiptConfirmation(receipt: DeliveryReceipt): string {
+  return `Retry failed delivery ${safeWorkbenchCopy(receipt.id)} with the same idempotency key ${safeWorkbenchCopy(receipt.idempotencyKey ?? "unavailable")}. Confirm before resending this handoff.`;
+}
+
+export function buildGatewayScopeButtonLabel(label: string, missingScopes: string[]): string {
+  if (missingScopes.length === 0) return label;
+  return `${label} blocked: missing ${missingScopes.map(safeWorkbenchCopy).join(", ")}`;
+}
+
+export function formatCorrelationBadge(correlationId: string | undefined): { copyText: string; label: string } | null {
+  if (!correlationId) return null;
+  const safe = safeWorkbenchCopy(correlationId);
+  return { copyText: safe, label: `correlationId ${safe}` };
+}
+
+export function describeStaleSummaryWarning(freshness: { lastEntryIncludedAt?: string; latestEntryObservedAt?: string }): string | null {
+  if (!freshness.lastEntryIncludedAt || !freshness.latestEntryObservedAt) return null;
+  if (Date.parse(freshness.latestEntryObservedAt) <= Date.parse(freshness.lastEntryIncludedAt)) return null;
+  return `Summary may exclude latest entries: latest entry ${safeWorkbenchCopy(freshness.latestEntryObservedAt)} is newer than included entry ${safeWorkbenchCopy(freshness.lastEntryIncludedAt)}.`;
+}
+
+export function buildDryRunFailureJumpNotice(receipt: DeliveryReceipt): { href: string; label: string; message: string } | null {
+  if (receipt.status !== "failed" || receipt.dryRun !== true) return null;
+  const targetLabel = deliveryTargetLabel(receipt.target);
+  return {
+    href: `#delivery-target-${receipt.target}`,
+    label: `Open ${targetLabel} delivery target`,
+    message: `Dry-run verification failed for ${targetLabel}; jump to the delivery target card.`
+  };
+}
+
+export function applyOperatorViewTimelinePreference(view: OperatorViewPreset, grouped: boolean): OperatorViewPreset {
+  return { ...view, grouped };
+}
+
+export function mergeOperatorViewsForDay(dayKey: string, selectedSessionKey: string | undefined, persistedViews: OperatorViewPreset[] = []): OperatorViewPreset[] {
+  const builtIns = buildNamedOperatorViews(dayKey, selectedSessionKey).map((view) => {
+    const persisted = persistedViews.find((candidate) => candidate.builtIn === true && candidate.id === view.id);
+    return persisted ? { ...view, grouped: persisted.grouped } : view;
+  });
+  const savedViews = persistedViews.filter((view) => view.builtIn !== true);
+  return [...builtIns, ...savedViews];
 }
 
 export function isSummaryJobActive(summaryJob: { status: string } | null | undefined): boolean {
@@ -559,6 +630,29 @@ function correlationRelationshipLabel(relationship: CorrelationEdge["relationshi
   if (relationship === "triggered_by") return "triggered by";
   if (relationship === "exported_to") return "exported to";
   return relationship;
+}
+
+function durationMs(start: string | undefined, end: string | undefined): number {
+  if (!start || !end) return 0;
+  const startMs = Date.parse(start);
+  const endMs = Date.parse(end);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return 0;
+  return Math.max(0, endMs - startMs);
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${String(ms)}ms`;
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${String(seconds)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return remainder === 0 ? `${String(minutes)}m` : `${String(minutes)}m ${String(remainder)}s`;
+}
+
+function deliveryTargetLabel(target: DeliveryReceipt["target"]): string {
+  if (target === "generic-webhook") return "Generic webhook";
+  if (target === "github-issue") return "GitHub issue";
+  return target[0].toUpperCase() + target.slice(1);
 }
 
 function safeWorkbenchCopy(value: string): string {

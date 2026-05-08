@@ -19,6 +19,7 @@ import {
   type JournalFilterKey,
   type JournalSearchResult,
   type OperatorViewPreset,
+  type OperationsBacklogReport,
   type ProfileConfig,
   type ServiceHealthTimelineEntry,
   type ThemeId,
@@ -59,6 +60,7 @@ import {
   fetchIncidentWorkspace,
   fetchIncidents,
   fetchInvestigationNotes,
+  fetchOperationsBacklog,
   fetchPlugins,
   fetchProfiles,
   fetchReplay,
@@ -115,15 +117,18 @@ import { useJournalRouting } from "./hooks/useJournalRouting.js";
 import {
   addSearchPreset,
   applyEntryFilters,
-  buildNamedOperatorViews,
   buildArchiveView,
+  buildDryRunFailureJumpNotice,
+  buildGatewayScopeButtonLabel,
   buildReconnectTrendText,
+  buildRetryReceiptConfirmation,
   describeActiveOperatorView,
   describeComposerConnectivity,
   dedupeLiveActionNotice,
   describeAlertFindingState,
   describeOperatorViewSource,
   describeSummaryJobState,
+  describeStaleSummaryWarning,
   diagnosticsCollapsedStorageKey,
   mergeDiagnosticsCollapsedState,
   mergeSearchPresets,
@@ -146,9 +151,12 @@ import {
   capabilityGateAllows,
   formatRetentionPreview,
   formatCapabilitySummary,
+  formatCorrelationBadge,
   isGeneratedSummaryStale,
   formatMonitoringImportSummary,
+  formatSummaryJobDurations,
   isSummaryJobActive,
+  mergeOperatorViewsForDay,
   remainingPinnedSummaryCharacters,
   searchEmptyState,
   summarizeAlertFindings,
@@ -238,8 +246,10 @@ export function App() {
   const [healthTimeline, setHealthTimeline] = useState<ServiceHealthTimelineEntry[]>([]);
   const [deliveryReceipts, setDeliveryReceipts] = useState<DeliveryReceipt[]>([]);
   const [receiptRetryStatus, setReceiptRetryStatus] = useState("");
+  const [pendingRetryReceiptId, setPendingRetryReceiptId] = useState<string | null>(null);
   const [integrationVerificationReceipts, setIntegrationVerificationReceipts] = useState<Partial<Record<VerifiableIntegrationTarget, DeliveryReceipt>>>({});
   const [integrationVerificationStatus, setIntegrationVerificationStatus] = useState("");
+  const [operationsReport, setOperationsReport] = useState<OperationsBacklogReport | null>(null);
   const [retentionClasses, setRetentionClasses] = useState<Awaited<ReturnType<typeof fetchRetentionClasses>>>([]);
   const [retentionClassPreviewState, setRetentionClassPreviewState] = useState<Awaited<ReturnType<typeof previewRetentionByClass>>>([]);
   const [lineageRecord, setLineageRecord] = useState<Awaited<ReturnType<typeof fetchLineage>> | null>(null);
@@ -311,6 +321,8 @@ export function App() {
   const generatedSummaryFreshness = useMemo(() => describeGeneratedSummaryFreshness(day.generatedSummary, day.entries), [day.entries, day.generatedSummary]);
   const generatedSummaryStale = useMemo(() => isGeneratedSummaryStale(day.generatedSummary, day.entries), [day.entries, day.generatedSummary]);
   const generatedSummaryStateText = useMemo(() => describeSummaryJobState(summaryJob, day.generatedSummary), [day.generatedSummary, summaryJob]);
+  const generatedSummaryWarning = useMemo(() => describeStaleSummaryWarning(generatedSummaryFreshness), [generatedSummaryFreshness]);
+  const summaryJobDurations = useMemo(() => (summaryJob ? formatSummaryJobDurations(summaryJob) : null), [summaryJob]);
   const summaryRefreshActive = useMemo(() => isSummaryJobActive(summaryJob), [summaryJob]);
   const lastSuccessfulSummaryJobCompletionAt = useMemo(
     () => getLastSuccessfulSummaryJobCompletionAt(summaryJob, day.generatedSummary),
@@ -462,7 +474,7 @@ export function App() {
         setShowToolCalls(settings.showToolCalls);
         setThemeId(resolveThemeId(settings.theme));
         setSearchPresets(mergeSearchPresets(settings.searchPresets));
-        setOperatorViews(settings.operatorViews.length > 0 ? settings.operatorViews : buildNamedOperatorViews(sampleJournalDay.dayKey));
+        setOperatorViews(mergeOperatorViewsForDay(sampleJournalDay.dayKey, undefined, settings.operatorViews));
       })
       .catch(() => setNotice("Gateway degraded: settings are using local defaults."));
     void fetchVersion().then(setVersion).catch(() => undefined);
@@ -587,6 +599,22 @@ export function App() {
       })
       .catch(() => setSessionDetail(null));
   }, [selectedSessionKey]);
+
+  useEffect(() => {
+    const dayKey = route.selectedDayKey || day.dayKey;
+    if (!dayKey) return;
+    let active = true;
+    void fetchOperationsBacklog(dayKey, selectedIncidentId || undefined)
+      .then((report) => {
+        if (active) setOperationsReport(report);
+      })
+      .catch(() => {
+        if (active) setOperationsReport(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [day.dayKey, route.selectedDayKey, selectedIncidentId]);
 
   useEffect(() => {
     const query = deferredSearchQuery.trim();
@@ -822,6 +850,27 @@ export function App() {
     }
   }
 
+  async function handleBackendRecoveryReload(): Promise<void> {
+    const dayKey = route.selectedDayKey || day.dayKey;
+    try {
+      const [health, fetchedDay, report] = await Promise.all([
+        fetchHealth(),
+        fetchDay(dayKey),
+        fetchOperationsBacklog(dayKey, selectedIncidentId || undefined).catch(() => null)
+      ]);
+      setGateway(health.gateway);
+      setHealthRuntimeFingerprint(health.backend?.runtimeFingerprint ?? "unknown");
+      setDay(fetchedDay);
+      setPinnedNote(fetchedDay.pinnedContext?.note ?? "");
+      setPinnedSummary(fetchedDay.pinnedContext?.summary ?? "");
+      setOperationsReport(report);
+      setLastSuccessfulHealthPollAt(new Date().toISOString());
+      setNotice("Reloaded current diagnostics and active day state after backend fingerprint change.");
+    } catch {
+      setNotice("Backend recovery reload failed closed.");
+    }
+  }
+
   async function handleArchiveCalendarChange(value: string): Promise<void> {
     setArchiveCalendarValue(value);
     const matchedDay = findDayByCalendarValue(days, value);
@@ -1002,13 +1051,15 @@ export function App() {
       searchQuery,
       activeFilters,
       grouped,
+      hypothesis: searchQuery.trim() ? `Investigate whether ${searchQuery.trim()} explains the active incident.` : "Investigate the active day evidence.",
+      validationSteps: ["Review timeline evidence.", "Check receipts and incident actions.", "Record the closeout or next validation step."],
       drilldown: {
         sessionKey: selectedSessionKey || undefined,
         tab: sessionTab,
         scrollTop: sessionScrollTop
       }
     };
-    const next = [...buildNamedOperatorViews(visibleDay.dayKey, selectedSessionKey), nextView, ...operatorViews.filter((view) => view.id !== nextView.id && view.builtIn !== true)].slice(0, 12);
+    const next = mergeOperatorViewsForDay(visibleDay.dayKey, selectedSessionKey, [nextView, ...operatorViews.filter((view) => view.id !== nextView.id && view.builtIn !== true)]).slice(0, 12);
     setOperatorViews(next);
     await updateSettings({ operatorViews: next });
     setNotice("Operator view saved.");
@@ -1340,13 +1391,22 @@ export function App() {
   }
 
   async function handleRetryReceipt(id: string): Promise<void> {
+    const original = deliveryReceipts.find((receipt) => receipt.id === id);
+    if (original?.status === "failed" && pendingRetryReceiptId !== id) {
+      setPendingRetryReceiptId(id);
+      setReceiptRetryStatus(buildRetryReceiptConfirmation(original));
+      setNotice(`Confirm retry for ${id} before resending with the same idempotency key.`);
+      return;
+    }
     try {
-      const receipt = await retryDeliveryReceipt(id);
+      const receipt = await retryDeliveryReceipt(id, true);
       if (!receipt?.id) throw new Error("Delivery receipt retry returned no receipt");
       setDeliveryReceipts((current) => [receipt, ...current.filter((item) => item.id !== receipt.id)]);
+      setPendingRetryReceiptId(null);
       setReceiptRetryStatus(`${id} retry ${receipt.status}.`);
       setNotice(`${id} retry ${receipt.status}.`);
     } catch {
+      setPendingRetryReceiptId(null);
       setReceiptRetryStatus(`${id} retry failed.`);
       setNotice(`${id} retry failed.`);
     }
@@ -1474,6 +1534,8 @@ export function App() {
 	            generatedSummaryLatestEntryObservedAt={generatedSummaryFreshness.latestEntryObservedAt}
 	            generatedSummaryStateText={generatedSummaryStateText}
 	            generatedSummaryStale={generatedSummaryStale}
+            generatedSummaryWarning={generatedSummaryWarning}
+            summaryJobDurations={summaryJobDurations}
 	            summaryRefreshActive={summaryRefreshActive}
 	            helpPopoverRef={helpPopoverRef}
             note={pinnedNote}
@@ -1544,7 +1606,7 @@ export function App() {
         onExport={handleExport}
       />
       <GatewayReadinessBanner gateway={gateway} theme={resolvedTheme} />
-      {backendMismatchDetail ? <BackendMismatchBanner detail={backendMismatchDetail} /> : null}
+      {backendMismatchDetail ? <BackendMismatchBanner detail={backendMismatchDetail} onRecover={() => void handleBackendRecoveryReload()} /> : null}
       <Composer
         composer={composer}
         connectivityDetail={composerConnectivityDetail}
@@ -1582,7 +1644,8 @@ export function App() {
         closeoutPlanText={closeoutPlanText}
         correlationGraph={correlationGraph}
 	        deliveryReceipts={deliveryReceipts}
-	        generatedProfileSummary={generatedProfileSummary}
+        generatedProfileSummary={generatedProfileSummary}
+        gatewayMissingScopes={gateway.missingScopes}
 	        healthAggregate={healthAggregate}
         healthTimeline={healthTimeline}
         incidents={incidents}
@@ -1609,6 +1672,8 @@ export function App() {
         lineageRecord={lineageRecord}
         missionReplay={missionReplay}
         offlineBundleDay={offlineBundleDay}
+        operationsReport={operationsReport}
+        pendingRetryReceiptId={pendingRetryReceiptId}
         plugins={plugins}
         pluginRunResult={pluginRunResult}
         profiles={profiles}
@@ -1824,12 +1889,14 @@ function PinnedContextPanel(props: {
   generatedSummaryLatestEntryObservedAt?: string;
   generatedSummaryStateText: string;
   generatedSummaryStale: boolean;
+  generatedSummaryWarning: string | null;
   helpPopoverRef: RefObject<HTMLDivElement | null>;
   note: string;
   offline: boolean;
   summary: string;
   summaryCharactersRemaining: number;
   summaryError: string | null;
+  summaryJobDurations: ReturnType<typeof formatSummaryJobDurations> | null;
   summaryRefreshActive: boolean;
   onNoteChange: (value: string) => void;
   onRefreshSummary: () => void;
@@ -1884,10 +1951,16 @@ function PinnedContextPanel(props: {
             </p>
             {props.summaryError ? <p className="validation-message">{props.summaryError}</p> : null}
             <p className="generated-summary">{props.generatedSummaryStateText}</p>
+            {props.summaryJobDurations ? (
+              <p className="generated-summary">
+                Summary timing: queued for {props.summaryJobDurations.queuedFor}, running for {props.summaryJobDurations.runningFor}, last completed {props.summaryJobDurations.lastCompleted ?? "unavailable"}.
+              </p>
+            ) : null}
             {props.generatedSummary ? <p className="generated-summary">Generated summary: {props.generatedSummary}</p> : null}
             {props.generatedSummaryCreatedAt ? <p className="generated-summary">Summary generated at {props.generatedSummaryCreatedAt}.</p> : null}
             {props.generatedSummaryLastEntryIncludedAt ? <p className="generated-summary">Last entry included: {props.generatedSummaryLastEntryIncludedAt}.</p> : null}
             {props.generatedSummaryLatestEntryObservedAt ? <p className="generated-summary">Latest entry observed: {props.generatedSummaryLatestEntryObservedAt}.</p> : null}
+            {props.generatedSummaryWarning ? <p className="validation-message">{props.generatedSummaryWarning}</p> : null}
             {props.generatedSummaryStale ? (
               <div className="validation-message">
                 <p>Generated summary is stale. Regenerate after reviewing the latest entries.</p>
@@ -1925,6 +1998,16 @@ function OnboardingPanel(props: { items: string[]; onCopy: () => void }) {
         ))}
       </ul>
     </section>
+  );
+}
+
+function CorrelationBadge(props: { correlationId?: string; onCopy: (value: string) => void }) {
+  const badge = formatCorrelationBadge(props.correlationId);
+  if (!badge) return null;
+  return (
+    <button className="correlation-badge" type="button" onClick={() => props.onCopy(badge.copyText)}>
+      {badge.label}
+    </button>
   );
 }
 
@@ -2048,6 +2131,7 @@ function OperationalPanels(props: {
   correlationGraph: Awaited<ReturnType<typeof fetchCorrelation>> | null;
   deliveryReceipts: DeliveryReceipt[];
   generatedProfileSummary: Awaited<ReturnType<typeof generateSummaryProfile>> | null;
+  gatewayMissingScopes: string[];
   healthAggregate: Awaited<ReturnType<typeof fetchHealthAggregate>> | null;
   healthHistory: Awaited<ReturnType<typeof fetchHealthHistory>>;
   healthTimeline: ServiceHealthTimelineEntry[];
@@ -2072,6 +2156,8 @@ function OperationalPanels(props: {
   monitoringImportResult: Awaited<ReturnType<typeof importMonitoringDecisions>> | null;
   monitoringImportStatus: string;
   offlineBundleDay: JournalDay | null;
+  operationsReport: OperationsBacklogReport | null;
+  pendingRetryReceiptId: string | null;
   plugins: Awaited<ReturnType<typeof fetchPlugins>>;
   pluginRunResult: Awaited<ReturnType<typeof runPlugin>> | null;
   profiles: ProfileConfig[];
@@ -2155,6 +2241,9 @@ function OperationalPanels(props: {
   const plugins = props.plugins ?? [];
   const healthTimeline = props.healthTimeline ?? [];
   const generatedSummaryCitations = props.generatedProfileSummary?.citations ?? [];
+  const operationsReport = props.operationsReport;
+  const failedDryRunNotice = Object.values(props.integrationVerificationReceipts).map((receipt) => receipt ? buildDryRunFailureJumpNotice(receipt) : null).find((notice) => notice !== null);
+  const activeSummaryJobDurations = props.summaryJob ? formatSummaryJobDurations(props.summaryJob) : null;
   const deliveryTargets: Array<{ label: string; target: VerifiableIntegrationTarget }> = [
     { label: "Slack", target: "slack" },
     { label: "Webhook", target: "generic-webhook" },
@@ -2203,6 +2292,33 @@ function OperationalPanels(props: {
           <p>No session drilldown available.</p>
         )}
       </section>
+      <section className="workspace-panel" aria-label="Verification Center">
+        <div className="panel-header">
+          <h3>Verification Center</h3>
+        </div>
+        {operationsReport ? (
+          <>
+            <p>Last successful verify:gateway {operationsReport.verificationCenter.lastSuccessfulGatewayVerifyAt ?? "unavailable"}.</p>
+            <ul>
+              {operationsReport.verificationCenter.gates.map((gate) => (
+                <li key={gate.id}>
+                  <strong>{gate.label}</strong>: {gate.status}. {gate.detail}
+                </li>
+              ))}
+            </ul>
+            <p>Native truth monitor: {operationsReport.nativeTruthMonitor.status}.</p>
+            <ul>
+              {operationsReport.nativeTruthMonitor.checks.map((check) => (
+                <li key={check.id}>
+                  {check.id}: {check.status} - {check.detail}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p>Verification Center is waiting for local operations evidence.</p>
+        )}
+      </section>
       <section className="workspace-panel">
         <div className="panel-header">
           <h3>Integrity and retention</h3>
@@ -2233,6 +2349,12 @@ function OperationalPanels(props: {
         {props.summaryJob ? (
           <div className={`summary-job-status ${props.summaryJob.status}`} role="status">
             <p>Summary job {props.summaryJob.status}: {props.summaryJob.progressLabel}</p>
+            {activeSummaryJobDurations ? (
+              <p>
+                Summary timing: queued for {activeSummaryJobDurations.queuedFor}, running for {activeSummaryJobDurations.runningFor}, total {activeSummaryJobDurations.total}.
+              </p>
+            ) : null}
+            {props.summaryJob.correlationId ? <CorrelationBadge correlationId={props.summaryJob.correlationId} onCopy={props.onCopyReceiptId} /> : null}
             {props.summaryJob.completedAt ? <p>Summary job completed at {props.summaryJob.completedAt}.</p> : null}
             {props.summaryJob.error ? <p className="validation-message">Summary job failed closed: {props.summaryJob.error}</p> : null}
           </div>
@@ -2265,6 +2387,45 @@ function OperationalPanels(props: {
             ))}
           </ul>
         ) : null}
+      </section>
+      <section className="workspace-panel" aria-label="Operations backlog surfaces">
+        <div className="panel-header">
+          <h3>Operations backlog</h3>
+        </div>
+        {operationsReport ? (
+          <>
+            <p>
+              Evidence checklist: {operationsReport.incidentEvidenceChecklist.items.filter((item) => item.present).length}/{operationsReport.incidentEvidenceChecklist.items.length} present.
+            </p>
+            <ul>
+              {operationsReport.incidentEvidenceChecklist.items.map((item) => (
+                <li key={item.id}>
+                  {item.label}: {item.present ? "present" : "missing"}
+                </li>
+              ))}
+            </ul>
+            <p>Investigation bundle preview: {operationsReport.investigationBundlePreview.items.length} redacted item(s) ready.</p>
+            <p>Readiness history sparkline: {operationsReport.readinessHistory.points.length} point(s) over 24 hours.</p>
+            <p>Delivery ledger: {operationsReport.deliveryLedger.items.length} searchable receipt(s).</p>
+            <ul>
+              {operationsReport.deliveryLedger.items.slice(0, 3).map((receipt) => (
+                <li key={receipt.id}>
+                  {receipt.target} {receipt.status} fingerprint {receipt.requestFingerprint ?? "unavailable"}
+                  {receipt.sameKeyRetryRequiresConfirmation ? " - same-key retry requires confirmation" : ""}
+                </li>
+              ))}
+            </ul>
+            <p>Route budgets: {operationsReport.routePerformanceBudgets.map((budget) => `${budget.route} ${budget.status}`).join(", ")}.</p>
+            <p>Chaos tests: {operationsReport.chaosScenarios.map((scenario) => scenario.id).join(", ")}.</p>
+            <p>Evidence quality: {operationsReport.evidenceQualityScores.map((score) => `${score.incidentId} ${score.grade} ${score.score}`).join(", ") || "unscored"}.</p>
+            <p>Operations ledger: {operationsReport.operationsLedger.entries.length} append-only event(s).</p>
+            <p>Policy packs: {operationsReport.policyRecommendationPacks.map((pack) => pack.label).join(", ")}.</p>
+            <p>Role-aware simulations: {operationsReport.roleAwareSimulations.map((simulation) => `${simulation.title} (${simulation.liveSideEffects ? "live" : "no live side effects"})`).join(", ")}.</p>
+            <p>Governed SDK manifests: {operationsReport.governedSdkManifests.map((manifest) => `${manifest.id} ${manifest.permissions.join("/")}`).join(", ")}.</p>
+          </>
+        ) : (
+          <p>Operations backlog surfaces are waiting for local evidence.</p>
+        )}
       </section>
       <section className="workspace-panel" ref={props.incidentsPanelRef} tabIndex={-1}>
         <div className="panel-header">
@@ -2395,7 +2556,7 @@ function OperationalPanels(props: {
                             })
                           }
                         >
-                          {action.label}
+                          {action.availability === "blocked" ? buildGatewayScopeButtonLabel(action.label, props.gatewayMissingScopes) : action.label}
                         </button>
                       ))}
                     </div>
@@ -2409,6 +2570,7 @@ function OperationalPanels(props: {
                         {props.incidentWorkspace.loop.record.actionRecords.map((record) => (
                           <li key={record.id}>
                             {record.title}: {record.summary}
+                            <CorrelationBadge correlationId={typeof record.metadata?.correlationId === "string" ? record.metadata.correlationId : undefined} onCopy={props.onCopyReceiptId} />
                           </li>
                         ))}
                       </ul>
@@ -2557,18 +2719,25 @@ function OperationalPanels(props: {
           Copy governance API example
         </button>
         {props.integrationVerificationStatus ? <p aria-live="polite">{props.integrationVerificationStatus}</p> : null}
+        {failedDryRunNotice ? (
+          <p className="validation-message">
+            {failedDryRunNotice.message} <a href={failedDryRunNotice.href}>{failedDryRunNotice.label}</a>
+          </p>
+        ) : null}
         <div className="delivery-target-grid" aria-label="Delivery target verification">
           {deliveryTargets.map((item) => {
             const verificationReceipt = props.integrationVerificationReceipts[item.target];
             return (
-              <div className="delivery-target-card" key={item.target}>
+              <div className="delivery-target-card" id={`delivery-target-${item.target}`} key={item.target}>
                 <h4>{item.label}</h4>
                 <div className="search-presets">
                   <button type="button" onClick={() => props.onVerifyIntegration(item.target)}>
                     Verify {item.label} dry run
                   </button>
                   <button type="button" disabled={!capabilityGateAllows(capabilities, `delivery:${item.target}`)} onClick={() => props.onDeliverIntegration(item.target)}>
-                    Deliver to {item.label.toLocaleLowerCase()}
+                    {capabilityGateAllows(capabilities, `delivery:${item.target}`)
+                      ? `Deliver to ${item.label.toLocaleLowerCase()}`
+                      : buildGatewayScopeButtonLabel(`Deliver to ${item.label.toLocaleLowerCase()}`, props.gatewayMissingScopes)}
                   </button>
                 </div>
                 {verificationReceipt ? (
@@ -2591,10 +2760,11 @@ function OperationalPanels(props: {
                   {receipt.target}: {receipt.status} ({receipt.correlationId})
                   {receipt.deadLetterReason ? ` - ${receipt.deadLetterReason}` : ""} · retries {receipt.retryCount}
                 </p>
+                <CorrelationBadge correlationId={receipt.correlationId} onCopy={props.onCopyReceiptId} />
                 <p>{formatReceiptDetails(receipt)}</p>
                 <div className="search-presets">
                   <button aria-label={`Retry receipt ${receipt.id}`} type="button" disabled={receipt.status !== "failed"} onClick={() => props.onRetryReceipt(receipt.id)}>
-                    Retry
+                    {props.pendingRetryReceiptId === receipt.id ? "Confirm retry" : "Retry"}
                   </button>
                   <button aria-label={`Copy receipt id ${receipt.id}`} type="button" onClick={() => props.onCopyReceiptId(receipt.id)}>
                     Copy receipt id

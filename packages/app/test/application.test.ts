@@ -437,7 +437,7 @@ describe("OpenClog application layer", () => {
             retryCount: 1,
             attemptNumber: 2,
             retryOfReceiptId: original.id,
-            idempotencyKey: `${original.id}:retry:2`
+            idempotencyKey: original.idempotencyKey
           };
           receipts.unshift(retry);
           return retry;
@@ -506,6 +506,165 @@ describe("OpenClog application layer", () => {
     expect(app.createInvestigationWorkspace({ dayKeys: ["2026-05-04", "2026-05-05"], title: "Two day outage" })).toMatchObject({ dayKeys: ["2026-05-04", "2026-05-05"] });
     expect(app.getInvestigationWorkspace({ id: "workspace-1" })).toMatchObject({ id: "workspace-1" });
     expect(app.getRemoteOpsPolicy()).toMatchObject({ enabled: false, secretAccess: "fail-closed" });
+  });
+
+  test("builds the full 30-item operations backlog report from local evidence", () => {
+    const summaryDay: JournalDay = {
+      ...buildDay("2026-05-08", ["entry-a", "entry-b", "entry-c"]),
+      generatedSummary: {
+        summary: "Older summary.",
+        createdAt: "2026-05-08T12:00:02.000Z",
+        source: "rules" as const,
+        lastEntryIncludedAt: "2026-05-08T12:00:00.000Z",
+        latestEntryObservedAt: "2026-05-08T12:05:00.000Z",
+        freshnessState: "stale" as const
+      }
+    };
+    const failedReceipt: DeliveryReceipt = {
+      id: "receipt-slack-failed",
+      target: "slack",
+      dayKey: "2026-05-08",
+      incidentId: "incident-1",
+      title: "Slack handoff",
+      status: "failed",
+      requestedAt: "2026-05-08T12:03:00.000Z",
+      completedAt: "2026-05-08T12:03:05.000Z",
+      correlationId: "corr-slack-1",
+      retryCount: 0,
+      idempotencyKey: "incident-1:slack",
+      requestFingerprint: "fingerprint-1",
+      dryRun: true,
+      errorCategory: "missing_config",
+      deadLetterReason: "delivery target is not configured"
+    };
+    const app = createOpenClogApplication({
+      repo: {
+        getBackendFingerprint: () => ({
+          id: "boot-1",
+          pid: 1001,
+          bootedAt: "2026-05-08T12:00:00.000Z",
+          runtimeFingerprint: "runtime-1",
+          commitSha: "abc1234",
+          buildTimestamp: "2026-05-08T11:59:00.000Z",
+          nodeVersion: "v26.0.0"
+        }),
+        getDay: () => summaryDay,
+        listDays: () => [{ ...summaryDay, entries: [] }],
+        listSummaryJobs: () => [
+          {
+            id: "summary-job-1",
+            dayKey: "2026-05-08",
+            status: "completed",
+            createdAt: "2026-05-08T12:00:00.000Z",
+            startedAt: "2026-05-08T12:00:02.000Z",
+            completedAt: "2026-05-08T12:00:07.000Z",
+            progressLabel: "Summary generated.",
+            generatedSummary: summaryDay.generatedSummary,
+            correlationId: "corr-summary-1"
+          }
+        ],
+        listDeliveryReceipts: () => [failedReceipt],
+        listIncidents: () => [
+          {
+            id: "incident-1",
+            title: "Gateway incident",
+            summary: "Gateway scopes missing and delivery failed.",
+            dayKeys: ["2026-05-08"],
+            entryIds: ["entry-a", "entry-b"],
+            createdAt: "2026-05-08T12:02:00.000Z",
+            runbookSuggestions: [],
+            loopProgress: { detect: true, explain: true, recommend: true, act: false, record: false },
+            handoffPacketIds: ["packet-1"]
+          }
+        ],
+        listIncidentActionRecords: () => [
+          {
+            id: "action-1",
+            incidentId: "incident-1",
+            kind: "deliver_slack",
+            title: "Notify Slack",
+            status: "failed",
+            summary: "Slack delivery failed closed.",
+            createdAt: "2026-05-08T12:03:06.000Z",
+            receiptId: "receipt-slack-failed",
+            metadata: { correlationId: "corr-slack-1" }
+          }
+        ],
+        listInvestigationNotes: () => [
+          { id: "note-1", dayKey: "2026-05-08", incidentId: "incident-1", author: "operator", body: "Validated stale summary.", linkedEntryIds: ["entry-b"], createdAt: "2026-05-08T12:04:00.000Z", updatedAt: "2026-05-08T12:04:00.000Z" }
+        ],
+        listIncidentHandoffPackets: () => [
+          { id: "packet-1", incidentId: "incident-1", dayKey: "2026-05-08", title: "Gateway packet", summary: "Packet", body: "Body", createdAt: "2026-05-08T12:04:30.000Z", deliveryTargets: ["slack"], provenance: { sourceWorkflow: ["manual"], sourceHash: "sha256-packet", importedAt: "2026-05-08T12:04:30.000Z", lineNumbers: [], redactionCount: 0, redactedPaths: [] } }
+        ],
+        listVerificationReceipts: () => [
+          { id: "verify-gateway", command: "verify:gateway", status: "passed", startedAt: "2026-05-08T12:05:00.000Z", completedAt: "2026-05-08T12:05:30.000Z", summary: "Gateway ready." }
+        ],
+        listHealthTimeline: () => [
+          { id: "health-1", timestamp: "2026-05-08T12:01:00.000Z", category: "stale", title: "Backend fingerprint changed", detail: "Runtime drift observed." },
+          { id: "health-2", timestamp: "2026-05-08T12:02:00.000Z", category: "reconnect", title: "Gateway reconnected", detail: "Reconnect attempt completed." }
+        ],
+        listHealthHistory: () => [
+          { id: "hist-1", entryId: "entry-a", dayKey: "2026-05-08", title: "Gateway scope missing", timestamp: "2026-05-08T12:01:00.000Z", category: "gateway_error" }
+        ],
+        getHealthAggregate: () => ({ createdAt: "2026-05-08T12:06:00.000Z", reconnectCount: 1, staleCount: 1, recoveryCount: 1, adapterFailureCount: 1, latestErrorCategory: "scope" }),
+        getSloSnapshot: () => ({ createdAt: "2026-05-08T12:06:00.000Z", gatewayFreshnessOk: true, staleSummaryCount: 1, failedDeliveryCount: 1, retryBacklogCount: 1, reconnectHeavyDayCount: 0 }),
+        listPlugins: () => [{ id: "plugin-1", label: "Plugin", version: "0.1.0", capabilities: ["annotation"], readScopes: ["entries"], supportsDryRun: true, reviewBy: "2026-06-08" }],
+        listCapabilityManifests: () => [],
+        getIntegrityReport: () => ({ ok: true, checkedEntries: 3, mismatchedEntryIds: [], missingRedactedHashes: [] }),
+        listIntegrityReports: () => [],
+        runIntegrityMonitor: () => ({ id: "integrity-1", createdAt: "2026-05-08T12:06:00.000Z", ok: true, checks: [] }),
+        buildMissionReplay: () => ({ incidentId: "incident-1", title: "Gateway replay", generatedAt: "2026-05-08T12:06:00.000Z", steps: [{ id: "step-1", kind: "entry", entryIds: ["entry-a"], timestamp: "2026-05-08T12:00:00.000Z", label: "Gateway event", derived: false, sourceIds: ["entry-a"] }] }),
+        buildCorrelationGraph: () => ({
+          incidentId: "incident-1",
+          nodes: [{ id: "incident-1", type: "incident", label: "Gateway incident" }, { id: "receipt-slack-failed", type: "delivery_receipt", label: "Slack failed" }],
+          edges: [{ id: "edge-1", from: "incident-1", to: "receipt-slack-failed", relationship: "exported_to" }]
+        }),
+        createReplayWorkspace: () => ({ id: "replay-1", sourceDayKey: "2026-05-08", createdAt: "2026-05-08T12:07:00.000Z", entries: summaryDay.entries, notes: [], incidentIds: ["incident-1"], verification: { verified: true, digest: "digest", reasons: [] } }),
+        generateOperatorRunbook: () => ({ generatedAt: "2026-05-08T12:07:00.000Z", sections: [{ title: "Delivery failures", items: ["Retry failed delivery with same idempotency key after confirmation."] }] }),
+        getRemoteOpsPolicy: () => ({ enabled: false, environmentLabel: "local", allowedOrigins: ["http://127.0.0.1:5173"], secretAccess: "fail-closed" }),
+        evaluateAlertRules: () => [{ ruleId: "stale-summary", title: "Stale summary", triggered: true, detail: "Summary is stale." }]
+      } as never
+    });
+
+    const report = (app as never as { getOperationsBacklog(input: { dayKey: string; incidentId: string }): unknown }).getOperationsBacklog({
+      dayKey: "2026-05-08",
+      incidentId: "incident-1"
+    }) as {
+      summaryJobHistory: { jobs: Array<{ queuedForMs: number; runningForMs: number; medianCompletionMs: number; correlationId?: string }> };
+      incidentEvidenceChecklist: { ready: boolean; items: Array<{ id: string; present: boolean }> };
+      verificationCenter: { gates: Array<{ id: string; status: string }>; lastSuccessfulGatewayVerifyAt?: string };
+      deliveryLedger: { items: Array<{ id: string; sameKeyRetryRequiresConfirmation: boolean }> };
+      evidenceQualityScores: Array<{ incidentId: string; score: number; grade: string }>;
+      operationsLedger: { entries: Array<{ action: string; correlationId?: string }> };
+      governedSdkManifests: Array<{ id: string; permissions: string[]; supportsDryRun: boolean }>;
+      roleAwareSimulations: Array<{ id: string; liveSideEffects: false }>;
+      policyRecommendationPacks: Array<{ id: string; recommendations: Array<{ whyThisRecommendation: string }> }>;
+      nativeTruthMonitor: { status: string; checks: Array<{ id: string; status: string }> };
+    };
+
+    expect(report.summaryJobHistory.jobs[0]).toMatchObject({ queuedForMs: 2000, runningForMs: 5000, medianCompletionMs: 7000, correlationId: "corr-summary-1" });
+    expect(report.incidentEvidenceChecklist.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "timeline", present: true }),
+      expect.objectContaining({ id: "receipts", present: true }),
+      expect.objectContaining({ id: "replay", present: true }),
+      expect.objectContaining({ id: "correlation", present: true }),
+      expect.objectContaining({ id: "notes", present: true }),
+      expect.objectContaining({ id: "handoff_packet", present: true })
+    ]));
+    expect(report.incidentEvidenceChecklist.ready).toBe(true);
+    expect(report.verificationCenter.gates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "summary_freshness", status: "blocked" }),
+      expect.objectContaining({ id: "delivery_dry_runs", status: "blocked" }),
+      expect.objectContaining({ id: "gateway_readiness", status: "passed" })
+    ]));
+    expect(report.verificationCenter.lastSuccessfulGatewayVerifyAt).toBe("2026-05-08T12:05:30.000Z");
+    expect(report.deliveryLedger.items[0]).toMatchObject({ id: "receipt-slack-failed", sameKeyRetryRequiresConfirmation: true });
+    expect(report.evidenceQualityScores[0]).toMatchObject({ incidentId: "incident-1", score: expect.any(Number), grade: "good" });
+    expect(report.operationsLedger.entries.map((entry) => entry.action)).toEqual(expect.arrayContaining(["summary.completed", "delivery.failed", "incident.action.failed"]));
+    expect(report.governedSdkManifests).toEqual(expect.arrayContaining([expect.objectContaining({ id: "slack", permissions: ["delivery:slack"], supportsDryRun: true })]));
+    expect(report.roleAwareSimulations.every((simulation) => simulation.liveSideEffects === false)).toBe(true);
+    expect(report.policyRecommendationPacks.find((pack) => pack.id === "failed-summaries")?.recommendations[0].whyThisRecommendation).toContain("evidence");
+    expect(report.nativeTruthMonitor.checks).toEqual(expect.arrayContaining([expect.objectContaining({ id: "backend_fingerprint", status: "passed" })]));
   });
 
   test("imports newsletter monitoring decisions as redacted notes and incident handoff packets", () => {

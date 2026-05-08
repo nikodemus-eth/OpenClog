@@ -7,15 +7,21 @@ import {
   classifyGatewayErrorCategory,
   classifyGatewayUrl,
   capabilityGateAllows,
+  applyOperatorViewTimelinePreference,
+  buildDryRunFailureJumpNotice,
+  buildGatewayScopeButtonLabel,
+  buildRetryReceiptConfirmation,
   describeActiveOperatorView,
   describeAlertFindingState,
   describeComposerConnectivity,
   describeOperatorViewSource,
   describeSummaryJobState,
+  describeStaleSummaryWarning,
   DEFAULT_SEARCH_PRESETS,
   dedupeLiveActionNotice,
   diagnosticsCollapsedStorageKey,
   describeGeneratedSummaryFreshness,
+  formatCorrelationBadge,
   formatCorrelationEdge,
   formatCorrelationNode,
   formatIntegrationVerificationReceipt,
@@ -25,6 +31,7 @@ import {
   formatMonitoringImportSummary,
   formatMissionReplayStep,
   formatReceiptDetails,
+  formatSummaryJobDurations,
   getLastSuccessfulSummaryJobCompletionAt,
   formatReplayBundleDiff,
   formatRetentionPreview,
@@ -32,6 +39,7 @@ import {
   hasRetentionImpact,
   isSummaryJobActive,
   isGeneratedSummaryStale,
+  mergeOperatorViewsForDay,
   mergeSearchPresets,
   remainingPinnedSummaryCharacters,
   searchEmptyState,
@@ -204,11 +212,46 @@ describe("operator workspace helpers", () => {
       expect.objectContaining({ id: "stale-summaries", builtIn: true, searchQuery: "summary stale" }),
       expect.objectContaining({ id: "failed-receipts", builtIn: true, searchQuery: "delivery receipt failed" }),
       expect.objectContaining({ id: "stale-backend-fingerprint", builtIn: true, searchQuery: "stale backend fingerprint" }),
+      expect.objectContaining({ id: "only-unresolved-incidents", builtIn: true, hypothesis: "Unresolved incidents combine open alerts, failed actions, and stale summaries." }),
       expect.objectContaining({ id: "scope-missing", builtIn: true, searchQuery: "scope missing" })
     ]);
     expect(dedupeLiveActionNotice([], "  ")).toEqual([]);
     expect(dedupeLiveActionNotice(["saved"], "saved")).toEqual(["saved"]);
     expect(dedupeLiveActionNotice(["alpha", "beta", "gamma"], "delta")).toEqual(["delta", "alpha", "beta"]);
+  });
+
+  test("merges current built-in operator views with older persisted saved views", () => {
+    const merged = mergeOperatorViewsForDay("2026-05-08", "agent:hugin:main", [
+      {
+        id: "reconnect-triage",
+        label: "Reconnect triage",
+        searchQuery: "gateway reconnect",
+        activeFilters: ["errors"],
+        grouped: false,
+        builtIn: true
+      },
+      {
+        id: "saved-hypothesis",
+        label: "Saved hypothesis",
+        searchQuery: "scope missing",
+        activeFilters: ["approvals"],
+        grouped: false,
+        hypothesis: "Gateway scopes are missing.",
+        validationSteps: ["Verify scope negotiation."]
+      }
+    ]);
+
+    expect(merged).toEqual([
+      expect.objectContaining({ id: "reconnect-triage", builtIn: true, grouped: false }),
+      expect.objectContaining({ id: "pending-approvals", builtIn: true }),
+      expect.objectContaining({ id: "delivery-failures", builtIn: true }),
+      expect.objectContaining({ id: "stale-summaries", builtIn: true }),
+      expect.objectContaining({ id: "failed-receipts", builtIn: true }),
+      expect.objectContaining({ id: "stale-backend-fingerprint", builtIn: true }),
+      expect.objectContaining({ id: "only-unresolved-incidents", builtIn: true }),
+      expect.objectContaining({ id: "scope-missing", builtIn: true }),
+      expect.objectContaining({ id: "saved-hypothesis", grouped: false, hypothesis: "Gateway scopes are missing." })
+    ]);
   });
 
   test("keeps built-in operator view drilldowns valid without a selected session", () => {
@@ -219,8 +262,131 @@ describe("operator workspace helpers", () => {
       expect.objectContaining({ id: "stale-summaries", drilldown: { sessionKey: undefined, tab: "timeline", scrollTop: 0 } }),
       expect.objectContaining({ id: "failed-receipts", drilldown: { sessionKey: undefined, tab: "deliveries", scrollTop: 0 } }),
       expect.objectContaining({ id: "stale-backend-fingerprint", drilldown: { sessionKey: undefined, tab: "timeline", scrollTop: 0 } }),
+      expect.objectContaining({ id: "only-unresolved-incidents", drilldown: { sessionKey: undefined, tab: "actions", scrollTop: 0 } }),
       expect.objectContaining({ id: "scope-missing", drilldown: { sessionKey: undefined, tab: "actions", scrollTop: 0 } })
     ]);
+  });
+
+  test("formats literal quick-win recovery, timing, scope, retry, correlation, and stale-summary affordances", () => {
+    const receipt: DeliveryReceipt = {
+      id: "receipt-slack-failed",
+      target: "slack",
+      dayKey: "2026-05-08",
+      incidentId: "incident-1",
+      title: "Slack handoff",
+      status: "failed",
+      requestedAt: "2026-05-08T12:00:00.000Z",
+      completedAt: "2026-05-08T12:00:05.000Z",
+      correlationId: "corr-slack-1",
+      retryCount: 1,
+      idempotencyKey: "incident-1:slack",
+      requestFingerprint: "fingerprint-1",
+      dryRun: true,
+      deadLetterReason: "delivery target is not configured"
+    };
+
+    expect(
+      formatSummaryJobDurations({
+        id: "summary-job-1",
+        dayKey: "2026-05-08",
+        status: "completed",
+        createdAt: "2026-05-08T12:00:00.000Z",
+        startedAt: "2026-05-08T12:00:02.000Z",
+        completedAt: "2026-05-08T12:00:07.000Z",
+        progressLabel: "Summary generated.",
+        correlationId: "corr-summary-1"
+      })
+    ).toEqual({
+      queuedFor: "2s",
+      runningFor: "5s",
+      lastCompleted: "2026-05-08T12:00:07.000Z",
+      total: "7s"
+    });
+    expect(buildRetryReceiptConfirmation(receipt)).toBe(
+      "Retry failed delivery receipt-slack-failed with the same idempotency key incident-1:slack. Confirm before resending this handoff."
+    );
+    expect(buildGatewayScopeButtonLabel("Deliver to Slack", ["operator.approvals", "operator.write"])).toBe(
+      "Deliver to Slack blocked: missing operator.approvals, operator.write"
+    );
+    expect(formatCorrelationBadge("corr-slack-1")).toEqual({ copyText: "corr-slack-1", label: "correlationId corr-slack-1" });
+    expect(describeStaleSummaryWarning({ lastEntryIncludedAt: "2026-05-08T12:00:00.000Z", latestEntryObservedAt: "2026-05-08T12:05:00.000Z" })).toBe(
+      "Summary may exclude latest entries: latest entry 2026-05-08T12:05:00.000Z is newer than included entry 2026-05-08T12:00:00.000Z."
+    );
+    expect(buildDryRunFailureJumpNotice(receipt)).toEqual({
+      href: "#delivery-target-slack",
+      label: "Open Slack delivery target",
+      message: "Dry-run verification failed for Slack; jump to the delivery target card."
+    });
+    expect(buildDryRunFailureJumpNotice({ ...receipt, target: "generic-webhook" })).toEqual({
+      href: "#delivery-target-generic-webhook",
+      label: "Open Generic webhook delivery target",
+      message: "Dry-run verification failed for Generic webhook; jump to the delivery target card."
+    });
+    expect(buildDryRunFailureJumpNotice({ ...receipt, target: "github-issue" })).toEqual({
+      href: "#delivery-target-github-issue",
+      label: "Open GitHub issue delivery target",
+      message: "Dry-run verification failed for GitHub issue; jump to the delivery target card."
+    });
+    expect(
+      applyOperatorViewTimelinePreference({
+        id: "investigation",
+        label: "Investigation",
+        searchQuery: "scope missing",
+        activeFilters: ["errors"],
+        grouped: true,
+        hypothesis: "Gateway scopes are missing.",
+        validationSteps: ["Verify scope negotiation."]
+      }, false)
+    ).toMatchObject({ grouped: false, hypothesis: "Gateway scopes are missing.", validationSteps: ["Verify scope negotiation."] });
+    expect(
+      formatSummaryJobDurations({
+        id: "summary-job-2",
+        dayKey: "2026-05-08",
+        status: "running",
+        createdAt: "2026-05-08T12:00:00.000Z",
+        progressLabel: "Running."
+      })
+    ).toEqual({ queuedFor: "0ms", runningFor: "0ms", lastCompleted: null, total: "0ms" });
+    expect(
+      formatSummaryJobDurations({
+        id: "summary-job-3",
+        dayKey: "2026-05-08",
+        status: "completed",
+        createdAt: "2026-05-08T12:00:00.000Z",
+        startedAt: "2026-05-08T12:01:00.000Z",
+        completedAt: "2026-05-08T12:02:05.000Z",
+        progressLabel: "Complete."
+      }).total
+    ).toBe("2m 5s");
+    expect(
+      formatSummaryJobDurations({
+        id: "summary-job-invalid-start",
+        dayKey: "2026-05-08",
+        status: "completed",
+        createdAt: "not-a-date",
+        startedAt: "2026-05-08T12:01:00.000Z",
+        completedAt: "2026-05-08T12:02:00.000Z",
+        progressLabel: "Complete."
+      }).queuedFor
+    ).toBe("0ms");
+    expect(
+      formatSummaryJobDurations({
+        id: "summary-job-invalid-end",
+        dayKey: "2026-05-08",
+        status: "completed",
+        createdAt: "2026-05-08T12:00:00.000Z",
+        startedAt: "not-a-date",
+        completedAt: "2026-05-08T12:02:00.000Z",
+        progressLabel: "Complete."
+      }).queuedFor
+    ).toBe("0ms");
+    expect(buildRetryReceiptConfirmation({ ...receipt, idempotencyKey: undefined })).toContain("idempotency key unavailable");
+    expect(buildGatewayScopeButtonLabel("Deliver to Slack", [])).toBe("Deliver to Slack");
+    expect(formatCorrelationBadge(undefined)).toBeNull();
+    expect(describeStaleSummaryWarning({ lastEntryIncludedAt: "2026-05-08T12:05:00.000Z", latestEntryObservedAt: "2026-05-08T12:00:00.000Z" })).toBeNull();
+    expect(describeStaleSummaryWarning({ latestEntryObservedAt: "2026-05-08T12:00:00.000Z" })).toBeNull();
+    expect(buildDryRunFailureJumpNotice({ ...receipt, status: "delivered" })).toBeNull();
+    expect(buildDryRunFailureJumpNotice({ ...receipt, dryRun: false })).toBeNull();
   });
 
   test("describes active operator views, connectivity, summary job state, and per-view storage", () => {

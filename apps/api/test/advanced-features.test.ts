@@ -677,7 +677,16 @@ describe("advanced OpenClog features", () => {
       payload: { dayKey: "2026-05-04", incidentId: "incident-1" }
     });
     const receipt = await app.inject({ method: "GET", url: `/api/integrations/receipts/${failedDelivery.json().receipt.id}` });
-    const retry = await app.inject({ method: "POST", url: `/api/integrations/receipts/${failedDelivery.json().receipt.id}/retry` });
+    const retryBlocked = await app.inject({
+      method: "POST",
+      url: `/api/integrations/receipts/${failedDelivery.json().receipt.id}/retry`,
+      payload: { confirmSameIdempotencyKey: false }
+    });
+    const retry = await app.inject({
+      method: "POST",
+      url: `/api/integrations/receipts/${failedDelivery.json().receipt.id}/retry`,
+      payload: { confirmSameIdempotencyKey: true }
+    });
     const closeoutBlocked = await app.inject({
       method: "POST",
       url: "/api/closeout/complete",
@@ -690,6 +699,9 @@ describe("advanced OpenClog features", () => {
       payload: { dayKeys: ["2026-05-04", "2026-05-05"], title: "Two-day reconnect investigation" }
     });
     const fetchedWorkspace = await app.inject({ method: "GET", url: `/api/investigations/workspaces/${workspace.json().workspace.id}` });
+    const operationsCenter = await app.inject({ method: "GET", url: "/api/operations/center?dayKey=2026-05-04&incidentId=incident-1" });
+    const deliveryLedger = await app.inject({ method: "GET", url: "/api/operations/delivery-ledger?status=failed&q=slack" });
+    const simulations = await app.inject({ method: "GET", url: "/api/operations/simulations" });
 
     expect(version.json()).toMatchObject({
       version: expect.any(String),
@@ -716,7 +728,18 @@ describe("advanced OpenClog features", () => {
     expect(staleSession.json()).toMatchObject({ error: "stale_backend_fingerprint" });
     expect(dryRun.json()).toMatchObject({ ok: true, receipt: { target: "slack", dryRun: true, deliveryReference: "dry-run" } });
     expect(receipt.json()).toMatchObject({ receipt: { id: failedDelivery.json().receipt.id, requestFingerprint: expect.any(String) } });
-    expect(retry.json()).toMatchObject({ ok: true, receipt: { retryOfReceiptId: failedDelivery.json().receipt.id, attemptNumber: 2 } });
+    expect(retryBlocked.statusCode).toBe(409);
+    expect(retryBlocked.json()).toMatchObject({ error: "retry_requires_same_idempotency_confirmation" });
+    expect(retry.json()).toMatchObject({
+      ok: true,
+      receipt: {
+        retryOfReceiptId: failedDelivery.json().receipt.id,
+        attemptNumber: 2,
+        idempotencyKey: failedDelivery.json().receipt.idempotencyKey,
+        requestFingerprint: failedDelivery.json().receipt.requestFingerprint
+      }
+    });
+    expect(retry.json().receipt.id).not.toBe(failedDelivery.json().receipt.id);
     expect(closeoutBlocked.statusCode).toBe(409);
     expect(closeoutBlocked.json()).toMatchObject({ error: "closeout_blocked", plan: { dayKey: "2026-05-04" } });
     expect(verificationReceipts.json()).toMatchObject({
@@ -724,6 +747,27 @@ describe("advanced OpenClog features", () => {
     });
     expect(workspace.json()).toMatchObject({ ok: true, workspace: { dayKeys: ["2026-05-04", "2026-05-05"] } });
     expect(fetchedWorkspace.json()).toMatchObject({ workspace: { id: workspace.json().workspace.id } });
+    expect(operationsCenter.json()).toMatchObject({
+      report: {
+        verificationCenter: {
+          gates: expect.arrayContaining([expect.objectContaining({ id: "summary_freshness" })])
+        },
+        operationsLedger: {
+          entries: expect.arrayContaining([expect.objectContaining({ action: expect.stringMatching(/delivery|summary|verification/) })])
+        },
+        nativeTruthMonitor: {
+          checks: expect.arrayContaining([expect.objectContaining({ id: "api_health" })])
+        }
+      }
+    });
+    expect(deliveryLedger.json()).toMatchObject({
+      ledger: {
+        items: expect.arrayContaining([expect.objectContaining({ target: "slack", status: "failed", sameKeyRetryRequiresConfirmation: true })])
+      }
+    });
+    expect(simulations.json()).toMatchObject({
+      simulations: expect.arrayContaining([expect.objectContaining({ id: "missing-scopes", liveSideEffects: false })])
+    });
     await app.close();
   });
 });

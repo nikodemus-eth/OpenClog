@@ -39,6 +39,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "@openclog/app": new URL("./packages/app/src/index.ts", import.meta.url).pathname,
       "@openclog/core": new URL("./packages/core/src/index.ts", import.meta.url).pathname
     }
   }

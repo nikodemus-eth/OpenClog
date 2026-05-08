@@ -22,6 +22,7 @@ import type {
   IncidentActionRecord,
   MonitoringImportInput,
   MonitoringImportResult,
+  OperationsBacklogReport,
   IncidentSummary,
   IncidentWorkspace,
   InvestigationNote,
@@ -540,11 +541,22 @@ export async function fetchDeliveryReceipts(
   return fetchJson<{ receipts: DeliveryReceipt[]; nextCursor?: string }>(`/api/integrations/receipts?${params.toString()}`);
 }
 
-export async function retryDeliveryReceipt(id: string): Promise<DeliveryReceipt> {
-  const response = await fetch(`/api/integrations/receipts/${encodeURIComponent(id)}/retry`, { method: "POST" });
+export async function retryDeliveryReceipt(id: string, confirmSameIdempotencyKey = true): Promise<DeliveryReceipt> {
+  const response = await fetch(`/api/integrations/receipts/${encodeURIComponent(id)}/retry`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ confirmSameIdempotencyKey })
+  });
   if (!response.ok) throw new Error("Delivery receipt retry failed");
   const result = (await response.json()) as { receipt: DeliveryReceipt };
   return result.receipt;
+}
+
+export async function fetchOperationsBacklog(dayKey: string, incidentId?: string): Promise<OperationsBacklogReport> {
+  const params = new URLSearchParams({ dayKey });
+  if (incidentId) params.set("incidentId", incidentId);
+  const result = await fetchJson<{ report: OperationsBacklogReport }>(`/api/operations/center?${params.toString()}`);
+  return result.report;
 }
 
 export async function fetchIncidentActionRecords(
