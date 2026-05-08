@@ -21,6 +21,7 @@ export interface GatewayRuntimeState extends GatewayNegotiatedState {
   reconnectAttempt?: number;
   serviceRecovery?: GatewayServiceRecoveryState;
   stale?: boolean;
+  targetReachable?: boolean;
 }
 
 export interface GatewayCall {

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { createApiApp } from "../src/app.js";
 import { createMemoryGateway } from "../src/memory-gateway.js";
 import { createSqliteRepository } from "../src/repository.js";
@@ -82,6 +82,40 @@ describe("advanced OpenClog features", () => {
       ]
     });
     expect(search.json().nextCursor).toBeUndefined();
+    await app.close();
+  });
+
+  test("records endpoint budget throttles as audit evidence", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    repo.addEntry({
+      id: "search-entry",
+      dayKey: "2026-05-04",
+      source: "tool",
+      kind: "tool_result",
+      title: "Tool failed",
+      body: "timeout while loading diagnostics",
+      timestamp: "2026-05-04T09:01:00.000Z",
+      status: "failed",
+      severity: "error",
+      toolName: "get_repository_status",
+      sessionId: "agent:highfather:main",
+      redacted: true
+    });
+    const app = createApiApp({ repo, gateway: createMemoryGateway({ ready: true }) });
+    const addAuditSpy = vi.spyOn(repo, "addAudit");
+
+    let lastResponse = await app.inject({ method: "GET", url: "/api/search?q=timeout" });
+    for (let index = 0; index < 30; index += 1) {
+      lastResponse = await app.inject({ method: "GET", url: "/api/search?q=timeout" });
+    }
+
+    expect(lastResponse.statusCode).toBe(429);
+    expect(lastResponse.headers["x-openclog-degraded"]).toBe("endpoint_budget");
+    expect(addAuditSpy).toHaveBeenCalledWith(
+      "endpoint_budget.exceeded",
+      expect.objectContaining({ target_type: "http_route", route: "/api/search?q=timeout", method: "GET" })
+    );
     await app.close();
   });
 
@@ -511,6 +545,107 @@ describe("advanced OpenClog features", () => {
       restoredDayKeys: expect.arrayContaining(["2026-05-04", "2026-05-03"])
     });
     expect(afterRollbackDays.json().days.map((day: { dayKey: string }) => day.dayKey)).toEqual(["2026-05-04", "2026-05-03", "2026-05-02"]);
+    await app.close();
+  });
+
+  test("serves roadmap backend, receipt retry, closeout, verification, and investigation workspace contracts", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    const gateway = createMemoryGateway({ ready: true });
+    gateway.getState = () => ({
+      canIssueControlActions: true,
+      connectionStatus: "connected",
+      lastConnectedAt: "2026-05-04T09:00:00.000Z",
+      lastLiveEventAt: "2026-05-04T09:02:00.000Z",
+      missingScopes: [],
+      reconnectCount: 2,
+      role: "operator",
+      scopes: ["operator.read", "operator.write", "operator.approvals"],
+      stale: false,
+      status: "ready",
+      targetReachable: true
+    });
+    repo.addEntry({
+      id: "roadmap-entry",
+      dayKey: "2026-05-04",
+      source: "system",
+      kind: "system_status",
+      title: "Gateway reconnected",
+      body: "Recovered after timeout",
+      timestamp: "2026-05-04T09:00:00.000Z",
+      status: "success",
+      severity: "warning",
+      sessionId: "agent:hugin:main",
+      redacted: true
+    });
+    const app = createApiApp({ repo, gateway });
+
+    const version = await app.inject({ method: "GET", url: "/api/version" });
+    const health = await app.inject({ method: "GET", url: "/api/health" });
+    const fingerprint = await app.inject({ method: "GET", url: "/api/backend/fingerprint" });
+    const staleSession = await app.inject({
+      method: "GET",
+      url: "/api/sessions/agent%3Ahugin%3Amain",
+      headers: { "x-openclog-runtime-fingerprint": "stale-fingerprint" }
+    });
+    const dryRun = await app.inject({
+      method: "POST",
+      url: "/api/integrations/slack/verify",
+      payload: { dayKey: "2026-05-04" }
+    });
+    const failedDelivery = await app.inject({
+      method: "POST",
+      url: "/api/integrations/slack/deliver",
+      payload: { dayKey: "2026-05-04", incidentId: "incident-1" }
+    });
+    const receipt = await app.inject({ method: "GET", url: `/api/integrations/receipts/${failedDelivery.json().receipt.id}` });
+    const retry = await app.inject({ method: "POST", url: `/api/integrations/receipts/${failedDelivery.json().receipt.id}/retry` });
+    const closeoutBlocked = await app.inject({
+      method: "POST",
+      url: "/api/closeout/complete",
+      payload: { dayKey: "2026-05-04", exportTargets: [] }
+    });
+    const verificationReceipts = await app.inject({ method: "GET", url: "/api/verification/receipts" });
+    const workspace = await app.inject({
+      method: "POST",
+      url: "/api/investigations/workspaces",
+      payload: { dayKeys: ["2026-05-04", "2026-05-05"], title: "Two-day reconnect investigation" }
+    });
+    const fetchedWorkspace = await app.inject({ method: "GET", url: `/api/investigations/workspaces/${workspace.json().workspace.id}` });
+
+    expect(version.json()).toMatchObject({
+      version: expect.any(String),
+      commitSha: expect.any(String),
+      buildTimestamp: expect.any(String),
+      pid: expect.any(Number),
+      bootedAt: expect.any(String),
+      runtimeFingerprint: expect.any(String),
+      nodeVersion: expect.stringMatching(/^v/)
+    });
+    expect(health.json()).toMatchObject({
+      backend: { runtimeFingerprint: version.json().runtimeFingerprint },
+      gateway: {
+        targetReachable: true,
+        scopes: expect.arrayContaining(["operator.read"]),
+        scopeNegotiation: {
+          have: expect.arrayContaining(["operator.read"]),
+          missing: []
+        }
+      }
+    });
+    expect(fingerprint.json()).toMatchObject({ fingerprint: { runtimeFingerprint: version.json().runtimeFingerprint } });
+    expect(staleSession.statusCode).toBe(409);
+    expect(staleSession.json()).toMatchObject({ error: "stale_backend_fingerprint" });
+    expect(dryRun.json()).toMatchObject({ ok: true, receipt: { target: "slack", dryRun: true, deliveryReference: "dry-run" } });
+    expect(receipt.json()).toMatchObject({ receipt: { id: failedDelivery.json().receipt.id, requestFingerprint: expect.any(String) } });
+    expect(retry.json()).toMatchObject({ ok: true, receipt: { retryOfReceiptId: failedDelivery.json().receipt.id, attemptNumber: 2 } });
+    expect(closeoutBlocked.statusCode).toBe(409);
+    expect(closeoutBlocked.json()).toMatchObject({ error: "closeout_blocked", plan: { dayKey: "2026-05-04" } });
+    expect(verificationReceipts.json()).toMatchObject({
+      receipts: expect.arrayContaining([expect.objectContaining({ command: "npm run verify", status: expect.any(String) })])
+    });
+    expect(workspace.json()).toMatchObject({ ok: true, workspace: { dayKeys: ["2026-05-04", "2026-05-05"] } });
+    expect(fetchedWorkspace.json()).toMatchObject({ workspace: { id: workspace.json().workspace.id } });
     await app.close();
   });
 });

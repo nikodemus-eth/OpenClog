@@ -4,13 +4,16 @@ import type {
   AnalyticsSnapshot,
   HealthAggregate,
   CorrelationGraph,
+  DeliveryAdapterTarget,
   DeliveryReceipt,
   GeneratedProfileSummary,
   HealthHistoryEntry,
   IntegrityMonitorReport,
   AlertFinding,
   AlertRule,
+  BackendFingerprint,
   CloseoutPlan,
+  CloseoutCompletion,
   LineageRecord,
   MissionReplay,
   GeneratedSummary,
@@ -41,8 +44,10 @@ import type {
   SessionDrilldown,
   SloSnapshot,
   SummaryJob,
+  SummaryJobStatus,
   SummaryProfile,
-  ThemeId
+  ThemeId,
+  VerificationReceipt
 } from "@openclog/core";
 import { themeIds } from "@openclog/core";
 
@@ -50,6 +55,7 @@ export type { SearchPreset } from "@openclog/core";
 
 export interface HealthResponse {
   ok: boolean;
+  backend?: BackendFingerprint | null;
   gateway: {
     connectionStatus?: "connected" | "connecting" | "disconnected";
     lastConnectedAt?: string;
@@ -62,6 +68,8 @@ export interface HealthResponse {
     role: string;
     scopes: string[];
     missingScopes: string[];
+    scopeNegotiation?: { have: string[]; missing: string[] };
+    targetReachable?: boolean;
     nextReconnectAt?: string;
     reconnectCount?: number;
     reconnectAttempt?: number;
@@ -81,6 +89,10 @@ export interface VersionResponse {
   version: string;
   commitSha: string;
   buildTimestamp: string;
+  pid: number;
+  bootedAt: string;
+  runtimeFingerprint: string;
+  nodeVersion: string;
 }
 
 export async function fetchHealth(): Promise<HealthResponse> {
@@ -129,6 +141,36 @@ export async function createSummaryJob(dayKey: string): Promise<SummaryJob> {
 export async function fetchSummaryJob(id: string): Promise<SummaryJob> {
   const result = await fetchJson<{ job: SummaryJob }>(`/api/summary-jobs/${encodeURIComponent(id)}`);
   return result.job;
+}
+
+export interface SummaryJobPollingOptions {
+  intervalMs?: number;
+  maxAttempts?: number;
+  onUpdate?: (job: SummaryJob) => void;
+  signal?: AbortSignal;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+export function isSummaryJobSettled(status: SummaryJobStatus): boolean {
+  return status === "completed" || status === "failed";
+}
+
+export async function pollSummaryJobUntilSettled(initialJob: SummaryJob, options: SummaryJobPollingOptions = {}): Promise<SummaryJob> {
+  const intervalMs = options.intervalMs ?? 750;
+  const maxAttempts = options.maxAttempts ?? 20;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => globalThis.setTimeout(resolve, ms)));
+  let current = initialJob;
+  options.onUpdate?.(current);
+  if (isSummaryJobSettled(current.status)) return current;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    if (options.signal?.aborted) throw new Error("Summary job polling aborted");
+    await sleep(intervalMs);
+    if (options.signal?.aborted) throw new Error("Summary job polling aborted");
+    current = await fetchSummaryJob(current.id);
+    options.onUpdate?.(current);
+    if (isSummaryJobSettled(current.status)) return current;
+  }
+  throw new Error("Summary job polling timed out");
 }
 
 export async function fetchSettings(): Promise<OpenClogSettings> {
@@ -209,7 +251,7 @@ export async function exportDay(dayKey: string, format: "markdown" | "html" = "m
 }
 
 export interface BundleExport {
-  manifest: { dayKey: string; exportedAt: string; version: string };
+  manifest: { dayKey: string; exportedAt: string; version: string; signature?: { algorithm: "sha256"; digest: string } };
   day: JournalDay;
   markdown: string;
 }
@@ -455,6 +497,19 @@ export async function deliverIntegration(
   return result.receipt;
 }
 
+export type VerifiableIntegrationTarget = Extract<DeliveryAdapterTarget, "slack" | "generic-webhook" | "email">;
+
+export async function verifyIntegrationTarget(target: VerifiableIntegrationTarget, payload: { dayKey: string }): Promise<DeliveryReceipt> {
+  const response = await fetch(`/api/integrations/${encodeURIComponent(target)}/verify`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) throw new Error("Integration verification failed");
+  const result = (await response.json()) as { receipt: DeliveryReceipt };
+  return result.receipt;
+}
+
 export async function fetchDeliveryReceipts(
   limit = 20,
   cursor?: string,
@@ -464,6 +519,13 @@ export async function fetchDeliveryReceipts(
   if (cursor) params.set("cursor", cursor);
   params.set("sort", sort);
   return fetchJson<{ receipts: DeliveryReceipt[]; nextCursor?: string }>(`/api/integrations/receipts?${params.toString()}`);
+}
+
+export async function retryDeliveryReceipt(id: string): Promise<DeliveryReceipt> {
+  const response = await fetch(`/api/integrations/receipts/${encodeURIComponent(id)}/retry`, { method: "POST" });
+  if (!response.ok) throw new Error("Delivery receipt retry failed");
+  const result = (await response.json()) as { receipt: DeliveryReceipt };
+  return result.receipt;
 }
 
 export async function fetchIncidentActionRecords(
@@ -517,6 +579,17 @@ export async function buildCloseoutPlan(payload: { dayKey: string; keepDays: num
   if (!response.ok) throw new Error("Closeout plan failed");
   const result = (await response.json()) as { plan: CloseoutPlan };
   return result.plan;
+}
+
+export async function completeCloseout(payload: { dayKey: string; exportTargets: string[] }): Promise<CloseoutCompletion> {
+  const response = await fetch("/api/closeout/complete", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const result = (await response.json()) as { completion: CloseoutCompletion };
+  if (!response.ok) throw new Error(result.completion?.blockers?.join("; ") || "Closeout completion blocked");
+  return result.completion;
 }
 
 export async function fetchRetentionClasses(): Promise<RetentionClass[]> {
@@ -590,6 +663,11 @@ export async function fetchRunbook(): Promise<OperatorRunbook> {
   return result.runbook;
 }
 
+export async function fetchVerificationReceipts(): Promise<VerificationReceipt[]> {
+  const result = await fetchJson<{ receipts: VerificationReceipt[] }>("/api/verification/receipts");
+  return result.receipts;
+}
+
 export async function fetchReplay(incidentId: string): Promise<MissionReplay> {
   const result = await fetchJson<{ replay: MissionReplay }>(`/api/replay/${encodeURIComponent(incidentId)}`);
   return result.replay;
@@ -637,7 +715,13 @@ export async function createReplayWorkspace(dayKey: string): Promise<ReplayWorks
 export const selectableThemeIds: ThemeId[] = [...themeIds];
 
 async function fetchJson<T>(url: string, options?: { signal?: AbortSignal }): Promise<T> {
-  const response = await fetch(url, options);
-  if (!response.ok) throw new Error(`Request failed: ${url}`);
+  const response = options ? await fetch(url, options) : await fetch(url);
+  if (!response.ok) {
+    const degraded = response.headers.get("x-openclog-degraded");
+    if (degraded === "endpoint_budget") {
+      throw new Error("Endpoint budget reached: OpenClog is slowing expensive diagnostics so the local backend stays responsive.");
+    }
+    throw new Error(`Request failed: ${url}`);
+  }
   return (await response.json()) as T;
 }

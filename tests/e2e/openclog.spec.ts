@@ -9,7 +9,7 @@ test("journal workflow supports note, theme switch, export, and blocked command"
   await page.getByLabel("Composer input").fill("/note waiting on Ben's review");
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByText("waiting on Ben's review")).toBeVisible();
-  await page.getByLabel("Theme").selectOption("captains-log");
+  await page.getByLabel("Theme", { exact: true }).selectOption("captains-log");
   await expect(page.getByRole("main")).toHaveAttribute("data-theme", "captains-log");
 
   await expect(page.getByText("Agent Activity")).toBeVisible();
@@ -19,6 +19,7 @@ test("journal workflow supports note, theme switch, export, and blocked command"
   await page.getByLabel("Composer input").fill("/config set auth.token secret");
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByLabel("Daily page").getByText("Command blocked")).toBeVisible();
+  await expect(page.getByText(/Gateway actions are blocked because required scopes are missing: operator\.approvals/i)).toBeVisible();
 
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export day" }).click();

@@ -8,6 +8,7 @@ export interface ApiFixtureOptions {
   dayTitle?: string;
   emptyAdvancedState?: boolean;
   extraEntries?: JournalEntry[];
+  healthBackendMode?: "full" | "missing";
   gatewayDetails?: Record<string, unknown>;
   gatewayStatus?: "ready" | "blocked" | "degraded";
   failReplayCorrelation?: boolean;
@@ -19,7 +20,19 @@ export interface ApiFixtureOptions {
     status?: string;
     title: string;
   }>;
+  settingsTheme?: string;
   streamEntry?: JournalEntry;
+}
+
+export async function setFixtureTheme(page: Page, theme: string): Promise<void> {
+  await page.evaluate(async (nextTheme) => {
+    await fetch("/api/settings", {
+      body: JSON.stringify({ theme: nextTheme }),
+      headers: { "content-type": "application/json" },
+      method: "PUT"
+    });
+  }, theme);
+  await page.reload();
 }
 
 export async function installApiFixtures(page: Page, options: ApiFixtureOptions = {}): Promise<{ resolvedApprovals: Array<{ decision: string; id: string }> }> {
@@ -27,11 +40,22 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
   const approvalCount = options.approvalCount ?? 0;
   const missingScopes = gatewayStatus === "ready" ? [] : ["operator.approvals"];
   const resolvedApprovals: Array<{ decision: string; id: string }> = [];
+  let theme = options.settingsTheme ?? "default";
   let showToolCalls = true;
   let searchPresets: Array<{ id: string; label: string; query: string }> = [];
   let operatorViews: Array<{ id: string; label: string; dayKey?: string; searchQuery: string; activeFilters: string[]; grouped: boolean }> = [];
   let retentionApplied = false;
+  let summaryJobPollCount = 0;
   const alertStates = new Map<string, { acknowledgedAt?: string; snoozedUntil?: string }>();
+  const backend = {
+    id: "fixture-runtime",
+    runtimeFingerprint: "fixture-runtime",
+    pid: 4321,
+    bootedAt: "2026-05-04T11:59:00.000Z",
+    commitSha: "abc1234",
+    buildTimestamp: "2026-05-04T12:00:00.000Z",
+    nodeVersion: "v24.0.0"
+  };
   const dayTwo = buildDay({
     dayKey: "2026-05-02",
     dateLabel: "Saturday, May 2, 2026",
@@ -51,7 +75,7 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
   if (options.streamEntry) dayThree.entries.push(options.streamEntry);
   const incidents = options.emptyAdvancedState
     ? []
-    : [{ id: "incident-1", title: "Operational instability narrative", summary: "Derived incident summary.", dayKeys: ["2026-05-03"], entryIds: [dayThree.entries[0].id], createdAt: "2026-05-04T12:04:00.000Z", runbookSuggestions: [{ id: "gateway-check", title: "Check Gateway listener health", summary: "Verify listener", reason: "Reconnect observed" }] }];
+    : [{ id: "incident-1", title: "Operational instability narrative", summary: "Derived incident summary.", dayKeys: ["2026-05-03"], entryIds: [dayThree.entries[0].id], createdAt: "2026-05-04T12:04:00.000Z", runbookSuggestions: [{ id: "gateway-check", title: "Check Gateway listener health", summary: "Verify listener", reason: "Reconnect observed" }], loopProgress: { detect: true, explain: true, recommend: true, act: false, record: false } }];
   const investigationNotes = options.emptyAdvancedState
     ? []
     : [{ id: "note-1", dayKey: "2026-05-03", incidentId: "incident-1", author: "local-user", body: "Initial operator note.", linkedEntryIds: [dayThree.entries[0].id], createdAt: "2026-05-04T12:05:00.000Z", updatedAt: "2026-05-04T12:05:00.000Z" }];
@@ -59,11 +83,17 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
     await route.fulfill({
       json: {
         ok: true,
+        backend: options.healthBackendMode === "missing" ? null : backend,
         gateway: {
           status: gatewayStatus,
           role: "operator",
           scopes: gatewayStatus === "ready" ? ["operator.read", "operator.write", "operator.approvals"] : ["operator.read", "operator.write"],
           missingScopes,
+          scopeNegotiation: {
+            have: gatewayStatus === "ready" ? ["operator.read", "operator.write", "operator.approvals"] : ["operator.read", "operator.write"],
+            missing: missingScopes
+          },
+          targetReachable: true,
           stale: gatewayStatus !== "ready",
           reconnectCount: gatewayStatus === "ready" ? 2 : 0,
           lastLiveEventAt: "2026-05-03T12:06:00.000Z",
@@ -92,7 +122,7 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
     });
   });
   await page.route("**/api/version", async (route) => {
-    await route.fulfill({ json: { version: "0.1.0", commitSha: "abc1234", buildTimestamp: "2026-05-04T12:00:00.000Z" } });
+    await route.fulfill({ json: { version: "0.1.0", ...backend } });
   });
   await page.route("**/api/stream", async (route) => {
     const eventBody = options.streamEntry
@@ -109,17 +139,19 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
   await page.route("**/api/settings", async (route) => {
     if (route.request().method() === "PUT") {
       const body = route.request().postDataJSON() as {
+        theme?: string;
         showToolCalls?: boolean;
         searchPresets?: Array<{ id: string; label: string; query: string }>;
         operatorViews?: Array<{ id: string; label: string; dayKey?: string; searchQuery: string; activeFilters: string[]; grouped: boolean }>;
       };
+      if (typeof body.theme === "string") theme = body.theme;
       if (typeof body.showToolCalls === "boolean") showToolCalls = body.showToolCalls;
       if (Array.isArray(body.searchPresets)) searchPresets = body.searchPresets;
       if (Array.isArray(body.operatorViews)) operatorViews = body.operatorViews;
-      await route.fulfill({ json: { ok: true, settings: { version: 2, theme: "default", showToolCalls, searchPresets, operatorViews } } });
+      await route.fulfill({ json: { ok: true, settings: { version: 2, theme, showToolCalls, searchPresets, operatorViews } } });
       return;
     }
-    await route.fulfill({ json: { settings: { version: 2, theme: "default", showToolCalls, searchPresets, operatorViews, gateway: { status: gatewayStatus } } } });
+    await route.fulfill({ json: { settings: { version: 2, theme, showToolCalls, searchPresets, operatorViews, gateway: { status: gatewayStatus } } } });
   });
   await page.route("**/api/sessions?**", async (route) => {
     await route.fulfill({
@@ -166,7 +198,69 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
     await route.fulfill({ json: { ok: true, context: { ...body, updatedAt: "2026-05-04T12:01:00.000Z" } } });
   });
   await page.route("**/api/days/*/generate-summary", async (route) => {
-    await route.fulfill({ json: { ok: true, generatedSummary: { summary: "1 failure, 1 approval, 1 tool event, 2 total journal entries.", createdAt: "2026-05-04T12:02:00.000Z", source: "rules" } } });
+    await route.fulfill({
+      json: {
+        ok: true,
+        generatedSummary: {
+          summary: "1 failure, 1 approval, 1 tool event, 2 total journal entries.",
+          createdAt: "2026-05-04T12:02:00.000Z",
+          source: "rules",
+          lastEntryIncludedAt: "2026-05-03T12:02:00.000Z",
+          latestEntryObservedAt: "2026-05-03T12:02:00.000Z",
+          freshnessState: "fresh"
+        }
+      }
+    });
+  });
+  await page.route("**/api/days/*/summary-jobs", async (route) => {
+    summaryJobPollCount = 0;
+    await route.fulfill({
+      json: {
+        ok: true,
+        job: {
+          id: "summary-job-fixture",
+          dayKey: "2026-05-03",
+          status: "queued",
+          createdAt: "2026-05-04T12:02:00.000Z",
+          progressLabel: "Summary job queued for local evidence review."
+        }
+      }
+    });
+  });
+  await page.route("**/api/summary-jobs/*", async (route) => {
+    summaryJobPollCount += 1;
+    const running = summaryJobPollCount === 1;
+    await route.fulfill({
+      json: {
+        ok: true,
+        job: running
+          ? {
+              id: "summary-job-fixture",
+              dayKey: "2026-05-03",
+              status: "running",
+              createdAt: "2026-05-04T12:02:00.000Z",
+              startedAt: "2026-05-04T12:02:01.000Z",
+              progressLabel: "Summary job running against local evidence."
+            }
+          : {
+              id: "summary-job-fixture",
+              dayKey: "2026-05-03",
+              status: "completed",
+              createdAt: "2026-05-04T12:02:00.000Z",
+              startedAt: "2026-05-04T12:02:01.000Z",
+              completedAt: "2026-05-04T12:02:02.000Z",
+              progressLabel: "Summary generated from current journal evidence.",
+              generatedSummary: {
+                summary: "1 failure, 1 approval, 1 tool event, 3 total journal entries.",
+                createdAt: "2026-05-04T12:02:02.000Z",
+                source: "rules",
+                lastEntryIncludedAt: "2026-05-03T12:04:00.000Z",
+                latestEntryObservedAt: "2026-05-03T12:04:00.000Z",
+                freshnessState: "fresh"
+              }
+            }
+      }
+    });
   });
   await page.route("**/api/composer", async (route) => {
     const body = route.request().postDataJSON() as { text: string };
@@ -185,7 +279,7 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
   await page.route("**/api/days/*/export/bundle", async (route) => {
     await route.fulfill({
       json: {
-        manifest: { dayKey: "2026-05-03", exportedAt: "2026-05-04T12:03:00.000Z", version: "0.1.0" },
+        manifest: { dayKey: "2026-05-03", exportedAt: "2026-05-04T12:03:00.000Z", version: "0.1.0", signature: { algorithm: "sha256", digest: "bundle-digest-123" } },
         day: options.bundleDay ?? dayThree,
         markdown: "# OpenClog Journal\n"
       }
@@ -282,7 +376,7 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
     });
   });
   await page.route("**/api/incident-mode", async (route) => {
-    await route.fulfill({ json: { ok: true, incident: { id: "incident-snapshot", title: "Incident snapshot for Saturday, May 3, 2026", summary: "Captured focused entries.", dayKeys: ["2026-05-03"], entryIds: [dayThree.entries[0].id], createdAt: "2026-05-04T12:05:00.000Z", runbookSuggestions: [] } } });
+    await route.fulfill({ json: { ok: true, incident: { id: "incident-snapshot", title: "Incident snapshot for Saturday, May 3, 2026", summary: "Captured focused entries.", dayKeys: ["2026-05-03"], entryIds: [dayThree.entries[0].id], createdAt: "2026-05-04T12:05:00.000Z", runbookSuggestions: [], loopProgress: { detect: true, explain: true, recommend: false, act: false, record: false } } } });
   });
   await page.route("**/api/incidents/*/workspace", async (route) => {
     await route.fulfill({
@@ -292,7 +386,7 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
           incident: incidents[0] ?? { id: "incident-1", title: "Operational instability narrative", summary: "Derived incident summary.", dayKeys: ["2026-05-03"], entryIds: [dayThree.entries[0].id], createdAt: "2026-05-04T12:04:00.000Z", runbookSuggestions: [] },
           entries: dayThree.entries.slice(0, 2),
           alertFindings: gatewayStatus === "ready" ? [{ ruleId: "reconnect-storm", title: "Reconnect storm", triggered: true, detail: "Reconnect storm triggered for 2026-05-03." }] : [],
-          generatedSummary: { summary: "1 failure, 1 approval, 1 tool event, 2 total journal entries.", createdAt: "2026-05-04T12:02:00.000Z", source: "rules" },
+          generatedSummary: { summary: "1 failure, 1 approval, 1 tool event, 2 total journal entries.", createdAt: "2026-05-04T12:02:00.000Z", source: "rules", lastEntryIncludedAt: "2026-05-03T12:02:00.000Z", latestEntryObservedAt: "2026-05-03T12:02:00.000Z", freshnessState: "fresh" },
           notes: investigationNotes,
           sessionKeys: ["agent:hugin:main"],
           suggestedNextActions: ["Check Gateway listener health", "Review active alert findings before export."],
@@ -366,7 +460,7 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
           incident: incidents[0] ?? { id: "incident-1", title: "Operational instability narrative", summary: "Derived incident summary.", dayKeys: ["2026-05-03"], entryIds: [dayThree.entries[0].id], createdAt: "2026-05-04T12:04:00.000Z", runbookSuggestions: [] },
           entries: dayThree.entries.slice(0, 2),
           alertFindings: gatewayStatus === "ready" ? [{ ruleId: "reconnect-storm", title: "Reconnect storm", triggered: true, detail: "Reconnect storm triggered for 2026-05-03." }] : [],
-          generatedSummary: { summary: "1 failure, 1 approval, 1 tool event, 2 total journal entries.", createdAt: "2026-05-04T12:02:00.000Z", source: "rules" },
+          generatedSummary: { summary: "1 failure, 1 approval, 1 tool event, 2 total journal entries.", createdAt: "2026-05-04T12:02:00.000Z", source: "rules", lastEntryIncludedAt: "2026-05-03T12:02:00.000Z", latestEntryObservedAt: "2026-05-03T12:02:00.000Z", freshnessState: "fresh" },
           notes: investigationNotes,
           sessionKeys: ["agent:hugin:main"],
           suggestedNextActions: ["Check Gateway listener health"],
@@ -452,12 +546,103 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
   await page.route("**/api/plugins/*/run", async (route) => {
     await route.fulfill({ json: { ok: true, result: { id: "plugin-run-1", pluginId: "local-annotation-plugin", status: "completed", createdAt: "2026-05-04T12:11:00.000Z", summary: "Plugin Local Annotation Plugin ran with annotation capability boundaries." } } });
   });
-  await page.route("**/api/integrations/receipts", async (route) => {
-    await route.fulfill({ json: { receipts: [] } });
+  await page.route("**/api/integrations/receipts?**", async (route) => {
+    await route.fulfill({
+      json: {
+        receipts: [
+          {
+            id: "receipt-1",
+            target: "slack",
+            dayKey: "2026-05-03",
+            title: "OpenClog Journal handoff",
+            status: "failed",
+            requestedAt: "2026-05-04T12:12:00.000Z",
+            completedAt: "2026-05-04T12:12:01.000Z",
+            correlationId: "corr-slack",
+            retryCount: 0,
+            attemptNumber: 1,
+            idempotencyKey: "incident-1:slack",
+            requestFingerprint: "fingerprint-1",
+            errorCategory: "missing_config",
+            deadLetterReason: "delivery target is not configured"
+          }
+        ]
+      }
+    });
+  });
+  await page.route("**/api/integrations/receipts/*/retry", async (route) => {
+    await route.fulfill({
+      json: {
+        ok: true,
+        receipt: {
+          id: "receipt-1-retry",
+          target: "slack",
+          dayKey: "2026-05-03",
+          title: "OpenClog Journal handoff",
+          status: "failed",
+          requestedAt: "2026-05-04T12:13:00.000Z",
+          completedAt: "2026-05-04T12:13:01.000Z",
+          correlationId: "corr-slack-retry",
+          retryCount: 1,
+          attemptNumber: 2,
+          retryOfReceiptId: "receipt-1",
+          idempotencyKey: "receipt-1:retry:1",
+          requestFingerprint: "fingerprint-1",
+          errorCategory: "missing_config",
+          deadLetterReason: "delivery target is not configured"
+        }
+      }
+    });
+  });
+  await page.route("**/api/integrations/receipts/*", async (route) => {
+    await route.fulfill({
+      json: {
+        ok: true,
+        receipt: {
+          id: "receipt-1",
+          target: "slack",
+          dayKey: "2026-05-03",
+          title: "OpenClog Journal handoff",
+          status: "failed",
+          requestedAt: "2026-05-04T12:12:00.000Z",
+          completedAt: "2026-05-04T12:12:01.000Z",
+          correlationId: "corr-slack",
+          retryCount: 0,
+          attemptNumber: 1,
+          requestFingerprint: "fingerprint-1",
+          idempotencyKey: "incident-1:slack",
+          errorCategory: "missing_config",
+          deadLetterReason: "delivery target is not configured"
+        }
+      }
+    });
   });
   await page.route("**/api/integrations/*/deliver", async (route) => {
     const target = new URL(route.request().url()).pathname.split("/").at(-2) ?? "slack";
     await route.fulfill({ json: { ok: true, receipt: { id: `receipt-${target}`, target, dayKey: "2026-05-03", title: "OpenClog Journal handoff", status: "failed", requestedAt: "2026-05-04T12:12:00.000Z", completedAt: "2026-05-04T12:12:01.000Z", correlationId: `corr-${target}`, retryCount: 0, errorCategory: "missing_config", deadLetterReason: "delivery target is not configured" } } });
+  });
+  await page.route("**/api/integrations/*/verify", async (route) => {
+    const target = new URL(route.request().url()).pathname.split("/").at(-2) ?? "slack";
+    await route.fulfill({
+      json: {
+        ok: true,
+        receipt: {
+          id: `receipt-${target}-verify`,
+          target,
+          dayKey: "2026-05-03",
+          title: "OpenClog Journal handoff verification",
+          status: "failed",
+          requestedAt: "2026-05-04T12:11:00.000Z",
+          completedAt: "2026-05-04T12:11:01.000Z",
+          correlationId: `corr-${target}-verify`,
+          retryCount: 0,
+          dryRun: true,
+          deliveryReference: "dry-run",
+          errorCategory: "missing_config",
+          deadLetterReason: "delivery target is not configured"
+        }
+      }
+    });
   });
   await page.route("**/api/investigation-notes?**", async (route) => {
     await route.fulfill({ json: { notes: investigationNotes } });
@@ -532,6 +717,11 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
     await route.fulfill({ json: { ok: true, selectedProfileId: "night-ops" } });
   });
   await page.route("**/api/integrations/*", async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname.includes("/api/integrations/receipts") || pathname.endsWith("/deliver") || pathname.endsWith("/verify")) {
+      await route.fallback();
+      return;
+    }
     await route.fulfill({ json: { ok: true, payload: { target: "github-issue", title: "OpenClog Journal handoff for 2026-05-03", body: "2026-05-03\n\n# OpenClog Journal\n" } } });
   });
   await page.route("**/api/replay-bundles/diff", async (route) => {
@@ -575,6 +765,16 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
       }
     });
   });
+  await page.route("**/api/verification/receipts", async (route) => {
+    await route.fulfill({
+      json: {
+        receipts: [
+          { id: "verify-1", command: "verify", status: "passed", startedAt: "2026-05-04T12:30:00.000Z", completedAt: "2026-05-04T12:31:00.000Z", summary: "Local verify passed." },
+          { id: "verify-gateway-1", command: "verify:gateway", status: "unknown", startedAt: "2026-05-04T12:31:00.000Z", summary: "Gateway verify not run in fixture." }
+        ]
+      }
+    });
+  });
   return { resolvedApprovals };
 }
 
@@ -591,7 +791,14 @@ function buildDay(options: {
     title: options.title ?? "OpenClog Journal",
     dateLabel: options.dateLabel,
     summary: options.summary,
-    generatedSummary: { summary: "1 failure, 1 approval, 1 tool event, 2 total journal entries.", createdAt: `${options.dayKey}T12:01:00.000Z`, source: "rules" },
+    generatedSummary: {
+      summary: "1 failure, 1 approval, 1 tool event, 2 total journal entries.",
+      createdAt: `${options.dayKey}T12:01:00.000Z`,
+      source: "rules",
+      lastEntryIncludedAt: `${options.dayKey}T12:00:00.000Z`,
+      latestEntryObservedAt: `${options.dayKey}T12:02:00.000Z`,
+      freshnessState: "stale"
+    },
     evidenceCompleteness: {
       present: 3,
       total: 4,

@@ -3,6 +3,9 @@ import { latestEntryAt, paginateItems, requireMethod, sortByTimestamp } from "./
 
 export function buildGovernanceModule(repo: ApplicationRepository) {
   return {
+    getBackendFingerprint() {
+      return requireMethod(repo.getBackendFingerprint, "getBackendFingerprint")();
+    },
     getLineage({ entryId }: { entryId: string }) {
       const lineage = requireMethod(repo.getLineage, "getLineage")(entryId);
       if (!lineage) throw new Error(`lineage_not_found:${entryId}`);
@@ -107,6 +110,23 @@ export function buildGovernanceModule(repo: ApplicationRepository) {
           exportTargets.length > 0 ? `Prepare exports for ${exportTargets.join(", ")}.` : "Select export targets before handoff."
         ]
       };
+    },
+    completeCloseout({ dayKey, exportTargets }: { dayKey: string; exportTargets: string[] }) {
+      return requireMethod(repo.completeCloseout, "completeCloseout")(dayKey, exportTargets);
+    },
+    listVerificationReceipts() {
+      return requireMethod(repo.listVerificationReceipts, "listVerificationReceipts")();
+    },
+    createInvestigationWorkspace(input: { dayKeys: string[]; title?: string }) {
+      return requireMethod(repo.createInvestigationWorkspace, "createInvestigationWorkspace")(input);
+    },
+    getInvestigationWorkspace({ id }: { id: string }) {
+      const workspace = requireMethod(repo.getInvestigationWorkspace, "getInvestigationWorkspace")(id);
+      if (!workspace) throw new Error(`investigation_workspace_not_found:${id}`);
+      return workspace;
+    },
+    getRemoteOpsPolicy() {
+      return requireMethod(repo.getRemoteOpsPolicy, "getRemoteOpsPolicy")();
     }
   };
 }

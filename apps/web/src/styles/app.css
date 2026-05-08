@@ -209,7 +209,6 @@ button {
 .top-nav button:hover,
 .top-utility button:hover,
 .operator-console button:hover,
-.rail-group-nav button:hover,
 .rail-shortcuts button:hover {
   border-color: color-mix(in srgb, var(--border) 72%, transparent);
   background: color-mix(in srgb, var(--stitch-text) 5%, transparent);
@@ -219,6 +218,28 @@ button {
   gap: 12px;
   justify-content: end;
   padding-inline: 16px 30px;
+  pointer-events: none;
+}
+
+.backend-meta {
+  margin: 0;
+  max-width: min(42vw, 520px);
+  overflow: hidden;
+  color: var(--stitch-muted);
+  font-family: var(--mono-font);
+  font-size: 0.68rem;
+  font-weight: 760;
+  line-height: 1.25;
+  pointer-events: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-mode-detail {
+  grid-column: 2;
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
 }
 
 .shell-action-status {
@@ -243,6 +264,7 @@ button {
   padding: 0;
   border-radius: 999px;
   color: var(--stitch-text);
+  pointer-events: auto;
 }
 
 .operator-avatar {
@@ -386,6 +408,7 @@ button {
 .operator-console {
   display: grid;
   gap: 4px;
+  min-width: 0;
   border-bottom: 0;
   padding-bottom: 18px;
 }
@@ -412,6 +435,9 @@ button {
 
 .operator-console button {
   justify-self: stretch;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   margin-top: 24px;
   min-height: 48px;
   border: 1px solid var(--stitch-action);
@@ -424,14 +450,6 @@ button {
   font-weight: 800;
 }
 
-.rail-group-nav {
-  display: grid;
-  gap: 2px;
-  border-bottom: 1px solid var(--stitch-line);
-  padding-bottom: 18px;
-}
-
-.rail-group-nav p,
 .rail-shortcuts p {
   margin: 0 0 6px;
   color: var(--stitch-muted);
@@ -440,34 +458,6 @@ button {
   font-weight: 950;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-}
-
-.rail-group-nav button {
-  display: flex;
-  align-items: center;
-  justify-content: start;
-  gap: 12px;
-  min-height: 42px;
-  border: 0;
-  border-left: 4px solid transparent;
-  border-radius: 0;
-  padding: 10px 12px;
-  background: transparent;
-  color: var(--stitch-muted);
-  font-family: var(--stitch-ui-font);
-  font-size: 0.9rem;
-  font-weight: 750;
-  text-align: left;
-}
-
-.rail-group-nav button.active {
-  border-left-color: var(--stitch-action);
-  background: var(--stitch-soft);
-  color: var(--stitch-text);
-}
-
-.rail-group-nav button[aria-pressed="true"] {
-  color: var(--stitch-text);
 }
 
 .rail-shortcuts {
@@ -504,6 +494,7 @@ button {
 }
 
 .search-box,
+.archive-date-picker,
 .theme-picker,
 .composer-row {
   display: flex;
@@ -540,6 +531,7 @@ button {
   color: inherit;
 }
 
+.archive-date-picker,
 .theme-picker {
   align-items: stretch;
   flex-direction: column;
@@ -550,6 +542,7 @@ button {
   overflow: clip;
 }
 
+.archive-date-picker span,
 .theme-picker span,
 .composer label > span {
   text-transform: none;
@@ -567,6 +560,13 @@ button {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  border-color: color-mix(in srgb, var(--stitch-line) 72%, var(--accent) 28%);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--stitch-card) 88%, var(--stitch-soft) 12%), var(--stitch-card));
+  box-shadow:
+    inset 0 -2px 0 color-mix(in srgb, var(--accent) 32%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--stitch-line) 55%, transparent);
+  cursor: pointer;
 }
 
 .day-list::before,
@@ -601,6 +601,14 @@ button {
   gap: 4px;
 }
 
+.archive-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
 .archive-heading {
   color: var(--stitch-muted);
   font-family: var(--mono-font);
@@ -608,6 +616,13 @@ button {
   font-weight: 900;
   letter-spacing: 0.18em;
   text-transform: uppercase;
+}
+
+.archive-today-button {
+  min-height: 32px;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 0.86rem;
 }
 
 .archive-message {
@@ -676,7 +691,8 @@ button {
 .composer-shell {
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr);
-  gap: 18px;
+  column-gap: 18px;
+  row-gap: 10px;
   border: 1px solid color-mix(in srgb, var(--stitch-line) 70%, transparent);
   border-radius: 8px;
   padding: 28px 30px 24px;
@@ -714,14 +730,19 @@ button {
 .composer-shell textarea {
   min-width: 0;
   min-height: 84px;
-  border: 0;
-  border-radius: 0;
-  padding: 0;
-  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--stitch-line) 70%, var(--accent) 30%);
+  border-radius: 4px;
+  padding: 10px 12px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--stitch-card) 82%, var(--stitch-soft) 18%), color-mix(in srgb, var(--stitch-card) 74%, var(--stitch-soft) 26%));
   color: var(--stitch-text);
   font-size: 1.08rem;
   line-height: 1.6;
   resize: vertical;
+  box-shadow:
+    inset 0 -2px 0 color-mix(in srgb, var(--accent) 22%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--stitch-line) 45%, transparent);
+  cursor: text;
 }
 
 .composer-shell textarea::placeholder {
@@ -823,6 +844,17 @@ button {
 
 .day-header > div {
   min-width: 0;
+}
+
+.day-header-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--stitch-muted);
+  font-family: var(--mono-font);
+  font-size: 0.78rem;
 }
 
 .day-header h2 {
@@ -987,13 +1019,68 @@ button {
 .workspace-panel input,
 .workspace-panel select {
   width: 100%;
-  border: 1px solid var(--stitch-line);
+  border: 1px solid color-mix(in srgb, var(--stitch-line) 72%, var(--accent) 28%);
   border-radius: 6px;
-  background: var(--stitch-panel);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--stitch-soft) 86%, var(--stitch-card) 14%), var(--stitch-soft));
   color: var(--stitch-text);
   padding: 10px 12px;
   margin-top: 4px;
   margin-bottom: 12px;
+  box-shadow:
+    inset 0 -2px 0 color-mix(in srgb, var(--accent) 24%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--stitch-line) 45%, transparent);
+}
+
+.workspace-panel select,
+.workspace-panel input[type="date"] {
+  cursor: pointer;
+}
+
+.workspace-panel textarea,
+.workspace-panel input:not([type]),
+.workspace-panel input[type="text"] {
+  cursor: text;
+}
+
+.summary-job-status {
+  border: 1px solid color-mix(in srgb, var(--stitch-line) 78%, var(--accent) 22%);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--stitch-soft) 84%, var(--stitch-card) 16%);
+}
+
+.summary-job-status.queued,
+.summary-job-status.running {
+  border-color: color-mix(in srgb, var(--warning) 44%, var(--stitch-line) 56%);
+}
+
+.summary-job-status.completed {
+  border-color: color-mix(in srgb, var(--success) 44%, var(--stitch-line) 56%);
+}
+
+.summary-job-status.failed {
+  border-color: color-mix(in srgb, var(--danger) 44%, var(--stitch-line) 56%);
+}
+
+.delivery-target-grid {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.delivery-target-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--stitch-line) 76%, var(--accent) 24%);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--stitch-soft) 82%, var(--stitch-card) 18%);
+}
+
+.delivery-target-card h4,
+.delivery-target-card p {
+  margin: 0;
 }
 
 .panel-header-title,
@@ -1042,8 +1129,17 @@ button {
 }
 
 .rail-search-panel {
+  min-width: 0;
   border-top: 1px solid color-mix(in srgb, var(--stitch-line) 70%, transparent);
   padding-top: 14px;
+}
+
+.rail-search-panel .panel-header,
+.rail-search-panel .panel-header-actions,
+.rail-search-panel .search-presets,
+.rail-search-panel .search-row {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .rail-panel-header {
@@ -1069,6 +1165,9 @@ button {
 .rail-search-panel .search-results button,
 .rail-search-panel .search-row button {
   font-size: 0.92rem;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .rail-search-panel .search-presets {
@@ -1082,8 +1181,13 @@ button {
   margin: 0;
 }
 
+.rail-search-panel .search-row input {
+  width: 100%;
+  min-width: 0;
+}
+
 .compact-search-panel .search-row {
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
 }
 
 .compact-search-panel .search-results {
@@ -1093,7 +1197,7 @@ button {
 
 .search-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 10px;
 }
 
@@ -1245,8 +1349,52 @@ button {
   margin-bottom: 8px;
 }
 
+.diagnostic-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .diagnostic-card-header h3 {
   margin: 0;
+}
+
+.diagnostic-card-header button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  border: 1px solid color-mix(in srgb, var(--stitch-line) 68%, var(--accent) 32%);
+  border-radius: 4px;
+  padding: 6px 10px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--stitch-card) 86%, var(--stitch-soft) 14%), var(--stitch-card));
+  color: var(--stitch-text);
+  box-shadow:
+    inset 0 -2px 0 color-mix(in srgb, var(--accent) 28%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--stitch-line) 42%, transparent);
+  font-family: var(--stitch-ui-font);
+  font-size: 0.86rem;
+  font-weight: 850;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.diagnostic-card-header button:hover {
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--stitch-line) 38%);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--stitch-card) 76%, var(--stitch-soft) 24%), color-mix(in srgb, var(--stitch-card) 90%, var(--accent) 10%));
+  box-shadow:
+    inset 0 -2px 0 color-mix(in srgb, var(--accent) 44%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.diagnostic-card-header button:focus-visible {
+  border-color: var(--focus-ring, var(--accent));
+  box-shadow:
+    inset 0 -2px 0 color-mix(in srgb, var(--accent) 48%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--focus-ring, var(--accent)) 34%, transparent);
 }
 
 .diagnostic-card svg {
@@ -1283,13 +1431,28 @@ button {
 .pinned-context-card input,
 .pinned-context-card select {
   width: 100%;
-  border: 1px solid var(--stitch-line);
+  border: 1px solid color-mix(in srgb, var(--stitch-line) 72%, var(--accent) 28%);
   border-radius: 6px;
-  background: var(--stitch-panel);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--stitch-soft) 86%, var(--stitch-card) 14%), var(--stitch-soft));
   color: var(--stitch-text);
   padding: 10px 12px;
   margin-top: 4px;
   margin-bottom: 12px;
+  box-shadow:
+    inset 0 -2px 0 color-mix(in srgb, var(--accent) 24%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--stitch-line) 45%, transparent);
+}
+
+.pinned-context-card select,
+.pinned-context-card input[type="date"] {
+  cursor: pointer;
+}
+
+.pinned-context-card textarea,
+.pinned-context-card input:not([type]),
+.pinned-context-card input[type="text"] {
+  cursor: text;
 }
 
 .pinned-context-card .generated-summary:last-of-type,
@@ -1444,6 +1607,10 @@ button {
   font-size: 0.92rem;
 }
 
+.composer-row .status-chip {
+  margin-left: auto;
+}
+
 .switch-row input {
   appearance: none;
   position: relative;
@@ -1481,6 +1648,62 @@ button {
   min-width: 0;
 }
 
+.approval-pending-flag,
+.approval-collapsed-summary,
+.tool-event-flag,
+.tool-collapsed-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  line-height: 1;
+}
+
+.approval-pending-flag,
+.approval-collapsed-summary {
+  border: 1px solid color-mix(in srgb, var(--warning) 58%, var(--stitch-line) 42%);
+  border-radius: 4px;
+  padding: 4px 8px;
+  background: color-mix(in srgb, var(--warning) 16%, var(--stitch-card) 84%);
+  color: var(--warning-text, var(--warning));
+  font-family: var(--mono-font);
+  font-size: 0.72rem;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.approval-pending-flag svg,
+.approval-collapsed-summary svg,
+.tool-event-flag svg,
+.tool-collapsed-summary svg {
+  color: currentColor;
+}
+
+.approval-collapsed-summary {
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+
+.tool-event-flag,
+.tool-collapsed-summary {
+  border: 1px solid color-mix(in srgb, var(--info) 58%, var(--stitch-line) 42%);
+  border-radius: 4px;
+  padding: 4px 8px;
+  background: color-mix(in srgb, var(--info) 14%, var(--stitch-card) 86%);
+  color: var(--info);
+  font-family: var(--mono-font);
+  font-size: 0.72rem;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tool-collapsed-summary {
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+
 .approval-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1510,11 +1733,46 @@ button {
 .archive-calendar input {
   width: 100%;
   min-height: var(--control-min-height);
-  border: 1px solid var(--stitch-line);
+  border: 1px solid color-mix(in srgb, var(--stitch-line) 72%, var(--accent) 28%);
   border-radius: 4px;
   padding: 10px 12px;
-  background: var(--stitch-card);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--stitch-card) 88%, var(--stitch-soft) 12%), var(--stitch-card));
   color: var(--stitch-text);
+  box-shadow:
+    inset 0 -2px 0 color-mix(in srgb, var(--accent) 28%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--stitch-line) 45%, transparent);
+  cursor: pointer;
+}
+
+.theme-picker select:hover,
+.archive-calendar input:hover,
+.workspace-panel textarea:hover,
+.workspace-panel input:hover,
+.workspace-panel select:hover,
+.pinned-context-card textarea:hover,
+.pinned-context-card input:hover,
+.pinned-context-card select:hover,
+.composer-shell textarea:hover {
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--stitch-line) 38%);
+  box-shadow:
+    inset 0 -2px 0 color-mix(in srgb, var(--accent) 42%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.theme-picker select:focus-visible,
+.archive-calendar input:focus-visible,
+.workspace-panel textarea:focus-visible,
+.workspace-panel input:focus-visible,
+.workspace-panel select:focus-visible,
+.pinned-context-card textarea:focus-visible,
+.pinned-context-card input:focus-visible,
+.pinned-context-card select:focus-visible,
+.composer-shell textarea:focus-visible {
+  border-color: var(--focus-ring, var(--accent));
+  box-shadow:
+    inset 0 -2px 0 color-mix(in srgb, var(--accent) 52%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--focus-ring, var(--accent)) 36%, transparent);
 }
 
 .approval-popover[hidden] {
@@ -1617,6 +1875,7 @@ button {
 .app-shell[data-card-style="console"] .brand-row h1,
 .app-shell[data-card-style="console"] .right-rail h2,
 .app-shell[data-card-style="console"] .day-header h2,
+.app-shell[data-card-style="console"] .archive-date-picker span,
 .app-shell[data-card-style="console"] .theme-picker span,
 .app-shell[data-card-style="console"] .composer label > span {
   text-transform: uppercase;
@@ -1772,6 +2031,7 @@ button {
   line-height: 1.62;
 }
 
+.app-shell[data-accessibility-profile="dyslexia-friendly"] .archive-date-picker,
 .app-shell[data-accessibility-profile="dyslexia-friendly"] .theme-picker,
 .app-shell[data-accessibility-profile="dyslexia-friendly"] .day-row,
 .app-shell[data-accessibility-profile="dyslexia-friendly"] .entry-card,
@@ -1798,7 +2058,9 @@ button {
   gap: 16px;
 }
 
+.app-shell[data-accessibility-profile="dyslexia-friendly"] .archive-date-picker,
 .app-shell[data-accessibility-profile="dyslexia-friendly"] .theme-picker,
+.app-shell[data-accessibility-profile="dyslexia-friendly"] .archive-date-picker span,
 .app-shell[data-accessibility-profile="dyslexia-friendly"] .theme-picker span,
 .app-shell[data-accessibility-profile="dyslexia-friendly"] .day-row strong,
 .app-shell[data-accessibility-profile="dyslexia-friendly"] .entry-card h3,
@@ -1816,6 +2078,10 @@ button {
 
 .app-shell[data-accessibility-profile="dyslexia-friendly"] .theme-picker {
   width: min(100%, 320px);
+  max-width: 320px;
+}
+
+.app-shell[data-accessibility-profile="dyslexia-friendly"] .archive-date-picker {
   max-width: 320px;
 }
 
@@ -1839,7 +2105,7 @@ button {
   --stitch-muted: var(--muted);
   --stitch-line: var(--border);
   --stitch-card: var(--card-bg);
-  --stitch-soft: color-mix(in srgb, var(--page-bg) 78%, var(--accent) 8%, var(--card-bg) 14%);
+  --stitch-soft: color-mix(in srgb, var(--page-bg) 88%, var(--accent) 12%);
   background-color: var(--page-bg);
   color: var(--text);
 }
@@ -1848,8 +2114,8 @@ button {
 .right-rail {
   --stitch-text: var(--rail-text);
   --stitch-muted: var(--rail-muted);
-  --stitch-line: color-mix(in srgb, var(--border) 68%, var(--panel-bg) 32%);
-  --stitch-card: color-mix(in srgb, var(--panel-bg) 74%, var(--card-bg) 26%);
+  --stitch-line: color-mix(in srgb, var(--theme-base-border, var(--border)) 68%, var(--panel-bg) 32%);
+  --stitch-card: color-mix(in srgb, var(--panel-bg) 74%, var(--theme-base-card-bg, var(--card-bg)) 26%);
   --stitch-soft: color-mix(in srgb, var(--panel-bg) 84%, var(--accent) 16%);
   --text: var(--stitch-text);
   --muted: var(--stitch-muted);
@@ -2037,7 +2303,6 @@ button {
 }
 
 .app-shell[data-accessibility-profile="low-stimulus"] .top-nav button,
-.app-shell[data-accessibility-profile="low-stimulus"] .rail-group-nav button,
 .app-shell[data-accessibility-profile="low-stimulus"] .entry-card,
 .app-shell[data-accessibility-profile="low-stimulus"] .diagnostic-card {
   transition: none;
@@ -2097,9 +2362,19 @@ button {
   }
 
   .top-app-bar {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(132px, max-content) minmax(0, 1fr);
     gap: 8px;
     padding-block: 8px;
+  }
+
+  .top-app-bar-brand {
+    grid-column: 1;
+  }
+
+  .top-utility {
+    grid-column: 2;
+    min-width: 0;
+    overflow: hidden;
   }
 
   .top-app-bar .brand-row {
@@ -2119,6 +2394,10 @@ button {
 
   .top-utility {
     padding-inline: 0 12px;
+  }
+
+  .backend-meta {
+    max-width: min(36vw, 150px);
   }
 
   .sidebar,

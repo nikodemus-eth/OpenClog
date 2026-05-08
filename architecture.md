@@ -133,3 +133,30 @@ Track OpenClog architecture, component ownership, and authority boundaries.
 - Alert findings are now operator-actionable per finding through the existing acknowledgement and snooze backend routes; the browser refetches alert state after each mutation instead of inventing optimistic lifecycle state.
 - Mission replay and correlation are now inspectable evidence lists in the incident workbench, with local entry jump affordances and explicit fail-closed unavailable copy when the replay or correlation endpoint cannot serve local evidence.
 - The new view logic stays in `apps/web/src/state/operator-workspace.ts`, keeping `App.tsx` focused on orchestration, route calls, and local focus/navigation state.
+
+## 2026-05-06 Thirty-Item Roadmap Implementation
+- `VersionResponse`, `/api/health`, and `journal_backend_fingerprints` now expose and persist a boot-time backend fingerprint with PID, boot timestamp, runtime fingerprint, commit, build timestamp, and Node version; stale live-session requests fail closed with `stale_backend_fingerprint`.
+- The operator shell renders the backend metadata in the header, a dedicated backend-mismatch banner, Gateway scope negotiation with have/missing scopes, endpoint-budget explanation copy, built-in triage views, generated-summary freshness timestamps, incident-loop progress chips, retryable receipt rows, copy affordances, bundle digest copy, and decorative-only theme labeling.
+- The application/repository seam now includes retryable delivery receipts, dry-run adapter verification, closeout completion blocking, verification receipts, multi-day investigation workspaces, remote-ops policy metadata, plugin sandbox manifests, signed bundle verification metadata, SLO baselines, and an operator-facing runbook/verification surface.
+- Summary jobs keep explicit queued/running/completed/failed state and polling semantics while generated summaries carry `lastEntryIncludedAt`, `latestEntryObservedAt`, and `freshnessState`.
+- The Tauri host now exposes a scheduled self-check report covering API liveness, Gateway readiness, SQLite path presence, and secure-store availability while keeping Keychain-backed secrets native-only and fail-closed off macOS.
+
+## 2026-05-07 Operator Surface Follow-Through
+- Built-in operator views now include a dedicated backend-mismatch triage lane, and diagnostics collapse state persists per operator view instead of one global browser preference blob.
+- Health polling telemetry is now rendered as operator-visible shell metadata alongside the backend fingerprint, making stale/local-backend diagnosis visible without opening devtools.
+- Pinned context now reports live summary character budget plus explicit generated-summary availability state, while search panels can render the active built-in view provenance string instead of leaving the current investigation context implicit.
+- Incident handoff copy now includes a dedicated incident-packet digest affordance, and delivery receipts show retry counts inline at the first list surface rather than only in detailed receipt formatting.
+- Docs validation now cross-checks `testing.md` snapshot-count claims against the actual visual snapshot directory so drift fails fast during `docs:check`.
+
+## 2026-05-08 Operator Routing, Summary Jobs, and Delivery Verification
+- Journal route parsing now trims day, entry, and search state, drops invalid filters, and deduplicates filter keys before writing browser history, keeping shell navigation canonical for keyboard and saved-view flows.
+- Generated-summary refresh now treats `/api/days/:dayKey/summary-jobs` as a job creation endpoint and polls `/api/summary-jobs/:id` until the job reaches `completed` or `failed`; the UI keeps queued/running/completed/failed state visible in pinned context and the workbench.
+- The day header now pairs summary freshness with the last successful summary-job completion timestamp, making stale summaries easier to evaluate before handoff.
+- Delivery governance now exposes Slack, generic webhook, and email dry-run verification cards beside live delivery actions, rendering the dry-run receipt, delivery reference, idempotency details, and failure reason before an operator sends a live handoff.
+- The composer now explains missing Gateway scopes or stale connectivity inline instead of showing only a generic local-only composer mode.
+
+## 2026-05-08 Closeout Refactor
+- Operator workspace helper coverage now includes saved-view miss paths, saved-view provenance, default diagnostics storage, summary-job completion fallback timestamps, and dry-run verification receipts with missing optional fields, keeping branch-heavy UI policy in the helper seam instead of inline React branches.
+- Periodic health refresh now updates Gateway readiness copy without overwriting newer operator action notices, so summary-job completion and delivery verification confirmations remain visible while backend status is still rendered by the readiness banner.
+- The composer grid now assigns connectivity detail to the main content column and uses explicit row spacing, preserving the compact shell geometry while keeping the inline blocked-action explanation visible.
+- Mobile shell header layout now reserves a clickable brand column and constrains the utility cell, preventing backend metadata from intercepting keyboard-safe home navigation.

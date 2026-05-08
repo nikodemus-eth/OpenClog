@@ -21,7 +21,8 @@ export function useJournalRouting(defaultDayKey: string) {
 
   useEffect(() => {
     const params = buildRouteParams({ activeFilters, focusedEntryId, grouped, searchQuery, selectedDayKey });
-    const nextUrl = `${window.location.pathname}?${params.toString()}`;
+    const query = params.toString();
+    const nextUrl = query ? `${window.location.pathname}?${query}` : window.location.pathname;
     window.history.replaceState(null, "", nextUrl);
   }, [activeFilters, focusedEntryId, grouped, searchQuery, selectedDayKey]);
 
@@ -52,25 +53,40 @@ function readRoute(defaultDayKey: string): JournalRouteState {
 }
 
 export function readRouteFromParams(params: URLSearchParams, defaultDayKey: string): JournalRouteState {
-  const routeFilters = (params.get("filters") ?? "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter((value): value is JournalFilterKey => filterKeys.has(value as JournalFilterKey));
+  const routeFilters = normalizeRouteFilters((params.get("filters") ?? "").split(","));
   return {
-    selectedDayKey: params.get("day") ?? defaultDayKey,
+    selectedDayKey: params.get("day")?.trim() || defaultDayKey,
     grouped: params.get("view") !== "raw",
     activeFilters: routeFilters,
-    focusedEntryId: params.get("entry"),
-    searchQuery: params.get("q") ?? ""
+    focusedEntryId: params.get("entry")?.trim() || null,
+    searchQuery: params.get("q")?.trim() ?? ""
   };
 }
 
 export function buildRouteParams(state: JournalRouteState): URLSearchParams {
   const params = new URLSearchParams();
-  params.set("day", state.selectedDayKey);
+  const selectedDayKey = state.selectedDayKey.trim();
+  if (selectedDayKey) params.set("day", selectedDayKey);
   params.set("view", state.grouped ? "grouped" : "raw");
-  if (state.activeFilters.length > 0) params.set("filters", state.activeFilters.join(","));
-  if (state.focusedEntryId) params.set("entry", state.focusedEntryId);
-  if (state.searchQuery.trim()) params.set("q", state.searchQuery.trim());
+  const activeFilters = normalizeRouteFilters(state.activeFilters);
+  if (activeFilters.length > 0) params.set("filters", activeFilters.join(","));
+  const focusedEntryId = state.focusedEntryId?.trim();
+  if (focusedEntryId) params.set("entry", focusedEntryId);
+  const searchQuery = state.searchQuery.trim();
+  if (searchQuery) params.set("q", searchQuery);
   return params;
+}
+
+function normalizeRouteFilters(values: string[]): JournalFilterKey[] {
+  const seen = new Set<JournalFilterKey>();
+  const normalized: JournalFilterKey[] = [];
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!filterKeys.has(trimmed as JournalFilterKey)) continue;
+    const filter = trimmed as JournalFilterKey;
+    if (seen.has(filter)) continue;
+    seen.add(filter);
+    normalized.push(filter);
+  }
+  return normalized;
 }

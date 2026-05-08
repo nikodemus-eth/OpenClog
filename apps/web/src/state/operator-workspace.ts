@@ -1,10 +1,12 @@
 import type { BundleExport, SearchPreset } from "../api.js";
 import {
   browserVisibleEntryText,
+  describeGeneratedSummaryFreshness as describeGeneratedSummaryFreshnessFromCore,
   type AlertFinding,
   type CloseoutPlan,
   type CorrelationEdge,
   type CorrelationNode,
+  type DeliveryReceipt,
   type GeneratedSummary,
   type JournalDay,
   type JournalEntry,
@@ -15,6 +17,8 @@ import {
   type RetentionPreview
 } from "@openclog/core";
 import type { JournalRouteState } from "../hooks/useJournalRouting.js";
+
+export const PINNED_SUMMARY_MAX_LENGTH = 280;
 
 export const DEFAULT_SEARCH_PRESETS: SearchPreset[] = [
   { id: "tool-failures", label: "Tool failures", query: "status:failed tool" },
@@ -58,6 +62,46 @@ export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): Op
       grouped: false,
       builtIn: true,
       drilldown: { sessionKey, tab: "deliveries", scrollTop: 0 }
+    },
+    {
+      id: "stale-summaries",
+      label: "Stale summaries",
+      dayKey,
+      searchQuery: "summary stale",
+      activeFilters: [],
+      grouped: false,
+      builtIn: true,
+      drilldown: { sessionKey, tab: "timeline", scrollTop: 0 }
+    },
+    {
+      id: "failed-receipts",
+      label: "Failed receipts",
+      dayKey,
+      searchQuery: "delivery receipt failed",
+      activeFilters: ["errors"],
+      grouped: false,
+      builtIn: true,
+      drilldown: { sessionKey, tab: "deliveries", scrollTop: 0 }
+    },
+    {
+      id: "stale-backend-fingerprint",
+      label: "Backend mismatch",
+      dayKey,
+      searchQuery: "stale backend fingerprint",
+      activeFilters: ["errors"],
+      grouped: true,
+      builtIn: true,
+      drilldown: { sessionKey, tab: "timeline", scrollTop: 0 }
+    },
+    {
+      id: "scope-missing",
+      label: "Scope missing",
+      dayKey,
+      searchQuery: "scope missing",
+      activeFilters: ["errors"],
+      grouped: true,
+      builtIn: true,
+      drilldown: { sessionKey, tab: "actions", scrollTop: 0 }
     }
   ];
 }
@@ -107,6 +151,69 @@ export function validatePinnedSummary(summary: string, maxLength = 280): string 
   return null;
 }
 
+export function remainingPinnedSummaryCharacters(summary: string, maxLength = PINNED_SUMMARY_MAX_LENGTH): number {
+  return maxLength - summary.length;
+}
+
+export function diagnosticsCollapsedStorageKey(viewId: string | undefined): string {
+  return viewId ? `openclog.diagnostics.collapsed.${viewId}` : "openclog.diagnostics.collapsed.default";
+}
+
+export function describeActiveOperatorView(
+  route: Pick<JournalRouteState, "searchQuery" | "selectedDayKey" | "grouped" | "activeFilters">,
+  operatorViews: OperatorViewPreset[]
+): OperatorViewPreset | null {
+  return (
+    operatorViews.find(
+      (view) =>
+        view.searchQuery === route.searchQuery &&
+        (view.dayKey ?? route.selectedDayKey) === route.selectedDayKey &&
+        view.grouped === route.grouped &&
+        JSON.stringify([...view.activeFilters].sort()) === JSON.stringify([...route.activeFilters].sort())
+    ) ?? null
+  );
+}
+
+export function describeOperatorViewSource(view: OperatorViewPreset | null): string | null {
+  if (!view) return null;
+  return view.builtIn ? `Built-in view: ${view.label} (${view.searchQuery})` : `Saved view: ${view.label} (${view.searchQuery})`;
+}
+
+export function describeComposerConnectivity(profileUrl: string | undefined, gatewayReady: boolean): { label: "Local only" | "Live Gateway"; detail: string } {
+  const safety = classifyGatewayUrl(profileUrl);
+  if (gatewayReady && (safety.kind === "loopback" || safety.kind === "lan" || safety.kind === "remote")) {
+    return { label: "Live Gateway", detail: safety.detail };
+  }
+  return { label: "Local only", detail: "Composer will preserve the note locally until a live Gateway path is ready." };
+}
+
+export function describeSummaryJobState(summaryJob: { status: string } | null, generatedSummary: GeneratedSummary | undefined): string {
+  if (summaryJob) {
+    const job = summaryJob as { error?: string; progressLabel?: string; status: string };
+    const progress = job.progressLabel?.trim();
+    let text = `Summary job ${job.status}${progress ? `: ${safeWorkbenchCopy(progress)}` : "."}`;
+    if (job.error) {
+      if (!text.endsWith(".")) text += ".";
+      text += ` Error: ${safeWorkbenchCopy(job.error)}.`;
+    }
+    return text;
+  }
+  if (generatedSummary?.summary) return "Generated summary available.";
+  return "Summary never generated for this day yet.";
+}
+
+export function isSummaryJobActive(summaryJob: { status: string } | null | undefined): boolean {
+  return summaryJob?.status === "queued" || summaryJob?.status === "running";
+}
+
+export function getLastSuccessfulSummaryJobCompletionAt(
+  summaryJob: { completedAt?: string; generatedSummary?: GeneratedSummary; status: string } | null | undefined,
+  generatedSummary: GeneratedSummary | undefined
+): string | undefined {
+  if (summaryJob?.status === "completed") return summaryJob.completedAt ?? summaryJob.generatedSummary?.createdAt;
+  return generatedSummary?.createdAt;
+}
+
 export function isGeneratedSummaryStale(generatedSummary: GeneratedSummary | undefined, entries: JournalEntry[]): boolean {
   return describeGeneratedSummaryFreshness(generatedSummary, entries).isStale;
 }
@@ -115,19 +222,7 @@ export function describeGeneratedSummaryFreshness(
   generatedSummary: GeneratedSummary | undefined,
   entries: JournalEntry[]
 ): { isStale: boolean; lastEntryIncludedAt?: string; latestEntryObservedAt?: string } {
-  if (!generatedSummary) return { isStale: false };
-  const generatedAt = Date.parse(generatedSummary.createdAt);
-  if (!Number.isFinite(generatedAt)) return { isStale: false };
-  const entryTimes = entries
-    .map((entry) => ({ entry, entryTime: Date.parse(entry.timestamp) }))
-    .filter((item) => Number.isFinite(item.entryTime));
-  const latestIncluded = entryTimes.filter((item) => item.entryTime <= generatedAt).sort((left, right) => right.entryTime - left.entryTime)[0];
-  const latestObserved = entryTimes.sort((left, right) => right.entryTime - left.entryTime)[0];
-  return {
-    isStale: entryTimes.some((item) => item.entryTime > generatedAt),
-    ...(latestIncluded ? { lastEntryIncludedAt: latestIncluded.entry.timestamp } : {}),
-    ...(latestObserved ? { latestEntryObservedAt: latestObserved.entry.timestamp } : {})
-  };
+  return describeGeneratedSummaryFreshnessFromCore(generatedSummary, entries);
 }
 
 export function classifyGatewayUrl(url: string | undefined): GatewayUrlSafety {
@@ -262,7 +357,34 @@ export function classifyGatewayErrorCategory(reason: string | undefined): string
 
 export function formatBundleManifestPreview(bundle: Pick<BundleExport, "manifest" | "day">): string {
   const entryCount = bundle.day.entries.length;
-  return `Bundle contains ${String(entryCount)} entries for ${bundle.manifest.dayKey}, exported at ${bundle.manifest.exportedAt}, version ${bundle.manifest.version}.`;
+  const digest = "signature" in bundle.manifest && bundle.manifest.signature ? (bundle.manifest.signature as { digest?: string }).digest : undefined;
+  const signature = "signature" in bundle.manifest && bundle.manifest.signature ? ` Digest ${digest ? safeWorkbenchCopy(String(digest)) : "unavailable"}.` : "";
+  return `Bundle contains ${String(entryCount)} entries for ${bundle.manifest.dayKey}, exported at ${bundle.manifest.exportedAt}, version ${bundle.manifest.version}.${signature}`;
+}
+
+export function formatReceiptDetails(receipt: DeliveryReceipt): string {
+  return [
+    `Receipt ${safeWorkbenchCopy(receipt.id)} ${safeWorkbenchCopy(receipt.status)} for ${safeWorkbenchCopy(receipt.target)}.`,
+    `Request fingerprint ${safeWorkbenchCopy(receipt.requestFingerprint ?? "unavailable")}.`,
+    `Idempotency key ${safeWorkbenchCopy(receipt.idempotencyKey ?? "unavailable")}.`,
+    `Correlation ${safeWorkbenchCopy(receipt.correlationId ?? "unavailable")}.`,
+    receipt.retryOfReceiptId ? `Retry of ${safeWorkbenchCopy(receipt.retryOfReceiptId)} attempt ${String(receipt.attemptNumber ?? 1)}.` : `Attempt ${String(receipt.attemptNumber ?? 1)}.`,
+    receipt.secretRef ? `Secret ref ${safeWorkbenchCopy(`${receipt.secretRef.backend}:${receipt.secretRef.key}`)}.` : "Secret ref unavailable.",
+    receipt.deadLetterReason ? `Dead letter ${safeWorkbenchCopy(receipt.deadLetterReason)}.` : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+export function formatIntegrationVerificationReceipt(receipt: DeliveryReceipt): string {
+  return [
+    `${safeWorkbenchCopy(receipt.target)} dry-run verification ${safeWorkbenchCopy(receipt.status)}.`,
+    `Delivery reference ${safeWorkbenchCopy(receipt.deliveryReference ?? "unavailable")}.`,
+    `Receipt ${safeWorkbenchCopy(receipt.id)}.`,
+    receipt.deadLetterReason ? safeWorkbenchCopy(receipt.deadLetterReason) : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 export function formatReplayBundleDiff(diff: ReplayBundleDiff | null): string | null {

@@ -28,6 +28,23 @@ for (const phrase of ["npm run verify", "npm run verify:gateway", "Coverage Excl
   }
 }
 
+const visualSnapshotDir = "tests/e2e/visual.spec.ts-snapshots";
+if (existsSync(visualSnapshotDir)) {
+  const visualSnapshots = walk(visualSnapshotDir).filter((path) => path.endsWith(".png"));
+  const totalSnapshotCount = visualSnapshots.length;
+  const mobileSnapshotCount = visualSnapshots.filter((path) => path.includes("-mobile-")).length;
+  const totalMentions = [...testing.matchAll(/(\d+)\s+visual snapshots/g)].map((match) => Number.parseInt(match[1] ?? "", 10));
+  const mobileMentions = [...testing.matchAll(/(\d+)\s+mobile visual snapshots/g)].map((match) => Number.parseInt(match[1] ?? "", 10));
+  if (totalMentions.length > 0 && !totalMentions.includes(totalSnapshotCount)) {
+    console.error(`testing.md visual snapshot count is stale: expected ${totalSnapshotCount} total snapshots.`);
+    process.exit(1);
+  }
+  if (mobileMentions.length > 0 && !mobileMentions.includes(mobileSnapshotCount)) {
+    console.error(`testing.md mobile visual snapshot count is stale: expected ${mobileSnapshotCount} mobile snapshots.`);
+    process.exit(1);
+  }
+}
+
 const api = readFileSync("api_development.md", "utf8");
 for (const method of ["sessions.create", "sessions.send", "sessions.abort", "exec.approval.resolve"]) {
   if (!api.includes(method)) {

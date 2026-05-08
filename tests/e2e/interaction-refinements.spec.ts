@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { installApiFixtures } from "./support/api-fixtures.js";
+import { installApiFixtures, setFixtureTheme } from "./support/api-fixtures.js";
 
 test("Stitch operator shell exposes safe top navigation and utility focus controls", async ({ page }) => {
   await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
@@ -23,9 +23,6 @@ test("Stitch operator shell exposes safe top navigation and utility focus contro
   await primaryNav.getByRole("button", { name: "Logs" }).click();
   await expect(page.getByLabel("Timeline entries")).toBeFocused();
 
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await expect(page.getByLabel("Theme", { exact: true })).toBeFocused();
-
   await page.getByRole("button", { name: "Tool filter settings" }).click();
   await expect(page.getByLabel("Show Tool Calls")).toBeFocused();
 
@@ -35,26 +32,16 @@ test("Stitch operator shell exposes safe top navigation and utility focus contro
   await expect(page.getByRole("region", { name: "Keyboard shortcuts" })).toBeHidden();
 });
 
-test("shell family and system shortcuts perform visible safe navigation", async ({ page }) => {
+test("shell removes theme family shortcuts while the environment skin picker stays available", async ({ page }) => {
   await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
   await page.goto("/");
 
-  const familyNav = page.getByRole("navigation", { name: "Family shortcuts" });
-  await familyNav.getByRole("button", { name: "News" }).click();
-  await expect(page.getByRole("main")).toHaveAttribute("data-theme", "clog-news");
-  await expect(page.getByText("News / Analysis Modes selected.")).toBeVisible();
-
-  await familyNav.getByRole("button", { name: "Social" }).click();
-  await expect(page.getByRole("main")).toHaveAttribute("data-theme", "cloggit");
-
-  await familyNav.getByRole("button", { name: "OS" }).click();
-  await expect(page.getByRole("main")).toHaveAttribute("data-theme", "clogdos");
-
-  await familyNav.getByRole("button", { name: "Narrative" }).click();
-  await expect(page.getByRole("main")).toHaveAttribute("data-theme", "a-hearty-tale");
-
-  await familyNav.getByRole("button", { name: "Core" }).click();
-  await expect(page.getByRole("main")).toHaveAttribute("data-theme", "openclog-journal");
+  await expect(page.getByRole("navigation", { name: "Family shortcuts" })).toBeHidden();
+  await expect(page.getByText("Groups")).toBeHidden();
+  const skinPicker = page.getByLabel("Theme", { exact: true });
+  await expect(skinPicker).toBeVisible();
+  await skinPicker.selectOption("blackbeards-log");
+  await expect(page.getByRole("main")).toHaveAttribute("data-theme", "blackbeards-log");
 
   const systemNav = page.getByRole("navigation", { name: "System shortcuts" });
   await systemNav.getByRole("button", { name: "Network" }).click();
@@ -70,13 +57,9 @@ test("shell family and system shortcuts perform visible safe navigation", async 
   await expect(page.getByText("Security approvals focused.")).toBeVisible();
 });
 
-test("settings and filter utility icons announce their focused controls", async ({ page }) => {
+test("filter utility icon announces its focused control", async ({ page }) => {
   await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
   await page.goto("/");
-
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await expect(page.getByLabel("Theme", { exact: true })).toBeFocused();
-  await expect(page.getByText("Theme picker focused.")).toBeVisible();
 
   await page.getByRole("button", { name: "Tool filter settings" }).click();
   await expect(page.getByLabel("Show Tool Calls")).toBeFocused();
@@ -106,6 +89,47 @@ test("Stitch operator shell keeps approved desktop proportions without rail over
   expect((main?.x ?? 0) + (main?.width ?? 0)).toBeLessThanOrEqual((rightRail?.x ?? 0) + 1);
 });
 
+test("journal search stays inside the left rail, can be reset, and recent logs can jump to today", async ({ page }) => {
+  await page.setViewportSize({ width: 1288, height: 1289 });
+  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
+  await page.goto("/?day=2026-05-02");
+
+  const leftRail = page.locator(".left-rail");
+  const searchPanel = page.getByLabel("Journal search");
+  await page.getByLabel("Journal search input").fill("gateway reconnect");
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await page.getByRole("button", { name: "Save search preset" }).click();
+  await page.getByRole("button", { name: "Save operator view" }).click();
+
+  const railBox = await leftRail.boundingBox();
+  expect(railBox).not.toBeNull();
+  for (const locator of [
+    page.getByRole("button", { name: "New Entry" }),
+    searchPanel.getByRole("button", { name: "Save search preset" }),
+    searchPanel.getByRole("button", { name: "Save operator view" }),
+    page.getByLabel("Journal search input"),
+    searchPanel.getByRole("button", { name: "Search", exact: true }),
+    searchPanel.getByRole("button", { name: "Reset journal search" }),
+    page.getByRole("button", { name: "Select today log" })
+  ]) {
+    const box = await locator.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual((railBox?.x ?? 0) - 1);
+    expect(box!.x + box!.width).toBeLessThanOrEqual((railBox?.x ?? 0) + (railBox?.width ?? 0) + 1);
+  }
+
+  await expect(page).toHaveURL(/q=gateway\+reconnect|q=gateway%20reconnect/);
+  await searchPanel.getByRole("button", { name: "Reset journal search" }).click();
+  await expect(page.getByLabel("Journal search input")).toHaveValue("");
+  await expect(page.getByText(/Search completed in/i)).toBeHidden();
+  await expect(page.getByRole("button", { name: /Tool call Called/i })).toBeHidden();
+  await expect(page).not.toHaveURL(/q=/);
+  await expect(page.getByLabel("Daily page")).toContainText("2026-05-02");
+
+  await page.getByRole("button", { name: "Select today log" }).click();
+  await expect(page.getByLabel("Daily page")).toContainText("2026-05-03");
+});
+
 test("Stitch visual vocabulary is present in the shell chrome and flagship theme rails", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
@@ -131,9 +155,10 @@ test("Stitch visual vocabulary is present in the shell chrome and flagship theme
   expect(composerBox?.height).toBeGreaterThanOrEqual(220);
   expect(composerBox?.height).toBeLessThanOrEqual(280);
   expect(mainChildWidth).toBeLessThanOrEqual(804);
-  await expect(page.getByRole("navigation", { name: "Family shortcuts" })).toContainText("Groups");
+  await expect(page.getByRole("navigation", { name: "Family shortcuts" })).toBeHidden();
 
-  await page.getByLabel("Theme", { exact: true }).selectOption("blackbeards-log");
+  await setFixtureTheme(page, "blackbeards-log");
+  await expect(page.getByRole("main")).toHaveAttribute("data-theme", "blackbeards-log");
   const blackbeardRails = await page.evaluate(() => {
     const shell = document.querySelector(".app-shell") as HTMLElement;
     const left = getComputedStyle(document.querySelector(".left-rail") as Element).backgroundColor;
@@ -146,7 +171,8 @@ test("Stitch visual vocabulary is present in the shell chrome and flagship theme
   expect(blackbeardRails.left).toMatch(/^(rgb|color)/);
   expect(blackbeardRails.right).toMatch(/^(rgb|color)/);
 
-  await page.getByLabel("Theme", { exact: true }).selectOption("captains-log");
+  await setFixtureTheme(page, "captains-log");
+  await expect(page.getByRole("main")).toHaveAttribute("data-theme", "captains-log");
   const captainShell = await page.getByRole("main").evaluate((element) => {
     const style = getComputedStyle(element);
     return {
@@ -173,9 +199,8 @@ test("Stitch integration uses only local deterministic assets in the browser", a
 
 test("Blackbeard's Log keeps timeline content out of the diagnostics rail", async ({ page }) => {
   await page.setViewportSize({ width: 1172, height: 1224 });
-  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 4 });
+  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 4, settingsTheme: "blackbeards-log" });
   await page.goto("/");
-  await page.getByLabel("Theme").selectOption("blackbeards-log");
 
   const rightRail = await page.locator(".right-rail").boundingBox();
   const entryBoxes = await page.locator(".entry-card").evaluateAll((entries) => entries.map((entry) => entry.getBoundingClientRect().right));
@@ -196,7 +221,7 @@ test("Show Tool Calls hides timeline tools, persists, and survives theme switchi
   await expect(page.getByLabel("Show Tool Calls")).not.toBeChecked();
   await expect(page.getByText("Called get_repository_status for 2026-05-03.")).toBeHidden();
 
-  await page.getByLabel("Theme").selectOption("blackbeards-log");
+  await setFixtureTheme(page, "blackbeards-log");
   await expect(page.getByLabel("Show Tool Calls")).not.toBeChecked();
   await expect(page.getByText("Called get_repository_status for 2026-05-03.")).toBeHidden();
 
@@ -263,6 +288,84 @@ test("Pending approvals popover submits approve and disapprove while deferring l
     { id: "approval-1", decision: "allow-once" },
     { id: "approval-2", decision: "deny" }
   ]);
+});
+
+test("pending approvals and editable controls expose visible affordances", async ({ page }) => {
+  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 2 });
+  await page.goto("/");
+
+  const pendingCard = page.getByLabel("Diagnostics card: Pending approvals. Status: pending");
+  await pendingCard.getByRole("button", { name: "Collapse" }).click();
+  await expect(pendingCard.getByLabel("2 pending approval requests")).toBeVisible();
+
+  const pinnedContext = page.getByLabel("Pinned context");
+  await pinnedContext.getByRole("button", { name: "Expand" }).click();
+
+  for (const [locator, expectedCursor] of [
+    [page.getByLabel("Jump to date"), "pointer"],
+    [pinnedContext.getByLabel("Pinned note"), "text"],
+    [page.getByLabel("Composer input"), "text"]
+  ] as const) {
+    const styles = await locator.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        backgroundColor: style.backgroundColor,
+        backgroundImage: style.backgroundImage,
+        borderTopStyle: style.borderTopStyle,
+        borderTopWidth: style.borderTopWidth,
+        boxShadow: style.boxShadow,
+        cursor: style.cursor
+      };
+    });
+
+    expect(styles.borderTopStyle).not.toBe("none");
+    expect(Number.parseFloat(styles.borderTopWidth)).toBeGreaterThan(0);
+    expect(styles.boxShadow).not.toBe("none");
+    expect(styles.backgroundColor !== "rgba(0, 0, 0, 0)" || styles.backgroundImage !== "none").toBe(true);
+    expect(styles.cursor).toBe(expectedCursor);
+  }
+});
+
+test("diagnostic expand and collapse controls use themed button affordances", async ({ page }) => {
+  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 2 });
+  await page.goto("/");
+
+  const controls = [
+    page.getByLabel("Diagnostics card: Pending approvals. Status: pending").getByRole("button", { name: "Collapse" }),
+    page.getByLabel("Pinned context").getByRole("button", { name: "Expand" }),
+    page.getByLabel("Diagnostics card: Recent Tools. Status: info").getByRole("button", { name: "Collapse" })
+  ];
+
+  for (const control of controls) {
+    const styles = await control.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        backgroundImage: style.backgroundImage,
+        borderTopStyle: style.borderTopStyle,
+        boxShadow: style.boxShadow,
+        cursor: style.cursor,
+        fontWeight: style.fontWeight
+      };
+    });
+
+    expect(styles.backgroundImage).not.toBe("none");
+    expect(styles.borderTopStyle).toBe("solid");
+    expect(styles.boxShadow).not.toBe("none");
+    expect(styles.cursor).toBe("pointer");
+    expect(Number.parseFloat(styles.fontWeight)).toBeGreaterThanOrEqual(700);
+  }
+});
+
+test("Recent Tools shows an inspectable cue when collapsed with tool events", async ({ page }) => {
+  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
+  await page.goto("/");
+
+  const recentTools = page.getByLabel("Diagnostics card: Recent Tools. Status: info");
+  await recentTools.getByRole("button", { name: "Collapse" }).click();
+
+  await expect(recentTools.getByLabel("1 tool event")).toBeVisible();
+  await expect(recentTools).toContainText("1 tool event");
+  await expect(recentTools).not.toContainText("Collapsed.");
 });
 
 test("product-facing archive copy normalizes historical source titles", async ({ page }) => {
@@ -412,6 +515,21 @@ test("archive rail exposes recent logs and date jumping guidance", async ({ page
 
   await page.getByLabel("Jump to date").fill("2026-05-02");
   await expect(page.getByLabel("Daily page").getByText("Saturday, May 2, 2026")).toBeVisible();
+});
+
+test("empty day query and missing backend metadata still hydrate the newest day and allow date jumps", async ({ page }) => {
+  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0, healthBackendMode: "missing" });
+  await page.goto("/?day=");
+
+  await expect(page.getByRole("status", { name: "Backend mismatch" })).toContainText("runtime fingerprint metadata is unavailable");
+  await expect(page.getByLabel("Jump to date")).toHaveValue("2026-05-03");
+  await expect(page.getByLabel("Daily page")).toContainText("2026-05-03");
+  await expect(page).toHaveURL(/\?day=2026-05-03&view=grouped$/);
+
+  await page.getByLabel("Jump to date").fill("2026-05-02");
+  await expect(page.getByLabel("Daily page")).toContainText("Saturday, May 2, 2026");
+  await expect(page).toHaveURL(/\?day=2026-05-02&view=grouped$/);
+  await expect(page.getByText("No log available for that date.")).toBeHidden();
 });
 
 test("timeline filter checkboxes support partial matching plus inter-session and ack filters", async ({ page }) => {

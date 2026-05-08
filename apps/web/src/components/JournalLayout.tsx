@@ -6,13 +6,14 @@ import {
   Copy,
   Download,
   FileText,
+  Flag,
   Hash,
   HelpCircle,
   Paperclip,
   Plus,
-  Settings,
   Send,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Wrench
 } from "lucide-react";
 import {
   buildTimelineDisplayItems,
@@ -20,18 +21,18 @@ import {
   entryBelongsToGroup,
   formatTimelineGroupSummary,
   getTheme,
-  themeGroups,
   sampleJournalDay,
+  themeGroups,
   type AgentActivity,
   type ApprovalView,
   type IconToken,
   type JournalDay,
   type JournalEntry,
   type OpenClogTheme,
-  type ThemePracticalGroup,
   type TimelineDisplayItem,
   type ThemeId
 } from "@openclog/core";
+import type { VersionResponse } from "../api.js";
 import { iconFor } from "./icons.js";
 import { timelineDisplayText } from "./event-display.js";
 import { StatusChip } from "./StatusChip.js";
@@ -48,7 +49,10 @@ export interface GatewayViewState {
   lastLiveEventAt?: string;
   lastSuccessfulSyncAt?: string;
   status: "ready" | "blocked" | "degraded";
+  scopes?: string[];
   missingScopes: string[];
+  scopeNegotiation?: { have: string[]; missing: string[] };
+  targetReachable?: boolean;
   nextReconnectAt?: string;
   reconnectCount?: number;
   reconnectAttempt?: number;
@@ -102,8 +106,10 @@ interface AppShellProps {
   theme: Theme;
   themeId: ThemeId;
   themeIds: ThemeId[];
+  healthPollAgeLabel: string;
+  healthPollLatencyMs: number | null;
+  version: VersionResponse;
   mainRef: RefObject<HTMLElement | null>;
-  themeSelectorRef: RefObject<HTMLSelectElement | null>;
   onAgentActivityFocus: () => void;
   onApprovalsFocus: () => void;
   onArchiveCalendarChange: (value: string) => void;
@@ -116,8 +122,6 @@ interface AppShellProps {
   onShortcutsToggle: () => void;
   onShortcutsClose: () => void;
   onThemeChange: (themeId: ThemeId) => void;
-  onThemeGroupSelect: (practicalGroup: ThemePracticalGroup) => void;
-  onThemeFocus: () => void;
   onTimelineFocus: () => void;
   onToolFilterFocus: () => void;
   onToastClick: (toast: LiveEventToast) => void;
@@ -153,10 +157,12 @@ export function AppShell(props: AppShellProps) {
           onGatewayFocus={props.onGatewayFocus}
           onMainFocus={props.onMainFocus}
           onShortcutsToggle={props.onShortcutsToggle}
-          onThemeFocus={props.onThemeFocus}
           onTimelineFocus={props.onTimelineFocus}
           onToolFilterFocus={props.onToolFilterFocus}
+          healthPollAgeLabel={props.healthPollAgeLabel}
+          healthPollLatencyMs={props.healthPollLatencyMs}
           shellActionStatus={props.shellActionStatus}
+          version={props.version}
         />
       </header>
       <Sidebar
@@ -170,14 +176,12 @@ export function AppShell(props: AppShellProps) {
         theme={props.theme}
         themeId={props.themeId}
         themeIds={props.themeIds}
-        themeSelectorRef={props.themeSelectorRef}
         onArchiveCalendarChange={props.onArchiveCalendarChange}
         onDaySelect={props.onDaySelect}
         onAgentActivityFocus={props.onAgentActivityFocus}
         onApprovalsFocus={props.onApprovalsFocus}
         onGatewayFocus={props.onGatewayFocus}
         onNewEntry={props.onComposerFocus}
-        onThemeGroupSelect={props.onThemeGroupSelect}
         onThemeChange={props.onThemeChange}
       />
       <main id="main-content" className="journal-page" aria-label="Daily page" data-theme={props.themeId} ref={props.mainRef} tabIndex={-1}>
@@ -198,10 +202,12 @@ function TopAppBar(props: {
   onGatewayFocus: () => void;
   onMainFocus: () => void;
   onShortcutsToggle: () => void;
-  onThemeFocus: () => void;
   onTimelineFocus: () => void;
   onToolFilterFocus: () => void;
+  healthPollAgeLabel: string;
+  healthPollLatencyMs: number | null;
   shellActionStatus: string;
+  version: VersionResponse;
 }) {
   const navItems = [
     { label: "Journal", onClick: props.onMainFocus },
@@ -210,7 +216,6 @@ function TopAppBar(props: {
     { label: "Logs", onClick: props.onTimelineFocus }
   ];
   const utilityItems = [
-    { label: "Settings", icon: Settings, onClick: props.onThemeFocus },
     { label: "Tool filter settings", icon: SlidersHorizontal, onClick: props.onToolFilterFocus },
     { label: "Keyboard shortcuts", icon: HelpCircle, onClick: props.onShortcutsToggle }
   ];
@@ -230,6 +235,12 @@ function TopAppBar(props: {
         ))}
       </nav>
       <div className="top-utility" aria-label="Shell utilities">
+        <p className="backend-meta" aria-label="API backend metadata">
+          PID {String(props.version.pid)} · {props.version.commitSha} · built {props.version.buildTimestamp} · boot {props.version.bootedAt}
+        </p>
+        <p className="backend-meta" aria-label="API health poll telemetry">
+          Health poll {props.healthPollLatencyMs !== null ? `${String(props.healthPollLatencyMs)} ms` : "pending"} · last success {props.healthPollAgeLabel}
+        </p>
         {props.shellActionStatus ? (
           <p className="shell-action-status" aria-live="polite">
             {props.shellActionStatus}
@@ -264,21 +275,18 @@ export function Sidebar(props: {
   theme: Theme;
   themeId: ThemeId;
   themeIds: ThemeId[];
-  themeSelectorRef: RefObject<HTMLSelectElement | null>;
   onAgentActivityFocus: () => void;
   onApprovalsFocus: () => void;
   onArchiveCalendarChange: (value: string) => void;
   onDaySelect: (dayKey: string) => void;
   onGatewayFocus: () => void;
   onNewEntry: () => void;
-  onThemeGroupSelect: (practicalGroup: ThemePracticalGroup) => void;
   onThemeChange: (themeId: ThemeId) => void;
 }) {
   return (
     <aside className="sidebar left-rail" aria-label={props.theme.labels.archiveTitle}>
       <OperatorConsoleHeader onNewEntry={props.onNewEntry} />
       {props.leftRailContent}
-      <RailGroupNav activePracticalGroup={props.theme.practicalGroup} onThemeGroupSelect={props.onThemeGroupSelect} />
       <DayArchive
         archiveCalendarMessage={props.archiveCalendarMessage}
         archiveCalendarValue={props.archiveCalendarValue}
@@ -290,7 +298,7 @@ export function Sidebar(props: {
         onArchiveCalendarChange={props.onArchiveCalendarChange}
         onDaySelect={props.onDaySelect}
       />
-      <ThemeSelector selectRef={props.themeSelectorRef} theme={props.theme} themeId={props.themeId} themeIds={props.themeIds} onThemeChange={props.onThemeChange} />
+      <ThemeSelector theme={props.theme} themeId={props.themeId} themeIds={props.themeIds} onThemeChange={props.onThemeChange} />
       {props.theme.labels.statusFooter ? <p className="theme-footer">{props.theme.labels.statusFooter}</p> : null}
       <RailSystemShortcuts onAgentActivityFocus={props.onAgentActivityFocus} onApprovalsFocus={props.onApprovalsFocus} onGatewayFocus={props.onGatewayFocus} />
     </aside>
@@ -307,38 +315,6 @@ function OperatorConsoleHeader(props: { onNewEntry: () => void }) {
         New Entry
       </button>
     </div>
-  );
-}
-
-const familyShortcutIcons = {
-  "core-daily": FileText,
-  "narrative-character": FileText,
-  "news-analysis": Hash,
-  "os-console": Settings,
-  "social-feed": AtSign
-} satisfies Record<ThemePracticalGroup, typeof FileText>;
-
-function RailGroupNav(props: { activePracticalGroup: ThemePracticalGroup; onThemeGroupSelect: (practicalGroup: ThemePracticalGroup) => void }) {
-  return (
-    <nav className="rail-group-nav" aria-label="Family shortcuts">
-      <p>Groups</p>
-      {themeGroups.map((group) => {
-        const Icon = familyShortcutIcons[group.practicalGroup];
-        const active = group.practicalGroup === props.activePracticalGroup;
-        return (
-          <button
-            aria-pressed={active}
-            key={group.label}
-            className={active ? "active" : undefined}
-            type="button"
-            onClick={() => props.onThemeGroupSelect(group.practicalGroup)}
-          >
-            <Icon size={18} aria-hidden="true" />
-            {group.shortcutLabel}
-          </button>
-        );
-      })}
-    </nav>
   );
 }
 
@@ -373,10 +349,16 @@ export function DayArchive(props: {
   onDaySelect: (dayKey: string) => void;
 }) {
   const items = props.recentDays.length > 0 ? props.recentDays : props.days.length > 0 ? props.days.slice(0, 7) : [sampleJournalDay];
+  const todayItem = items[0];
   return (
     <div className="day-list" aria-label={props.theme.labels.archiveTitle}>
       <div className="archive-block">
-        <strong className="archive-heading">Recent logs</strong>
+        <div className="archive-heading-row">
+          <strong className="archive-heading">Recent logs</strong>
+          <button aria-label="Select today log" className="archive-today-button" type="button" onClick={() => props.onDaySelect(todayItem.dayKey)}>
+            Today
+          </button>
+        </div>
         <nav aria-label="Recent logs">
       {items.map((item) => {
         const selected = item.dayKey === props.selectedDayKey;
@@ -404,7 +386,7 @@ export function DayArchive(props: {
         </nav>
       </div>
       <div className="archive-block archive-calendar">
-        <label className="theme-picker">
+        <label className="archive-date-picker">
           <span>Jump to date</span>
           <input
             aria-label="Jump to date"
@@ -436,19 +418,25 @@ export function ThemeSelector(props: {
   themeIds: ThemeId[];
   onThemeChange: (themeId: ThemeId) => void;
 }) {
+  const themeIdSet = useMemo(() => new Set(props.themeIds), [props.themeIds]);
   return (
     <label className="theme-picker">
       <span>Theme picker: {props.theme.labels.themeLabel}</span>
+      <small>Theme and background settings are decorative only.</small>
       <select aria-label="Theme" ref={props.selectRef} value={props.themeId} onChange={(event) => props.onThemeChange(event.target.value as ThemeId)}>
-        {themeGroups.map((group) => (
-          <optgroup key={group.label} label={group.label}>
-            {group.themeIds.map((id) => (
-              <option key={id} value={id}>
-                {getTheme(id).displayName}
-              </option>
-            ))}
-          </optgroup>
-        ))}
+        {themeGroups.map((group) => {
+          const themeIds = group.themeIds.filter((id) => themeIdSet.has(id));
+          if (themeIds.length === 0) return null;
+          return (
+            <optgroup key={group.label} label={group.label}>
+              {themeIds.map((id) => (
+                <option key={id} value={id}>
+                  {getTheme(id).displayName}
+                </option>
+              ))}
+            </optgroup>
+          );
+        })}
       </select>
     </label>
   );
@@ -456,6 +444,8 @@ export function ThemeSelector(props: {
 
 export function Composer(props: {
   composer: string;
+  connectivityDetail: string;
+  connectivityLabel: "Local only" | "Live Gateway";
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
   notice: string;
   theme: Theme;
@@ -484,11 +474,13 @@ export function Composer(props: {
             <AtSign size={17} />
             <Hash size={17} />
           </div>
+          <StatusChip label="Composer mode" status={props.connectivityLabel} tone={props.connectivityLabel === "Live Gateway" ? "success" : "warning"} />
           <button type="button" onClick={props.onSend}>
             <Send size={18} aria-hidden="true" />
             {props.theme.labels.send}
           </button>
         </div>
+        <p className="composer-mode-detail">{props.connectivityDetail}</p>
       </div>
       <p aria-live="polite" className={props.notice.includes("blocked") || props.notice.includes("Command") ? "notice warning" : "notice"}>
         {props.notice}
@@ -499,6 +491,8 @@ export function Composer(props: {
 
 export function GatewayReadinessBanner(props: { gateway: GatewayViewState; theme: Theme }) {
   const status = props.gateway.status === "ready" && !props.gateway.stale ? "success" : props.gateway.status === "blocked" ? "danger" : "warning";
+  const haveScopes = props.gateway.scopeNegotiation?.have ?? props.gateway.scopes ?? [];
+  const missingScopes = props.gateway.scopeNegotiation?.missing ?? props.gateway.missingScopes;
   return (
     <section className={`readiness-banner ${status}`} aria-label={`Gateway readiness: ${props.gateway.status}`} aria-live="polite">
       <StatusChip label="Gateway readiness" status={props.gateway.status} tone={status} />
@@ -511,17 +505,32 @@ export function GatewayReadinessBanner(props: { gateway: GatewayViewState; theme
             ? "OpenClaw Gateway degraded: state is stale or unavailable."
             : "OpenClaw Gateway degraded: missing required operator scopes."}
       </p>
+      <p>Have scopes: {haveScopes.join(", ") || "none"}. Missing scopes: {missingScopes.join(", ") || "none"}.</p>
     </section>
   );
 }
 
-export function DayHeader(props: { day: JournalDay; theme: Theme; onExport: () => void }) {
+export function BackendMismatchBanner(props: { detail: string }) {
+  return (
+    <section className="readiness-banner danger" role="status" aria-label="Backend mismatch">
+      <StatusChip label="Backend mismatch" status="stale" tone="danger" />
+      <p>{props.detail}</p>
+    </section>
+  );
+}
+
+export function DayHeader(props: { day: JournalDay; lastSuccessfulSummaryJobCompletionAt?: string; summaryFreshnessLabel: string; theme: Theme; onExport: () => void }) {
+  const freshnessTone = props.summaryFreshnessLabel === "fresh" ? "success" : props.summaryFreshnessLabel === "missing" ? "info" : "warning";
   return (
     <header className="day-header">
       <div>
         <p>{props.day.dateLabel}</p>
         <h2>{props.theme.labels.mainTitle}</h2>
         {props.theme.labels.productSubtitle ? <p className="theme-subtitle">{props.theme.labels.productSubtitle}</p> : null}
+        <div className="day-header-meta">
+          <StatusChip label="Summary freshness" status={props.summaryFreshnessLabel} tone={freshnessTone} />
+          {props.lastSuccessfulSummaryJobCompletionAt ? <span>Last summary completion {props.lastSuccessfulSummaryJobCompletionAt}</span> : null}
+        </div>
       </div>
       <button type="button" onClick={props.onExport}>
         <Download size={18} aria-hidden="true" />
@@ -961,11 +970,22 @@ export function RecentToolsCard(props: {
   onToggleCollapsed: () => void;
 }) {
   const Icon = iconFor(props.icon);
+  const toolEventLabel = `${props.count} tool ${props.count === 1 ? "event" : "events"}`;
   return (
     <section aria-label="Diagnostics card: Recent Tools. Status: info" className="diagnostic-card info" tabIndex={0}>
       <Icon size={22} aria-hidden="true" />
       <div>
-        <DiagnosticsCardHeader title="Recent Tools" collapsed={props.collapsed} onToggle={props.onToggleCollapsed} />
+        <DiagnosticsCardHeader
+          title="Recent Tools"
+          collapsed={props.collapsed}
+          cue={props.collapsed && props.count > 0 ? (
+            <span aria-label={toolEventLabel} className="tool-event-flag">
+              <Wrench size={14} aria-hidden="true" />
+              {props.count}
+            </span>
+          ) : null}
+          onToggle={props.onToggleCollapsed}
+        />
         {!props.collapsed ? (
           <>
             <p>{props.count} tool result in today's page.</p>
@@ -975,6 +995,11 @@ export function RecentToolsCard(props: {
             </label>
             <StatusChip label="Recent Tools" status="info" tone="info" />
           </>
+        ) : props.count > 0 ? (
+          <p className="tool-collapsed-summary">
+            <Wrench size={14} aria-hidden="true" />
+            {toolEventLabel}
+          </p>
         ) : <p className="collapsed-panel-copy">Collapsed.</p>}
       </div>
     </section>
@@ -999,12 +1024,23 @@ export function PendingApprovalsCard(props: {
 }) {
   const Icon = iconFor(props.icon);
   const tone = props.pendingCount > 0 ? "warning" : "success";
+  const approvalRequestLabel = `${props.pendingCount} pending approval ${props.pendingCount === 1 ? "request" : "requests"}`;
   return (
     <div className="approval-popover-wrap">
       <section aria-label={`Diagnostics card: Pending approvals. Status: ${props.pendingCount > 0 ? "pending" : "info"}`} className={`diagnostic-card ${tone}`} ref={props.sectionRef} tabIndex={0}>
         <Icon size={22} aria-hidden="true" />
         <div>
-          <DiagnosticsCardHeader title="Pending approvals" collapsed={props.collapsed} onToggle={props.onToggleCollapsed} />
+          <DiagnosticsCardHeader
+            title="Pending approvals"
+            collapsed={props.collapsed}
+            cue={props.pendingCount > 0 ? (
+              <span aria-label={approvalRequestLabel} className="approval-pending-flag">
+                <Flag size={14} aria-hidden="true" />
+                {props.pendingCount}
+              </span>
+            ) : null}
+            onToggle={props.onToggleCollapsed}
+          />
           {!props.collapsed ? (
             <>
               <p>{props.pendingCount} pending approvals</p>
@@ -1020,6 +1056,11 @@ export function PendingApprovalsCard(props: {
                 ) : null}
               </div>
             </>
+          ) : props.pendingCount > 0 ? (
+            <p className="approval-collapsed-summary">
+              <Flag size={14} aria-hidden="true" />
+              {approvalRequestLabel}
+            </p>
           ) : <p className="collapsed-panel-copy">Collapsed.</p>}
         </div>
       </section>
@@ -1090,10 +1131,13 @@ export function DiagnosticsCard(props: {
   );
 }
 
-function DiagnosticsCardHeader(props: { collapsed: boolean; onToggle: () => void; title: string }) {
+function DiagnosticsCardHeader(props: { collapsed: boolean; cue?: ReactNode; onToggle: () => void; title: string }) {
   return (
     <div className="diagnostic-card-header">
-      <h3>{props.title}</h3>
+      <div className="diagnostic-card-heading">
+        <h3>{props.title}</h3>
+        {props.cue}
+      </div>
       <button type="button" onClick={props.onToggle}>
         {props.collapsed ? "Expand" : "Collapse"}
       </button>

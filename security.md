@@ -140,3 +140,30 @@ Track OpenClog security posture, Gateway authority boundaries, redaction, and fa
 - Alert acknowledgement and snooze buttons mutate only stored local alert state through existing backend contracts, then refetch findings; no Gateway scope, token, device identity, or raw event access is added to the browser.
 - Replay and correlation inspection renders sanitized local evidence labels and ids through the same browser-visible redaction helpers used for timeline safety, preventing raw Gateway frame text, token-like values, cookies, and unsafe local paths from leaking through the new lists.
 - Failed replay/correlation reads are shown as unavailable local evidence instead of being converted into successful counts or synthetic narratives.
+
+## 2026-05-06 Roadmap Hardening
+- Backend fingerprints are public operational metadata only: PID, boot timestamp, commit, build timestamp, Node version, and runtime hash are safe to render, while Gateway tokens, device identity, auth headers, cookies, raw frames, and delivery secret values remain backend-only.
+- Stale fingerprint checks reject live session reads before control evidence is served, which prevents an old browser/backend pairing from silently driving the incident surface.
+- Delivery retry and adapter verification reuse backend idempotency keys, typed correlation ids, request fingerprints, and dry-run semantics; Slack, email, and generic webhook paths still fail closed unless configured server-side.
+- Receipt details, plugin sandbox metadata, remote-ops policy copy, and self-check output use the browser-visible redaction helper for secret refs and local paths, and red-team coverage now guards those surfaces.
+- Secure remote operations remain disabled by default; allowed origins and environment labels are metadata only, and secret access is explicitly `fail-closed`.
+- Theme/background controls now carry a visible decorative-only label, making it explicit that styling cannot change evidence, scopes, delivery, retention, summaries, or incident records.
+
+## 2026-05-07 Roadmap Follow-Through Hardening
+- Per-view diagnostics persistence stays browser-local investigation state only; changing the storage key from global to view-scoped does not add Gateway authority, secret access, or hidden operator state transfer.
+- Composer connectivity labeling is derived from bounded profile Gateway metadata plus readiness state and remains presentation-only; it does not create a new browser-side routing or secret path.
+- Copy affordances for bundle and incident-packet digests reuse existing bounded digest strings, and the new browser copy/status text remains covered by the same secret-boundary expectations as prior handoff surfaces.
+- Endpoint-budget throttling now records an explicit backend audit event when the API fails closed with `endpoint_budget_exceeded`, improving post-incident evidence without exposing new browser-visible payload content.
+- Docs snapshot-count checks compare local artifact counts to `testing.md` claims only; they do not read or expose any secret-bearing runtime state.
+
+## 2026-05-08 Fail-Closed Operator Handoff
+- Summary polling is local-only and terminal-state bounded: queued/running jobs remain visible, completed jobs update generated summaries, and failed or timed-out jobs keep stale summaries visible instead of inventing success.
+- Dry-run integration verification uses backend delivery contracts with `dryRun: true`; Slack, generic webhook, and email verification receipts render status, delivery reference, request fingerprint, idempotency key, and dead-letter reason without exposing secret values.
+- Composer scope explanations are derived from public Gateway readiness metadata only, so missing scopes and stale connectivity become visible without moving Gateway credentials or device identity into the browser.
+- Redaction-aware copy confirmations now explicitly say when bundle, digest, receipt, incident, and sanitized session copy actions used redaction-safe handoff text.
+
+## 2026-05-08 Closeout Hardening
+- Health polling no longer overwrites newer operator-action confirmations, which keeps fail-closed summary and delivery outcomes visible without changing the backend-authored Gateway readiness banner.
+- The dry-run verification formatter now has explicit coverage for missing delivery references and absent dead-letter reasons, so optional receipt fields cannot collapse into misleading blank handoff text.
+- The fail-closed replay/correlation browser check now waits for a real incident selection before asserting endpoint failure copy, proving the local evidence route fails closed instead of only testing a no-incident placeholder state.
+- Mobile header constraints keep utility metadata and icon buttons from intercepting the brand/home control, preserving keyboard and pointer recovery paths during degraded investigations.

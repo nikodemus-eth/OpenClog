@@ -194,3 +194,38 @@ Record deterministic verification, live Gateway verification, coverage policy, a
   - `npm run test:redteam`
   - `npm run test:coverage`
 - Coverage remains 100 percent statements, branches, functions, and lines for the configured measured surface; no coverage exclusions were broadened.
+
+## 2026-05-06 Thirty-Item Roadmap
+- Added failing-first unit/API/UI/red-team coverage for backend fingerprints, stale runtime rejection, summary freshness fields, saved triage views, receipt retry idempotency, dry-run adapter verification, closeout blocking, verification receipts, multi-day investigation workspaces, remote-ops fail-closed policy, receipt detail redaction, and plugin/secret boundary copy.
+- Expanded Playwright coverage for the visible operator workflows: backend mismatch banner, header PID/commit/build/boot metadata, scope negotiation have/missing panel, built-in stale/receipt/scope views, loop progress chips, receipt retry and copy buttons, bundle digest copy, generated-summary `lastEntryIncludedAt`/`latestEntryObservedAt`, decorative theme label, causality graph, and verification receipts.
+- Focused verification passed during implementation:
+  - `npx vitest run packages/app/test/application.test.ts apps/api/test/advanced-features.test.ts apps/web/test/operator-workspace.test.ts tests/redteam/redteam.test.ts`
+  - `npx playwright test tests/e2e/advanced-features.spec.ts --project=chromium --grep "backend mismatch|journal quick wins"`
+- `cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml` could not run because `rustfmt` is not installed for the local stable Apple Silicon toolchain; Rust formatting was kept manual and cargo verification is tracked in closeout commands.
+
+## 2026-05-07 Operator Surface Follow-Through
+- Added focused helper/API coverage for backend-mismatch built-in view selection, per-view diagnostics persistence keys, live pinned-summary character budgets, summary-job empty-state copy, composer connectivity labels, and endpoint-budget audit recording.
+- Expanded Playwright coverage for the visible quick-win operator flow: incident-packet digest copy, built-in backend-mismatch view labeling, header health-poll telemetry, live character-budget text, and inline receipt retry counts.
+- Focused verification passed on the implementation tree:
+  - `npm run test -- apps/web/test/operator-workspace.test.ts apps/api/test/advanced-features.test.ts tests/redteam/redteam.test.ts`
+  - `npm run typecheck`
+  - `npm run docs:check`
+  - `npx playwright test tests/e2e/advanced-features.spec.ts --project=chromium`
+- Current visual snapshot count remains 54 visual snapshots total, including 27 mobile visual snapshots.
+
+## 2026-05-08 Routing, Summary Polling, and Delivery Verification
+- Added failing-first coverage for route normalization, summary-job polling to terminal state, summary-job fail-closed timeout behavior, dry-run integration verification requests, summary-job state copy, last successful summary completion, and dry-run verification receipt formatting.
+- Expanded Playwright coverage for the rendered operator workbench: blocked-command scope explanation, summary refresh polling through completion, header last-summary-completion metadata, and Slack dry-run verification receipt details beside delivery actions.
+- Focused verification passed during implementation:
+  - `npm run test -- apps/web/test/journal-routing.test.ts apps/web/test/api-summary-jobs.test.ts apps/web/test/operator-workspace.test.ts apps/api/test/advanced-features.test.ts`
+  - `npm run typecheck`
+  - `npx playwright test tests/e2e/advanced-features.spec.ts tests/e2e/openclog.spec.ts --project=chromium`
+
+## 2026-05-08 Closeout Coverage And UI Refactor
+- Closed the remaining `operator-workspace.ts` measured-coverage gaps with focused unit cases for optional built-in view session state, saved-view misses and provenance, diagnostics default storage, no-progress summary jobs, completion timestamp fallback, and optional dry-run receipt fields.
+- `npm run test:coverage` now reports 100 percent statements, branches, functions, and lines for the configured measured surface: 20 Vitest files, 153 tests, 671/671 statements, 632/632 branches, 183/183 functions, and 534/534 lines.
+- Reproduced and fixed the full-gate UI regressions from `npm run verify`: health polling overwrote summary completion notices, replay/correlation fail-closed checks raced incident selection under parallel load, composer detail wrapped in the icon grid column, and mobile utility metadata intercepted the brand/home button.
+- Refreshed all 54 Playwright visual snapshots after the intentional composer-grid and mobile-header geometry fixes.
+- Focused rerun after fixes passed:
+  - `npx playwright test tests/e2e/interaction-refinements.spec.ts:133 tests/e2e/advanced-features.spec.ts:4 tests/e2e/advanced-features.spec.ts:271 tests/e2e/interaction-refinements.spec.ts:491 --project=chromium --project=mobile`
+- Final closeout gate remains `npm run verify`, followed by `npm run verify:gateway`, `npm run verify:desktop-native`, `npm run smoke -w @openclog/desktop`, and `git diff --check` before local-main commit and GitHub push.

@@ -1,4 +1,4 @@
-import type { JournalEntry, JournalEntryKind, JournalEntrySource, JournalEntryStatus, JournalSeverity } from "./types.js";
+import type { GeneratedSummary, JournalEntry, JournalEntryKind, JournalEntrySource, JournalEntryStatus, JournalSeverity } from "./types.js";
 
 const previewLimit = 260;
 const groupWindowMs = 120_000;
@@ -25,6 +25,12 @@ export interface BrowserVisibleText {
   expanded: boolean;
   hasMore: boolean;
   redactions: BrowserVisibleRedaction[];
+}
+
+export interface GeneratedSummaryFreshness {
+  isStale: boolean;
+  lastEntryIncludedAt?: string;
+  latestEntryObservedAt?: string;
 }
 
 export type TimelineGroupingReason = "adjacent_similar_low_value";
@@ -62,6 +68,29 @@ export function browserVisibleEntryText(entry: JournalEntry, options: { expanded
     expanded: options.expanded,
     hasMore: hasMore && !options.expanded,
     redactions: dedupeRedactions(redactions)
+  };
+}
+
+export function describeGeneratedSummaryFreshness(generatedSummary: GeneratedSummary | undefined, entries: JournalEntry[]): GeneratedSummaryFreshness {
+  if (!generatedSummary) return { isStale: false };
+  if (generatedSummary.lastEntryIncludedAt || generatedSummary.latestEntryObservedAt || generatedSummary.freshnessState) {
+    return {
+      isStale: generatedSummary.freshnessState === "stale",
+      ...(generatedSummary.lastEntryIncludedAt ? { lastEntryIncludedAt: generatedSummary.lastEntryIncludedAt } : {}),
+      ...(generatedSummary.latestEntryObservedAt ? { latestEntryObservedAt: generatedSummary.latestEntryObservedAt } : {})
+    };
+  }
+  const generatedAt = Date.parse(generatedSummary.createdAt);
+  if (!Number.isFinite(generatedAt)) return { isStale: false };
+  const entryTimes = entries
+    .map((entry) => ({ entry, entryTime: Date.parse(entry.timestamp) }))
+    .filter((item) => Number.isFinite(item.entryTime));
+  const latestIncluded = entryTimes.filter((item) => item.entryTime <= generatedAt).sort((left, right) => right.entryTime - left.entryTime)[0];
+  const latestObserved = entryTimes.sort((left, right) => right.entryTime - left.entryTime)[0];
+  return {
+    isStale: entryTimes.some((item) => item.entryTime > generatedAt),
+    ...(latestIncluded ? { lastEntryIncludedAt: latestIncluded.entry.timestamp } : {}),
+    ...(latestObserved ? { latestEntryObservedAt: latestObserved.entry.timestamp } : {})
   };
 }
 

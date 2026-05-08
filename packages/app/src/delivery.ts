@@ -1,5 +1,6 @@
 import type {
   BundleVerificationResult,
+  DeliveryAdapterTarget,
   DeliveryReceipt,
   DeliveryRequestOptions,
   PluginExecutionResult,
@@ -26,6 +27,17 @@ export function buildDeliveryModule(repo: ApplicationRepository) {
     },
     createGithubIssue({ dayKey, incidentId, idempotencyKey, dryRun, secretRef }: { dayKey: string } & DeliveryRequestOptions): DeliveryReceipt {
       return requireMethod(repo.createGithubIssue, "createGithubIssue")(dayKey, { incidentId, idempotencyKey, dryRun, secretRef });
+    },
+    getDeliveryReceipt({ id }: { id: string }): DeliveryReceipt {
+      const receipt = requireMethod(repo.listDeliveryReceipts, "listDeliveryReceipts")().find((item) => item.id === id);
+      if (!receipt) throw new Error(`delivery_receipt_not_found:${id}`);
+      return receipt;
+    },
+    retryDeliveryReceipt({ id }: { id: string }): DeliveryReceipt {
+      return requireMethod(repo.retryDeliveryReceipt, "retryDeliveryReceipt")(id);
+    },
+    verifyIntegrationTarget({ target, dayKey }: { target: DeliveryAdapterTarget; dayKey: string }): DeliveryReceipt {
+      return requireMethod(repo.verifyIntegrationTarget, "verifyIntegrationTarget")(target, dayKey);
     },
     listDeliveryReceipts({
       cursor,
@@ -55,7 +67,12 @@ export function buildDeliveryModule(repo: ApplicationRepository) {
       const reasons: string[] = [];
       if (!manifestDigest) reasons.push("manifest signature missing");
       if (manifestDigest && manifestDigest !== digest) reasons.push("manifest digest mismatch");
-      return { verified: reasons.length === 0, digest, reasons };
+      return {
+        verified: reasons.length === 0,
+        digest,
+        reasons,
+        signature: { algorithm: "sha256", digest, signatureVerified: reasons.length === 0, signer: "local-openclog" }
+      };
     },
     createReplayWorkspace(dayKey: string): ReplayWorkspace {
       return requireMethod(repo.createReplayWorkspace, "createReplayWorkspace")(dayKey);
@@ -119,8 +136,12 @@ export function buildDeliveryModule(repo: ApplicationRepository) {
         ...plugin,
         supportsDryRun: plugin.supportsDryRun !== false,
         actionIds: plugin.actionIds ?? ["run_plugin"],
-        validationStatus: plugin.capabilities.length > 0 ? "valid" : "blocked",
-        validationMessage: plugin.capabilities.length > 0 ? undefined : "Plugin must declare at least one capability."
+        sandbox: plugin.sandbox ?? { capabilities: plugin.capabilities, dryRunWritesOnly: true, auditedOutputs: true },
+        validationStatus: plugin.capabilities.length > 0 && plugin.readScopes.length > 0 ? "valid" : "blocked",
+        validationMessage:
+          plugin.capabilities.length > 0 && plugin.readScopes.length > 0
+            ? undefined
+            : "Plugin must declare at least one capability and read scope."
       };
       return requireMethod(repo.registerPlugin, "registerPlugin")(normalized);
     },

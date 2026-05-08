@@ -14,6 +14,7 @@ import {
   type AgentActivity,
   type AlertRule,
   type ApprovalView,
+  type BackendFingerprint,
   type DeliveryAdapterTarget,
   type GatewayEventLike,
   type IncidentActionKind,
@@ -36,6 +37,7 @@ export function createApiApp(services: ApiServices): FastifyInstance {
   const app = Fastify({ logger: false });
   const streamClients = new Set<ServerResponse>();
   const openclog = createOpenClogApplication({ repo: services.repo });
+  const backendFingerprint = openclog.getBackendFingerprint();
   const budgetState = new Map<string, { count: number; windowStartedAt: number }>();
 
   void app.register(cors, { origin: true });
@@ -43,6 +45,11 @@ export function createApiApp(services: ApiServices): FastifyInstance {
   app.addHook("onRequest", async (request, reply) => {
     const throttled = checkEndpointBudget(budgetState, request.url);
     if (!throttled) return;
+    services.repo.addAudit("endpoint_budget.exceeded", {
+      target_type: "http_route",
+      route: request.url,
+      method: request.method
+    });
     reply.header("x-openclog-degraded", "endpoint_budget");
     return reply.code(429).send({ error: "endpoint_budget_exceeded", message: "Expensive endpoint temporarily budgeted. Retry shortly." });
   });
@@ -63,10 +70,13 @@ export function createApiApp(services: ApiServices): FastifyInstance {
 
   app.get("/api/health", async () => ({
     ok: true,
+    backend: backendFingerprint,
     gateway: publicGatewayState(services.gateway.getState())
   }));
 
-  app.get("/api/version", async () => buildVersionInfo());
+  app.get("/api/version", async () => buildVersionInfo(backendFingerprint));
+
+  app.get("/api/backend/fingerprint", async () => ({ ok: true, backend: backendFingerprint, fingerprint: backendFingerprint }));
 
   app.get("/api/days", async () => ({
     days: services.repo.listDays()
@@ -159,13 +169,19 @@ export function createApiApp(services: ApiServices): FastifyInstance {
     agents: await listAgentActivity(services, request.query.dayKey ?? todayKey())
   }));
 
-  app.get<{ Params: { key: string }; Querystring: { cursor?: string; limit?: string } }>("/api/sessions/:key", async (request) =>
-    openclog.getSessionDrilldown({
+  app.get<{ Params: { key: string }; Querystring: { cursor?: string; limit?: string } }>("/api/sessions/:key", async (request, reply) => {
+    if (isStaleRuntimeFingerprint(request.headers["x-openclog-runtime-fingerprint"], backendFingerprint)) {
+      return reply.code(409).send({
+        error: "stale_backend_fingerprint",
+        message: "Live session request was rejected because the browser is bound to an old backend runtime."
+      });
+    }
+    return openclog.getSessionDrilldown({
       sessionKey: decodeURIComponent(request.params.key),
       cursor: request.query.cursor,
       limit: parsePositiveInt(request.query.limit, 100)
-    })
-  );
+    });
+  });
 
   app.post<{ Body: { text: string } }>("/api/composer", async (request, reply) => {
     const text = request.body?.text ?? "";
@@ -437,6 +453,17 @@ export function createApiApp(services: ApiServices): FastifyInstance {
     return { ok: true, selectedProfileId: request.params.id };
   });
 
+  app.post<{ Params: { target: string }; Body: { dayKey?: string } }>("/api/integrations/:target/verify", async (request, reply) => {
+    if (!isDeliveryTarget(request.params.target)) return reply.code(404).send({ error: "integration_target_not_found" });
+    return {
+      ok: true,
+      receipt: openclog.verifyIntegrationTarget({
+        target: request.params.target,
+        dayKey: request.body?.dayKey ?? todayKey()
+      })
+    };
+  });
+
   app.post<{ Params: { target: string }; Body: { dayKey?: string } }>("/api/integrations/:target", async (request, reply) => {
     const target = request.params.target;
     if (
@@ -444,7 +471,8 @@ export function createApiApp(services: ApiServices): FastifyInstance {
       target !== "markdown-vault" &&
       target !== "incident-doc" &&
       target !== "slack" &&
-      target !== "generic-webhook"
+      target !== "generic-webhook" &&
+      target !== "email"
     ) {
       return reply.code(404).send({ error: "integration_target_not_found" });
     }
@@ -485,6 +513,24 @@ export function createApiApp(services: ApiServices): FastifyInstance {
     return { receipts: page.items, nextCursor: page.nextCursor };
   });
 
+  app.get<{ Params: { id: string } }>("/api/integrations/receipts/:id", async (request, reply) => {
+    try {
+      return { ok: true, receipt: openclog.getDeliveryReceipt({ id: request.params.id }) };
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("delivery_receipt_not_found:")) return reply.code(404).send({ error: "delivery_receipt_not_found" });
+      throw error;
+    }
+  });
+
+  app.post<{ Params: { id: string } }>("/api/integrations/receipts/:id/retry", async (request, reply) => {
+    try {
+      return { ok: true, receipt: openclog.retryDeliveryReceipt({ id: request.params.id }) };
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("delivery_receipt_not_found:")) return reply.code(404).send({ error: "delivery_receipt_not_found" });
+      throw error;
+    }
+  });
+
   app.post<{ Body: { day?: { dayKey?: string; entries?: unknown[] }; markdown?: string } }>("/api/replay-bundles/inspect", async (request) => ({
     ok: true,
     replay: openclog.inspectReplayBundle(request.body ?? {})
@@ -520,6 +566,36 @@ export function createApiApp(services: ApiServices): FastifyInstance {
       };
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("day_not_found:")) return reply.code(404).send({ error: "day_not_found" });
+      throw error;
+    }
+  });
+
+  app.post<{ Body: { dayKey?: string; exportTargets?: string[] } }>("/api/closeout/complete", async (request, reply) => {
+    const completion = openclog.completeCloseout({
+      dayKey: request.body?.dayKey ?? todayKey(),
+      exportTargets: Array.isArray(request.body?.exportTargets) ? request.body.exportTargets.filter((target): target is string => typeof target === "string") : []
+    });
+    if (completion.blocked) return reply.code(409).send({ ok: false, error: "closeout_blocked", completion, plan: completion });
+    return { ok: true, completion, plan: completion };
+  });
+
+  app.get("/api/verification/receipts", async () => ({
+    receipts: openclog.listVerificationReceipts()
+  }));
+
+  app.post<{ Body: { dayKeys?: string[]; title?: string } }>("/api/investigations/workspaces", async (request) => ({
+    ok: true,
+    workspace: openclog.createInvestigationWorkspace({
+      dayKeys: Array.isArray(request.body?.dayKeys) ? request.body.dayKeys.filter((dayKey): dayKey is string => typeof dayKey === "string") : [todayKey()],
+      title: request.body?.title
+    })
+  }));
+
+  app.get<{ Params: { id: string } }>("/api/investigations/workspaces/:id", async (request, reply) => {
+    try {
+      return { ok: true, workspace: openclog.getInvestigationWorkspace({ id: request.params.id }) };
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("investigation_workspace_not_found:")) return reply.code(404).send({ error: "investigation_workspace_not_found" });
       throw error;
     }
   });
@@ -779,11 +855,15 @@ function todayKey(now = new Date()): string {
 }
 
 function publicGatewayState(state: ReturnType<GatewayPort["getState"]>): Record<string, unknown> {
+  const have = state.scopes ?? [];
+  const missing = state.missingScopes ?? [];
   return {
     status: state.status,
     role: state.role,
-    scopes: state.scopes,
-    missingScopes: state.missingScopes,
+    scopes: have,
+    missingScopes: missing,
+    scopeNegotiation: { have, missing },
+    targetReachable: state.targetReachable ?? (state.status === "ready" || state.connectionStatus === "connected"),
     stale: state.stale === true,
     canIssueControlActions: state.canIssueControlActions,
     ...(state.connectionStatus ? { connectionStatus: state.connectionStatus } : {}),
@@ -847,7 +927,7 @@ function checkEndpointBudget(
 }
 
 function isDeliveryTarget(value: string): value is DeliveryAdapterTarget {
-  return value === "slack" || value === "generic-webhook" || value === "email";
+  return value === "slack" || value === "generic-webhook" || value === "email" || value === "github-issue";
 }
 
 function isRetentionClassId(value: string): value is
@@ -874,7 +954,7 @@ function isRetentionClassId(value: string): value is
 }
 
 /* v8 ignore next -- process-local git metadata branch varies by test isolation and is validated through route coverage plus targeted helper tests */
-export function buildVersionInfo(): { buildTimestamp: string; commitSha: string; version: string } {
+export function buildVersionInfo(fingerprint?: BackendFingerprint): { buildTimestamp: string; commitSha: string; version: string; pid: number; bootedAt: string; runtimeFingerprint: string; nodeVersion: string } {
   const version = process.env.npm_package_version ?? "0.1.0";
   let commitSha = "unknown";
   try {
@@ -882,7 +962,20 @@ export function buildVersionInfo(): { buildTimestamp: string; commitSha: string;
   } catch {
     commitSha = "unknown";
   }
-  return { version, commitSha, buildTimestamp: new Date().toISOString() };
+  return {
+    version,
+    commitSha: fingerprint?.commitSha ?? commitSha,
+    buildTimestamp: fingerprint?.buildTimestamp ?? new Date().toISOString(),
+    pid: fingerprint?.pid ?? process.pid,
+    bootedAt: fingerprint?.bootedAt ?? new Date().toISOString(),
+    runtimeFingerprint: fingerprint?.runtimeFingerprint ?? "unknown",
+    nodeVersion: fingerprint?.nodeVersion ?? process.version
+  };
+}
+
+function isStaleRuntimeFingerprint(value: string | string[] | undefined, fingerprint: BackendFingerprint): boolean {
+  const header = Array.isArray(value) ? value[0] : value;
+  return Boolean(header && header !== fingerprint.runtimeFingerprint);
 }
 
 export function buildIncidentSnapshot(repo: OpenClogRepository, dayKey: string, entryIds: string[], title?: string) {
@@ -896,6 +989,7 @@ export function buildIncidentSnapshot(repo: OpenClogRepository, dayKey: string, 
     entryIds: selected.map((entry) => entry.id),
     createdAt: new Date().toISOString(),
     /* v8 ignore next -- fallback suggestions are validated at the incident integration surface */
-    runbookSuggestions: repo.listIncidents()[0]?.runbookSuggestions ?? []
+    runbookSuggestions: repo.listIncidents()[0]?.runbookSuggestions ?? [],
+    loopProgress: { detect: true, explain: true, recommend: true, act: false, record: false }
   } satisfies IncidentSummary;
 }

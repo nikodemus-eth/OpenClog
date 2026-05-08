@@ -166,6 +166,33 @@ export const journalBundleExports = sqliteTable("journal_bundle_exports", {
   exportJson: text("export_json").notNull()
 });
 
+export const journalBackendFingerprints = sqliteTable("journal_backend_fingerprints", {
+  id: text("id").primaryKey(),
+  runtimeFingerprint: text("runtime_fingerprint").notNull(),
+  bootedAt: text("booted_at").notNull(),
+  fingerprintJson: text("fingerprint_json").notNull()
+});
+
+export const journalCloseoutCompletions = sqliteTable("journal_closeout_completions", {
+  id: text("id").primaryKey(),
+  dayKey: text("day_key").notNull(),
+  completedAt: text("completed_at").notNull(),
+  completionJson: text("completion_json").notNull()
+});
+
+export const journalVerificationReceipts = sqliteTable("journal_verification_receipts", {
+  id: text("id").primaryKey(),
+  command: text("command").notNull(),
+  status: text("status").notNull(),
+  completedAt: text("completed_at").notNull(),
+  receiptJson: text("receipt_json").notNull()
+});
+
+export const journalInvestigationWorkspaces = sqliteTable("journal_investigation_workspaces", {
+  id: text("id").primaryKey(),
+  workspaceJson: text("workspace_json").notNull()
+});
+
 export const journalSummaryJobs = sqliteTable("journal_summary_jobs", {
   id: text("id").primaryKey(),
   dayKey: text("day_key").notNull(),
@@ -204,7 +231,9 @@ export const journalTableNames = [
   "journal_analytics_snapshots",
   "journal_approvals",
   "journal_audit_log",
+  "journal_backend_fingerprints",
   "journal_bundle_exports",
+  "journal_closeout_completions",
   "journal_correlation_graph",
   "journal_daily_summaries",
   "journal_days",
@@ -215,6 +244,7 @@ export const journalTableNames = [
   "journal_incidents",
   "journal_integrity_reports",
   "journal_investigation_notes",
+  "journal_investigation_workspaces",
   "journal_lineage",
   "journal_pinned_context",
   "journal_plugin_runs",
@@ -226,5 +256,6 @@ export const journalTableNames = [
   "journal_sessions",
   "journal_settings",
   "journal_summary_jobs",
-  "journal_summary_profiles"
+  "journal_summary_profiles",
+  "journal_verification_receipts"
 ] as const;

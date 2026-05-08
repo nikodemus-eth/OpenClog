@@ -2,16 +2,20 @@ import type {
   AlertFinding,
   AlertRule,
   AnalyticsSnapshot,
+  BackendFingerprint,
   BundleVerificationResult,
+  CloseoutCompletion,
   DeliveryReceipt,
   DeliveryRequestOptions,
   DeliverySecretRef,
+  DeliveryAdapterTarget,
   GeneratedProfileSummary,
   HealthAggregate,
   HealthHistoryEntry,
   IncidentRulePack,
   IncidentActionRecord,
   IncidentSummary,
+  InvestigationWorkspace,
   InvestigationNote,
   IntegrationPayload,
   JournalDay,
@@ -22,6 +26,7 @@ import type {
   OperatorRunbook,
   PluginExecutionResult,
   PluginManifest,
+  RemoteOpsPolicy,
   ReplayWorkspace,
   RetentionClass,
   RetentionClassPreview,
@@ -34,7 +39,8 @@ import type {
   SummaryProfile,
   CorrelationGraph,
   SloSnapshot,
-  IntegrityMonitorReport
+  IntegrityMonitorReport,
+  VerificationReceipt
 } from "@openclog/core";
 
 export interface PaginatedSearchResult {
@@ -112,9 +118,12 @@ export interface IntegrationRepository {
   deliverIntegration(target: DeliveryReceipt["target"], dayKey: string, options?: DeliveryRequestOptions): DeliveryReceipt;
   createGithubIssue(dayKey: string, options?: DeliveryRequestOptions): DeliveryReceipt;
   listDeliveryReceipts(): DeliveryReceipt[];
+  retryDeliveryReceipt(id: string): DeliveryReceipt;
+  verifyIntegrationTarget(target: DeliveryAdapterTarget, dayKey: string): DeliveryReceipt;
 }
 
 export interface GovernanceRepository {
+  getBackendFingerprint(): BackendFingerprint;
   getLineage(entryId: string): LineageRecord | undefined;
   listSummaryProfiles(): SummaryProfile[];
   generateSummaryProfile(profileId: SummaryProfile["id"], dayKey: string): GeneratedProfileSummary;
@@ -134,6 +143,11 @@ export interface GovernanceRepository {
   createReplayWorkspace(dayKey: string): ReplayWorkspace;
   getSloSnapshot(): SloSnapshot;
   generateOperatorRunbook(): OperatorRunbook;
+  completeCloseout(dayKey: string, exportTargets: string[]): CloseoutCompletion;
+  listVerificationReceipts(): VerificationReceipt[];
+  createInvestigationWorkspace(input: { dayKeys: string[]; title?: string }): InvestigationWorkspace;
+  getInvestigationWorkspace(id: string): InvestigationWorkspace | undefined;
+  getRemoteOpsPolicy(): RemoteOpsPolicy;
   getHealthAggregate(limit?: number): HealthAggregate;
   getIntegrityReport(): {
     checkedEntries: number;

@@ -53,8 +53,15 @@ describe("API routes", () => {
 
     const response = await app.inject({ method: "GET", url: "/api/health" });
 
-    expect(response.json()).toEqual({
+    const body = response.json();
+    expect(body).toMatchObject({
       ok: true,
+      backend: {
+        pid: expect.any(Number),
+        bootedAt: expect.any(String),
+        runtimeFingerprint: expect.any(String),
+        nodeVersion: expect.any(String)
+      },
       gateway: {
         canIssueControlActions: false,
         connectionStatus: "connecting",
@@ -68,6 +75,10 @@ describe("API routes", () => {
         reconnectAttempt: 3,
         role: "operator",
         scopes: ["operator.read", "operator.write", "operator.approvals"],
+        scopeNegotiation: {
+          have: ["operator.read", "operator.write", "operator.approvals"],
+          missing: []
+        },
         serviceRecovery: {
           enabled: true,
           lastAttemptAt: "2026-05-03T16:01:02.000Z",
@@ -77,7 +88,8 @@ describe("API routes", () => {
           restartCount: 1
         },
         stale: true,
-        status: "degraded"
+        status: "degraded",
+        targetReachable: false
       }
     });
     expect(response.body).not.toMatch(/gateway-token|privateKey|signature|connect"/i);
@@ -101,16 +113,27 @@ describe("API routes", () => {
 
     const response = await app.inject({ method: "GET", url: "/api/health" });
 
-    expect(response.json()).toEqual({
+    expect(response.json()).toMatchObject({
       ok: true,
+      backend: {
+        pid: expect.any(Number),
+        bootedAt: expect.any(String),
+        runtimeFingerprint: expect.any(String),
+        nodeVersion: expect.any(String)
+      },
       gateway: {
         canIssueControlActions: false,
         missingScopes: [],
         role: "operator",
         scopes: ["operator.read", "operator.write", "operator.approvals"],
+        scopeNegotiation: {
+          have: ["operator.read", "operator.write", "operator.approvals"],
+          missing: []
+        },
         serviceRecovery: { enabled: true, restartCount: 0 },
         stale: true,
-        status: "degraded"
+        status: "degraded",
+        targetReachable: false
       }
     });
     await app.close();

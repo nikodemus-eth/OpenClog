@@ -1,26 +1,36 @@
 import { describe, expect, test } from "vitest";
-import type { GeneratedSummary, JournalEntry } from "@openclog/core";
+import type { DeliveryReceipt, GeneratedSummary, JournalEntry } from "@openclog/core";
 import {
   addSearchPreset,
   buildNamedOperatorViews,
   buildReconnectTrendText,
   classifyGatewayErrorCategory,
   classifyGatewayUrl,
+  describeActiveOperatorView,
   describeAlertFindingState,
+  describeComposerConnectivity,
+  describeOperatorViewSource,
+  describeSummaryJobState,
   DEFAULT_SEARCH_PRESETS,
   dedupeLiveActionNotice,
+  diagnosticsCollapsedStorageKey,
   describeGeneratedSummaryFreshness,
   formatCorrelationEdge,
   formatCorrelationNode,
+  formatIntegrationVerificationReceipt,
   formatBundleManifestPreview,
   formatCloseoutPlan,
   formatMissionReplayStep,
+  formatReceiptDetails,
+  getLastSuccessfulSummaryJobCompletionAt,
   formatReplayBundleDiff,
   formatRetentionPreview,
   formatRetentionSnapshotImpact,
   hasRetentionImpact,
+  isSummaryJobActive,
   isGeneratedSummaryStale,
   mergeSearchPresets,
+  remainingPinnedSummaryCharacters,
   searchEmptyState,
   summarizeAlertFindings,
   thirtyMinuteSnoozeUntil,
@@ -33,6 +43,7 @@ describe("operator workspace helpers", () => {
     expect(validatePinnedSummary("   ")).toBe("Pinned summary cannot be empty.");
     expect(validatePinnedSummary("a".repeat(281))).toBe("Pinned summary must be 280 characters or fewer.");
     expect(validatePinnedSummary("Operational summary")).toBeNull();
+    expect(remainingPinnedSummaryCharacters("abc")).toBe(277);
   });
 
   test("detects when generated summaries are stale", () => {
@@ -186,11 +197,112 @@ describe("operator workspace helpers", () => {
     expect(buildNamedOperatorViews("2026-05-04", "agent:hugin:main")).toEqual([
       expect.objectContaining({ id: "reconnect-triage", builtIn: true, drilldown: { sessionKey: "agent:hugin:main", tab: "timeline", scrollTop: 0 } }),
       expect.objectContaining({ id: "pending-approvals", builtIn: true, drilldown: { sessionKey: "agent:hugin:main", tab: "actions", scrollTop: 0 } }),
-      expect.objectContaining({ id: "delivery-failures", builtIn: true, drilldown: { sessionKey: "agent:hugin:main", tab: "deliveries", scrollTop: 0 } })
+      expect.objectContaining({ id: "delivery-failures", builtIn: true, drilldown: { sessionKey: "agent:hugin:main", tab: "deliveries", scrollTop: 0 } }),
+      expect.objectContaining({ id: "stale-summaries", builtIn: true, searchQuery: "summary stale" }),
+      expect.objectContaining({ id: "failed-receipts", builtIn: true, searchQuery: "delivery receipt failed" }),
+      expect.objectContaining({ id: "stale-backend-fingerprint", builtIn: true, searchQuery: "stale backend fingerprint" }),
+      expect.objectContaining({ id: "scope-missing", builtIn: true, searchQuery: "scope missing" })
     ]);
     expect(dedupeLiveActionNotice([], "  ")).toEqual([]);
     expect(dedupeLiveActionNotice(["saved"], "saved")).toEqual(["saved"]);
     expect(dedupeLiveActionNotice(["alpha", "beta", "gamma"], "delta")).toEqual(["delta", "alpha", "beta"]);
+  });
+
+  test("keeps built-in operator view drilldowns valid without a selected session", () => {
+    expect(buildNamedOperatorViews("2026-05-04")).toEqual([
+      expect.objectContaining({ id: "reconnect-triage", drilldown: { sessionKey: undefined, tab: "timeline", scrollTop: 0 } }),
+      expect.objectContaining({ id: "pending-approvals", drilldown: { sessionKey: undefined, tab: "actions", scrollTop: 0 } }),
+      expect.objectContaining({ id: "delivery-failures", drilldown: { sessionKey: undefined, tab: "deliveries", scrollTop: 0 } }),
+      expect.objectContaining({ id: "stale-summaries", drilldown: { sessionKey: undefined, tab: "timeline", scrollTop: 0 } }),
+      expect.objectContaining({ id: "failed-receipts", drilldown: { sessionKey: undefined, tab: "deliveries", scrollTop: 0 } }),
+      expect.objectContaining({ id: "stale-backend-fingerprint", drilldown: { sessionKey: undefined, tab: "timeline", scrollTop: 0 } }),
+      expect.objectContaining({ id: "scope-missing", drilldown: { sessionKey: undefined, tab: "actions", scrollTop: 0 } })
+    ]);
+  });
+
+  test("describes active operator views, connectivity, summary job state, and per-view storage", () => {
+    const views = buildNamedOperatorViews("2026-05-04", "agent:hugin:main");
+    const active = describeActiveOperatorView(
+      {
+        searchQuery: "stale backend fingerprint",
+        selectedDayKey: "2026-05-04",
+        grouped: true,
+        activeFilters: ["errors"]
+      },
+      views
+    );
+
+    expect(active).toMatchObject({ id: "stale-backend-fingerprint", builtIn: true });
+    expect(describeOperatorViewSource(active)).toBe("Built-in view: Backend mismatch (stale backend fingerprint)");
+    expect(
+      describeActiveOperatorView(
+        {
+          searchQuery: "not saved",
+          selectedDayKey: "2026-05-04",
+          grouped: true,
+          activeFilters: ["errors"]
+        },
+        views
+      )
+    ).toBeNull();
+    expect(
+      describeActiveOperatorView(
+        {
+          searchQuery: "floating day",
+          selectedDayKey: "2026-05-04",
+          grouped: false,
+          activeFilters: ["approvals", "errors"]
+        },
+        [
+          {
+            id: "floating",
+            label: "Floating",
+            searchQuery: "floating day",
+            activeFilters: ["errors", "approvals"],
+            grouped: false,
+            builtIn: false
+          }
+        ]
+      )
+    ).toMatchObject({ id: "floating" });
+    expect(describeOperatorViewSource(null)).toBeNull();
+    expect(
+      describeOperatorViewSource({
+        id: "saved-view",
+        label: "Saved view",
+        searchQuery: "saved query",
+        activeFilters: [],
+        grouped: false
+      })
+    ).toBe("Saved view: Saved view (saved query)");
+    expect(diagnosticsCollapsedStorageKey(active?.id)).toBe("openclog.diagnostics.collapsed.stale-backend-fingerprint");
+    expect(diagnosticsCollapsedStorageKey(undefined)).toBe("openclog.diagnostics.collapsed.default");
+    expect(describeComposerConnectivity("ws://127.0.0.1:18789", true)).toMatchObject({ label: "Live Gateway" });
+    expect(describeComposerConnectivity("ws://127.0.0.1:18789", false)).toMatchObject({ label: "Local only" });
+    expect(describeComposerConnectivity("::bad-url::", true)).toMatchObject({ label: "Local only" });
+    expect(describeComposerConnectivity(undefined, false)).toMatchObject({ label: "Local only" });
+    expect(describeSummaryJobState(null, undefined)).toBe("Summary never generated for this day yet.");
+    expect(describeSummaryJobState({ status: "completed" }, undefined)).toBe("Summary job completed.");
+    expect(describeSummaryJobState({ status: "queued", progressLabel: "Queued for local evidence review." }, undefined)).toBe("Summary job queued: Queued for local evidence review.");
+    expect(describeSummaryJobState({ status: "running", progressLabel: "Generating from local evidence." }, undefined)).toBe("Summary job running: Generating from local evidence.");
+    expect(describeSummaryJobState({ status: "failed", progressLabel: "Failed closed.", error: "summary unavailable" }, undefined)).toBe("Summary job failed: Failed closed. Error: summary unavailable.");
+    expect(describeSummaryJobState({ status: "failed", progressLabel: "Failed closed", error: "Authorization: Bearer test-secret" }, undefined)).toBe(
+      "Summary job failed: Failed closed. Error: [REDACTED_SECRET]."
+    );
+    expect(describeSummaryJobState(null, { summary: "ready", createdAt: "2026-05-04T00:00:00.000Z", source: "rules" })).toBe(
+      "Generated summary available."
+    );
+    expect(isSummaryJobActive({ status: "queued" })).toBe(true);
+    expect(isSummaryJobActive({ status: "running" })).toBe(true);
+    expect(isSummaryJobActive({ status: "completed" })).toBe(false);
+    expect(getLastSuccessfulSummaryJobCompletionAt({ status: "completed", completedAt: "2026-05-04T12:00:00.000Z" }, undefined)).toBe("2026-05-04T12:00:00.000Z");
+    expect(
+      getLastSuccessfulSummaryJobCompletionAt(
+        { status: "completed", generatedSummary: { summary: "ready", createdAt: "2026-05-04T12:01:00.000Z", source: "rules" } },
+        undefined
+      )
+    ).toBe("2026-05-04T12:01:00.000Z");
+    expect(getLastSuccessfulSummaryJobCompletionAt(null, { summary: "ready", createdAt: "2026-05-04T00:00:00.000Z", source: "rules" })).toBe("2026-05-04T00:00:00.000Z");
   });
 
   test("formats closeout plans, replay diffs, and investigation notes", () => {
@@ -279,10 +391,67 @@ describe("operator workspace helpers", () => {
 
     expect(freshness).toMatchObject({
       isStale: true,
-      lastEntryIncludedAt: "2026-05-04T08:59:30.000Z"
+      lastEntryIncludedAt: "2026-05-04T08:59:30.000Z",
+      latestEntryObservedAt: "2026-05-04T09:01:00.000Z"
     });
+    expect(
+      describeGeneratedSummaryFreshness(
+        {
+          ...generatedSummary,
+          lastEntryIncludedAt: "2026-05-04T09:00:00.000Z",
+          latestEntryObservedAt: "2026-05-04T09:02:00.000Z",
+          freshnessState: "stale"
+        },
+        []
+      )
+    ).toEqual({
+      isStale: true,
+      lastEntryIncludedAt: "2026-05-04T09:00:00.000Z",
+      latestEntryObservedAt: "2026-05-04T09:02:00.000Z"
+    });
+    expect(
+      describeGeneratedSummaryFreshness(
+        {
+          ...generatedSummary,
+          freshnessState: "fresh"
+        },
+        []
+      )
+    ).toEqual({ isStale: false });
     expect(formatBundleManifestPreview({ manifest: { dayKey: "2026-05-04", exportedAt: "2026-05-04T10:00:00.000Z", version: "0.1.0" }, day: { entries: [{ id: "1" }, { id: "2" }] } })).toContain(
       "2 entries"
+    );
+    expect(
+      formatBundleManifestPreview({
+        manifest: { dayKey: "2026-05-04", exportedAt: "2026-05-04T10:00:00.000Z", version: "0.1.0", signature: { algorithm: "sha256", digest: "digest-123" } },
+        day: { entries: [{ id: "1" }] }
+      })
+    ).toContain("Digest digest-123");
+    expect(
+      formatBundleManifestPreview({
+        manifest: { dayKey: "2026-05-04", exportedAt: "2026-05-04T10:00:00.000Z", version: "0.1.0", signature: { algorithm: "sha256" } as { algorithm: string; digest?: string } },
+        day: { entries: [] }
+      })
+    ).toContain("Digest unavailable.");
+    const baseReceipt: DeliveryReceipt = {
+      id: "receipt-1",
+      target: "slack",
+      dayKey: "2026-05-04",
+      title: "handoff",
+      status: "failed",
+      requestedAt: "2026-05-04T12:00:00.000Z",
+      completedAt: "2026-05-04T12:00:01.000Z",
+      correlationId: "corr-1",
+      retryCount: 0
+    };
+    expect(formatReceiptDetails(baseReceipt)).toContain("Attempt 1. Secret ref unavailable.");
+    expect(formatReceiptDetails({ ...baseReceipt, id: "receipt-2", retryOfReceiptId: "receipt-1", attemptNumber: 2 })).toContain("Retry of receipt-1 attempt 2.");
+    expect(formatReceiptDetails({ ...baseReceipt, id: "receipt-3", correlationId: undefined, retryOfReceiptId: "receipt-1", attemptNumber: undefined })).toContain("Correlation unavailable. Retry of receipt-1 attempt 1.");
+    expect(formatIntegrationVerificationReceipt({ ...baseReceipt, id: "verify-1", dryRun: true, deliveryReference: "dry-run", deadLetterReason: "delivery target is not configured" })).toBe(
+      "slack dry-run verification failed. Delivery reference dry-run. Receipt verify-1. delivery target is not configured"
+    );
+    expect(formatIntegrationVerificationReceipt({ ...baseReceipt, id: "verify-2", status: "sent", deliveryReference: undefined, deadLetterReason: undefined })).toBe(
+      "slack dry-run verification sent. Delivery reference unavailable. Receipt verify-2."
     );
     expect(classifyGatewayErrorCategory("gateway unavailable: Gateway connect.challenge timeout")).toBe("challenge_timeout");
     expect(classifyGatewayErrorCategory("device identity required")).toBe("device_identity");

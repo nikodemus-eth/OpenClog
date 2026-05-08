@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { formatCorrelationNode, formatMissionReplayStep, formatRetentionSnapshotImpact } from "../../apps/web/src/state/operator-workspace.js";
+import { formatCorrelationNode, formatMissionReplayStep, formatReceiptDetails, formatRetentionSnapshotImpact } from "../../apps/web/src/state/operator-workspace.js";
 import { browserVisibleEntryText, classifyComposerInput, redactGatewayPayload, toPersistableRedactedEvent } from "../../packages/core/src/index.js";
 
 describe("red-team fixtures", () => {
@@ -102,6 +102,28 @@ describe("red-team fixtures", () => {
     });
 
     expect([retention, replay, correlation].join("\n")).not.toMatch(/oc_token_secret|Bearer nope|raw-cookie|\/Users\/m4\/OpenClog\/\.env/);
+  });
+
+  test("receipt, plugin, and remote-mode copy preserve browser secret boundaries", () => {
+    const receipt = formatReceiptDetails({
+      id: "receipt-secret",
+      target: "slack",
+      dayKey: "2026-05-04",
+      title: "handoff",
+      status: "failed",
+      requestedAt: "2026-05-04T12:00:00.000Z",
+      completedAt: "2026-05-04T12:00:01.000Z",
+      correlationId: "corr-1",
+      retryCount: 1,
+      attemptNumber: 2,
+      secretRef: { backend: "macos-keychain", key: "OPENCLAW_GATEWAY_TOKEN=oc_token_secret" },
+      requestFingerprint: "fingerprint",
+      deadLetterReason: "Authorization: Bearer nope /Users/m4/OpenClog/.env"
+    });
+
+    expect(receipt).not.toMatch(/oc_token_secret|Bearer nope|\/Users\/m4\/OpenClog\/\.env/);
+    expect(receipt).toContain("[REDACTED_SECRET]");
+    expect(receipt).toContain("[LOCAL_PATH]");
   });
 });
 

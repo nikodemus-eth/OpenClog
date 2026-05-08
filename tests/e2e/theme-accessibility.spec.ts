@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import { themeGroups, themeIds } from "@openclog/core";
-import { installApiFixtures } from "./support/api-fixtures.js";
+import { installApiFixtures, setFixtureTheme } from "./support/api-fixtures.js";
 
 const themes = themeIds;
 const accessibilityThemes = ["accessibility", "accessibility-dark", "low-stimulus", "large-print", "dyslexia-friendly", "keyboard-first"] as const;
@@ -10,9 +10,8 @@ const familySmokeThemes = themeGroups.map((group) => group.themeIds[0]);
 test.describe("theme surfaces", () => {
   for (const theme of themes) {
     test(`${theme} renders operational surfaces without leaking secrets`, async ({ page }) => {
-      await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
+      await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0, settingsTheme: theme });
       await page.goto("/");
-      await page.getByLabel("Theme").selectOption(theme);
 
       await expect(page.getByRole("main")).toHaveAttribute("data-theme", theme);
       await expect(page.getByText(/Gateway ready/i).first()).toBeVisible();
@@ -25,12 +24,11 @@ test.describe("theme surfaces", () => {
     });
 
     test(`${theme} keeps degraded state visible`, async ({ page }) => {
-      await installApiFixtures(page, { gatewayStatus: "degraded", approvalCount: 0 });
+      await installApiFixtures(page, { gatewayStatus: "degraded", approvalCount: 0, settingsTheme: theme });
       await page.goto("/");
-      await page.getByLabel("Theme").selectOption(theme);
 
       await expect(page.getByText(/Gateway degraded/i).first()).toBeVisible();
-      await expect(page.getByText(/Missing scopes:/)).toBeVisible();
+      await expect(page.getByText(/Missing scopes:/).first()).toBeVisible();
       await expect(page.getByRole("heading", { name: "Pending approvals" })).toBeVisible();
     });
   }
@@ -62,24 +60,22 @@ test("browser-visible event text hides credentials and raw Gateway-looking paylo
   await page.goto("/");
 
   for (const theme of themes) {
-    await page.getByLabel("Theme").selectOption(theme);
+    await setFixtureTheme(page, theme);
+    await expect(page.getByRole("main")).toHaveAttribute("data-theme", theme);
     await expect(page.getByText("Operator-facing summary remains.")).toBeVisible();
     await expect(page.locator("body")).not.toContainText(/live-secret-token|oc_token_123456|raw-cookie|token-file|authorization":"Bearer/i);
   }
 });
 
-test("theme switching is presentation-only", async ({ page }) => {
-  await installApiFixtures(page, { gatewayStatus: "degraded", approvalCount: 2 });
+test("theme settings are presentation-only", async ({ page }) => {
+  await installApiFixtures(page, { gatewayStatus: "degraded", approvalCount: 2, settingsTheme: "blackbeards-log" });
   await page.goto("/");
-  await page.getByLabel("Composer input").fill("keep this composer text");
   const selectedDay = page.locator(".day-row[aria-current='date']");
-  const selectedDate = await selectedDay.locator("span").first().textContent();
-  const selectedTitle = await selectedDay.locator("strong").textContent();
-  await page.getByLabel("Theme").selectOption("blackbeards-log");
 
-  await expect(page.getByLabel("Composer input")).toHaveValue("keep this composer text");
-  await expect(page.locator(".day-row[aria-current='date']")).toContainText(selectedDate ?? "");
-  await expect(page.locator(".day-row[aria-current='date']")).toContainText(selectedTitle ?? "");
+  await expect(page.getByRole("main")).toHaveAttribute("data-theme", "blackbeards-log");
+  await expect(selectedDay).toContainText("2026-05-03");
+  await expect(selectedDay).toContainText("OpenClog Journal");
+  await expect(page.getByText("Saturday, May 2, 2026")).toBeVisible();
   await expect(page.getByText(/Gateway degraded/i).first()).toBeVisible();
   await expect(page.getByText("Agent Activity")).toBeVisible();
   await expect(page.getByText("Recent Tools")).toBeVisible();
@@ -109,7 +105,7 @@ test("UI shows Gateway reconnecting and guarded service recovery state", async (
 });
 
 test("keyboard and accessibility affordances work", async ({ page }) => {
-  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
+  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0, settingsTheme: "accessibility" });
   await page.goto("/");
 
   await page.keyboard.press("Tab");
@@ -130,9 +126,6 @@ test("keyboard and accessibility affordances work", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(page.getByRole("region", { name: "Keyboard shortcuts" })).toBeHidden();
 
-  await page.getByLabel("Theme").focus();
-  await expect(page.getByLabel("Theme")).toBeFocused();
-  await page.getByLabel("Theme").selectOption("accessibility");
   await expect(page.getByRole("main")).toHaveAttribute("data-theme", "accessibility");
 
   const sendBox = await page.getByRole("button", { name: "Send" }).boundingBox();
@@ -155,35 +148,27 @@ test("keyboard and accessibility affordances work", async ({ page }) => {
   expect(results.violations).toEqual([]);
 });
 
-test("Dyslexia Friendly avoids selector clipping, cramped text, and zoom overflow", async ({ page }) => {
-  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
+test("Dyslexia Friendly avoids cramped text and zoom overflow with the rail selector", async ({ page }) => {
+  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0, settingsTheme: "dyslexia-friendly" });
   await page.goto("/");
-  await page.getByLabel("Theme").selectOption("dyslexia-friendly");
   await page.addStyleTag({ content: "html { font-size: 200%; }" });
 
   const shellOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 2);
-  const selectorBox = await page.getByLabel("Theme").boundingBox();
-  const railBox = await page.locator(".left-rail").boundingBox();
   const lineHeight = await page.locator(".day-row").first().evaluate((element) => Number.parseFloat(getComputedStyle(element).lineHeight));
   const fontSize = await page.locator(".day-row").first().evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
-  const fontWeight = await page.locator(".theme-picker span").filter({ hasText: "Theme picker:" }).evaluate((element) => getComputedStyle(element).fontWeight);
 
   expect(shellOverflow).toBe(false);
-  expect(selectorBox && railBox ? selectorBox.x + selectorBox.width <= railBox.x + railBox.width + 1 : false).toBe(true);
   expect(lineHeight / fontSize).toBeGreaterThanOrEqual(1.45);
-  expect(Number.parseInt(fontWeight, 10)).toBeLessThanOrEqual(800);
-  await expect(page.getByLabel("Theme")).toBeVisible();
+  await expect(page.getByLabel("Theme", { exact: true })).toBeVisible();
   await expect(page.getByText("Agent Activity")).toBeVisible();
 });
 
 for (const theme of accessibilityThemes) {
   test(`${theme} keeps keyboard and hit-target accessibility guarantees`, async ({ page }) => {
-    await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
+    await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0, settingsTheme: theme });
     await page.goto("/");
-    await page.getByLabel("Theme").selectOption(theme);
 
-    await page.getByLabel("Theme").focus();
-    await expect(page.getByLabel("Theme")).toBeFocused();
+    await expect(page.getByRole("main")).toHaveAttribute("data-theme", theme);
     await page.getByLabel("Timeline entries").focus();
     await page.keyboard.press("ArrowDown");
     await expect(page.getByLabel(/Timeline entry 1:/)).toBeFocused();
@@ -197,13 +182,12 @@ for (const theme of accessibilityThemes) {
 
 for (const theme of familySmokeThemes) {
   test(`${theme} remains usable at 200 percent text zoom`, async ({ page }) => {
-    await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });
+    await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0, settingsTheme: theme });
     await page.goto("/");
-    await page.getByLabel("Theme").selectOption(theme);
     await page.addStyleTag({ content: "html { font-size: 200%; }" });
 
     await expect(page.getByLabel("Composer input")).toBeVisible();
-    await expect(page.getByText("Agent Activity")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Agent Activity" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Pending approvals" })).toBeVisible();
     const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 2);
     expect(horizontalOverflow).toBe(false);

@@ -64,6 +64,9 @@ export interface GeneratedSummary {
   summary: string;
   createdAt: string;
   source: "rules";
+  lastEntryIncludedAt?: string;
+  latestEntryObservedAt?: string;
+  freshnessState?: "fresh" | "stale" | "unknown";
 }
 
 export interface RetentionMetadata {
@@ -218,7 +221,7 @@ export interface AdapterEvent {
 
 export interface AlertRule {
   id: string;
-  kind: "reconnect_storm" | "approval_backlog" | "tool_failure_spike";
+  kind: "reconnect_storm" | "approval_backlog" | "tool_failure_spike" | "stale_summary" | "unresolved_approval_age" | "repeated_receipt_failure";
   title: string;
   threshold: number;
   enabled: boolean;
@@ -246,6 +249,7 @@ export interface IncidentSummary {
   entryIds: string[];
   createdAt: string;
   runbookSuggestions: RunbookSuggestion[];
+  loopProgress?: IncidentLoopProgress;
 }
 
 export interface InvestigationNote {
@@ -305,6 +309,16 @@ export interface SummaryJob {
   progressLabel: string;
   generatedSummary?: GeneratedSummary;
   error?: string;
+}
+
+export interface BackendFingerprint {
+  id: string;
+  runtimeFingerprint: string;
+  pid: number;
+  bootedAt: string;
+  commitSha: string;
+  buildTimestamp: string;
+  nodeVersion: string;
 }
 
 export type IncidentCauseCategory =
@@ -403,6 +417,14 @@ export interface IncidentLoop {
   record: IncidentLoopRecordState;
 }
 
+export interface IncidentLoopProgress {
+  detect: boolean;
+  explain: boolean;
+  recommend: boolean;
+  act: boolean;
+  record: boolean;
+}
+
 export interface IncidentWorkspace {
   incident: IncidentSummary;
   entries: JournalEntry[];
@@ -435,6 +457,16 @@ export interface CloseoutPlan {
   noteCount: number;
   exportTargets: string[];
   checklist: string[];
+}
+
+export interface CloseoutCompletion {
+  id: string;
+  dayKey: string;
+  completedAt: string;
+  blocked: boolean;
+  checklist: string[];
+  blockers: string[];
+  exportTargets: string[];
 }
 
 export interface ProfileConfig {
@@ -530,6 +562,8 @@ export interface DeliveryReceipt {
   completedAt: string;
   correlationId: string;
   retryCount: number;
+  attemptNumber?: number;
+  retryOfReceiptId?: string;
   idempotencyKey?: string;
   dryRun?: boolean;
   secretRef?: DeliverySecretRef;
@@ -537,6 +571,27 @@ export interface DeliveryReceipt {
   deliveryReference?: string;
   errorCategory?: "missing_config" | "network" | "authentication" | "validation" | "unknown";
   deadLetterReason?: string;
+}
+
+export interface CapabilityGate {
+  id: string;
+  label: string;
+  requiredScopes: string[];
+  haveScopes: string[];
+  missingScopes: string[];
+  enabled: boolean;
+  reason?: string;
+}
+
+export interface ControlReceipt {
+  id: string;
+  incidentId?: string;
+  actionId: IncidentActionKind;
+  intent: string;
+  approvalPath: string[];
+  executionResult: "completed" | "failed" | "blocked";
+  downstreamAcknowledgement?: string;
+  createdAt: string;
 }
 
 export interface HealthAggregate {
@@ -659,8 +714,15 @@ export interface PluginManifest {
   readScopes: Array<"entries" | "incidents" | "notes" | "exports">;
   actionIds?: IncidentActionKind[];
   supportsDryRun?: boolean;
+  sandbox?: PluginSandboxManifest;
   validationStatus?: "valid" | "blocked";
   validationMessage?: string;
+}
+
+export interface PluginSandboxManifest {
+  capabilities: PluginCapability[];
+  dryRunWritesOnly: boolean;
+  auditedOutputs: boolean;
 }
 
 export interface PluginExecutionResult {
@@ -683,6 +745,14 @@ export interface BundleVerificationResult {
   verified: boolean;
   digest: string;
   reasons: string[];
+  signature?: SignedBundleVerification;
+}
+
+export interface SignedBundleVerification {
+  algorithm: "sha256";
+  digest: string;
+  signatureVerified: boolean;
+  signer: "local-openclog";
 }
 
 export interface ReplayWorkspace {
@@ -715,6 +785,7 @@ export interface SloSnapshot {
   failedDeliveryCount: number;
   retryBacklogCount: number;
   reconnectHeavyDayCount: number;
+  baselines?: Array<{ id: string; label: string; current: number; baseline: number; status: "ok" | "watch" | "breach" }>;
 }
 
 export interface OperatorRunbookSection {
@@ -725,4 +796,30 @@ export interface OperatorRunbookSection {
 export interface OperatorRunbook {
   generatedAt: string;
   sections: OperatorRunbookSection[];
+}
+
+export interface VerificationReceipt {
+  id: string;
+  command: "verify" | "verify:gateway" | "verify:desktop-native" | "test:visual" | string;
+  status: "passed" | "failed" | "unknown";
+  startedAt: string;
+  completedAt?: string;
+  summary: string;
+  artifactPath?: string;
+}
+
+export interface InvestigationWorkspace {
+  id: string;
+  title: string;
+  summary: string;
+  dayKeys: string[];
+  incidentIds: string[];
+  createdAt: string;
+}
+
+export interface RemoteOpsPolicy {
+  enabled: boolean;
+  environmentLabel: string;
+  allowedOrigins: string[];
+  secretAccess: "fail-closed";
 }

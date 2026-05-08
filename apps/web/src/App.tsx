@@ -5,7 +5,6 @@ import {
   getTheme,
   resolveThemeId,
   sampleJournalDay,
-  themeGroups,
   type AdapterEvent,
   type AgentActivity,
   type AlertRule,
@@ -21,8 +20,8 @@ import {
   type OperatorViewPreset,
   type ProfileConfig,
   type ServiceHealthTimelineEntry,
-  type ThemePracticalGroup,
-  type ThemeId
+  type ThemeId,
+  type VerificationReceipt
 } from "@openclog/core";
 import {
   acknowledgeAlert,
@@ -67,15 +66,17 @@ import {
   fetchSessions,
   fetchSettings,
   fetchSlo,
-  fetchSummaryJob,
   fetchSummaryProfiles,
+  fetchVerificationReceipts,
   fetchVersion,
   generateSummaryProfile,
+  pollSummaryJobUntilSettled,
   previewRetention,
   previewRetentionByClass,
   registerPlugin,
   resolveApproval,
   rollbackRetention,
+  retryDeliveryReceipt,
   runIntegrityCheck,
   runIntegrityMonitor,
   runPlugin,
@@ -89,12 +90,15 @@ import {
   snoozeAlert,
   updateDayContext,
   updateSettings,
+  verifyIntegrationTarget,
   type ApprovalView as ApprovalApiView,
   type RetentionSnapshotResult,
+  type VerifiableIntegrationTarget,
   type VersionResponse
 } from "./api.js";
 import {
   AppShell,
+  BackendMismatchBanner,
   Composer,
   DayHeader,
   GatewayReadinessBanner,
@@ -111,8 +115,13 @@ import {
   buildNamedOperatorViews,
   buildArchiveView,
   buildReconnectTrendText,
+  describeActiveOperatorView,
+  describeComposerConnectivity,
   dedupeLiveActionNotice,
   describeAlertFindingState,
+  describeOperatorViewSource,
+  describeSummaryJobState,
+  diagnosticsCollapsedStorageKey,
   mergeDiagnosticsCollapsedState,
   mergeSearchPresets,
   createHomeRouteState,
@@ -121,6 +130,9 @@ import {
   formatCorrelationNode,
   formatBundleManifestPreview,
   formatCloseoutPlan,
+  formatIntegrationVerificationReceipt,
+  formatReceiptDetails,
+  getLastSuccessfulSummaryJobCompletionAt,
   formatMissionReplayStep,
   formatReplayBundleDiff,
   formatRetentionSnapshotImpact,
@@ -130,6 +142,8 @@ import {
   classifyGatewayUrl,
   formatRetentionPreview,
   isGeneratedSummaryStale,
+  isSummaryJobActive,
+  remainingPinnedSummaryCharacters,
   searchEmptyState,
   summarizeAlertFindings,
   thirtyMinuteSnoozeUntil,
@@ -141,7 +155,6 @@ import { useTimelinePreferences } from "./hooks/useTimelinePreferences.js";
 import "./styles/app.css";
 
 const PINNED_CONTEXT_COLLAPSED_STORAGE_KEY = "openclog.pinned-context.collapsed";
-const DIAGNOSTICS_COLLAPSED_STORAGE_KEY = "openclog.diagnostics.collapsed";
 const SESSION_DRILLDOWN_STORAGE_KEY = "openclog.session-drilldown.state";
 const RETENTION_EXECUTION_POLICY = { keepDays: 1, includeAudit: true, includeRedactedEvents: true, includeSummaries: true };
 const timelineFilterOptions: Array<{ id: JournalFilterKey; label: string }> = [
@@ -158,7 +171,18 @@ export function App() {
   const [days, setDays] = useState<Array<Omit<JournalDay, "entries">>>([]);
   const [day, setDay] = useState<JournalDay>(sampleJournalDay);
   const [gateway, setGateway] = useState<GatewayViewState>({ status: "degraded", missingScopes: ["operator.approvals"], stale: true });
-  const [version, setVersion] = useState<VersionResponse>({ version: "0.1.0", commitSha: "unknown", buildTimestamp: new Date().toISOString() });
+  const [version, setVersion] = useState<VersionResponse>({
+    version: "0.1.0",
+    commitSha: "unknown",
+    buildTimestamp: new Date().toISOString(),
+    pid: 0,
+    bootedAt: new Date().toISOString(),
+    runtimeFingerprint: "unknown",
+    nodeVersion: "unknown"
+  });
+  const [healthRuntimeFingerprint, setHealthRuntimeFingerprint] = useState("unknown");
+  const [healthPollLatencyMs, setHealthPollLatencyMs] = useState<number | null>(null);
+  const [lastSuccessfulHealthPollAt, setLastSuccessfulHealthPollAt] = useState<string | null>(null);
   const [composer, setComposer] = useState("");
   const [notice, setNotice] = useState("Gateway degraded: live state will not be invented.");
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -207,6 +231,9 @@ export function App() {
   const [healthAggregate, setHealthAggregate] = useState<Awaited<ReturnType<typeof fetchHealthAggregate>> | null>(null);
   const [healthTimeline, setHealthTimeline] = useState<ServiceHealthTimelineEntry[]>([]);
   const [deliveryReceipts, setDeliveryReceipts] = useState<DeliveryReceipt[]>([]);
+  const [receiptRetryStatus, setReceiptRetryStatus] = useState("");
+  const [integrationVerificationReceipts, setIntegrationVerificationReceipts] = useState<Partial<Record<VerifiableIntegrationTarget, DeliveryReceipt>>>({});
+  const [integrationVerificationStatus, setIntegrationVerificationStatus] = useState("");
   const [retentionClasses, setRetentionClasses] = useState<Awaited<ReturnType<typeof fetchRetentionClasses>>>([]);
   const [retentionClassPreviewState, setRetentionClassPreviewState] = useState<Awaited<ReturnType<typeof previewRetentionByClass>>>([]);
   const [lineageRecord, setLineageRecord] = useState<Awaited<ReturnType<typeof fetchLineage>> | null>(null);
@@ -226,6 +253,7 @@ export function App() {
   const [recentActionNotices, setRecentActionNotices] = useState<string[]>([]);
   const [sloSnapshot, setSloSnapshot] = useState<Awaited<ReturnType<typeof fetchSlo>> | null>(null);
   const [runbook, setRunbook] = useState<Awaited<ReturnType<typeof fetchRunbook>> | null>(null);
+  const [verificationReceipts, setVerificationReceipts] = useState<VerificationReceipt[]>([]);
   const [pinnedContextCollapsed, setPinnedContextCollapsed] = useState(() => {
     if (typeof window === "undefined") return true;
     try {
@@ -243,13 +271,7 @@ export function App() {
   const [diagnosticsCollapsed, setDiagnosticsCollapsed] = useState(() => {
     const defaults = getInitialDiagnosticsCollapsedState(0);
     if (typeof window === "undefined") return defaults;
-    try {
-      const stored = window.localStorage.getItem(DIAGNOSTICS_COLLAPSED_STORAGE_KEY);
-      if (!stored) return defaults;
-      return mergeDiagnosticsCollapsedState(defaults, JSON.parse(stored) as Record<string, unknown>);
-    } catch {
-      return defaults;
-    }
+    return defaults;
   });
   const mainRef = useRef<HTMLElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -259,7 +281,6 @@ export function App() {
   const approvalsCardRef = useRef<HTMLElement | null>(null);
   const incidentsPanelRef = useRef<HTMLDivElement | null>(null);
   const alertsPanelRef = useRef<HTMLDivElement | null>(null);
-  const themeSelectorRef = useRef<HTMLSelectElement | null>(null);
   const timelineRef = useRef<HTMLOListElement | null>(null);
   const toolFilterRef = useRef<HTMLInputElement | null>(null);
   const approvalButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -279,6 +300,17 @@ export function App() {
   const investigationNoteError = useMemo(() => validateInvestigationNote(investigationNoteDraft), [investigationNoteDraft]);
   const generatedSummaryFreshness = useMemo(() => describeGeneratedSummaryFreshness(day.generatedSummary, day.entries), [day.entries, day.generatedSummary]);
   const generatedSummaryStale = useMemo(() => isGeneratedSummaryStale(day.generatedSummary, day.entries), [day.entries, day.generatedSummary]);
+  const generatedSummaryStateText = useMemo(() => describeSummaryJobState(summaryJob, day.generatedSummary), [day.generatedSummary, summaryJob]);
+  const summaryRefreshActive = useMemo(() => isSummaryJobActive(summaryJob), [summaryJob]);
+  const lastSuccessfulSummaryJobCompletionAt = useMemo(
+    () => getLastSuccessfulSummaryJobCompletionAt(summaryJob, day.generatedSummary),
+    [day.generatedSummary, summaryJob]
+  );
+  const summaryFreshnessLabel = useMemo(() => {
+    if (!day.generatedSummary) return "missing";
+    if (generatedSummaryStale) return "stale";
+    return day.generatedSummary.freshnessState ?? "fresh";
+  }, [day.generatedSummary, generatedSummaryStale]);
   const retentionPreviewText = useMemo(() => formatRetentionPreview(retentionPreviewState), [retentionPreviewState]);
   const retentionSnapshotText = useMemo(() => formatRetentionSnapshotImpact(lastRetentionSnapshot), [lastRetentionSnapshot]);
   const alertSummary = summarizeAlertFindings(alertFindings);
@@ -286,7 +318,64 @@ export function App() {
   const bundlePreviewText = useMemo(() => (bundlePreview ? formatBundleManifestPreview(bundlePreview) : null), [bundlePreview]);
   const replayBundleDiffText = useMemo(() => formatReplayBundleDiff(replayBundleDiffState), [replayBundleDiffState]);
   const closeoutPlanText = useMemo(() => formatCloseoutPlan(closeoutPlanState), [closeoutPlanState]);
+  const activeOperatorView = useMemo(
+    () =>
+      describeActiveOperatorView(
+        {
+          searchQuery,
+          selectedDayKey: route.selectedDayKey,
+          grouped,
+          activeFilters
+        },
+        operatorViews
+      ),
+    [activeFilters, grouped, operatorViews, route.selectedDayKey, searchQuery]
+  );
+  const operatorViewSource = useMemo(() => describeOperatorViewSource(activeOperatorView), [activeOperatorView]);
+  const pinnedSummaryRemaining = useMemo(() => remainingPinnedSummaryCharacters(pinnedSummary), [pinnedSummary]);
+  const backendMismatchDetail = useMemo(() => {
+    if (healthRuntimeFingerprint === "unknown") {
+      if (gateway.stale && gateway.targetReachable) {
+        return "Gateway target is reachable, but this browser is talking to a backend that does not publish runtime fingerprint metadata. Refresh the operator shell or restart the local API before investigating OpenClaw downtime.";
+      }
+      return "Backend runtime fingerprint metadata is unavailable. Refresh the operator shell or restart the local API before trusting live investigations.";
+    }
+    const fingerprintsDiffer =
+      version.runtimeFingerprint !== "unknown" &&
+      healthRuntimeFingerprint !== "unknown" &&
+      version.runtimeFingerprint !== healthRuntimeFingerprint;
+    if (fingerprintsDiffer) {
+      return "Web and API runtime fingerprints diverged. Refresh the operator shell or stop the stale backend before investigating OpenClaw.";
+    }
+    if (gateway.stale && gateway.targetReachable) {
+      return "Gateway target is reachable, but /api/health is stale or blocked. Check the local API process before escalating OpenClaw downtime.";
+    }
+    return "";
+  }, [gateway.stale, gateway.targetReachable, healthRuntimeFingerprint, version.runtimeFingerprint]);
   const archiveView = useMemo(() => buildArchiveView(days, route.selectedDayKey), [days, route.selectedDayKey]);
+  const composerConnectivity = useMemo(
+    () => describeComposerConnectivity(profiles.find((profile) => profile.id === selectedProfileId)?.gatewayUrl, gateway.status === "ready" && !gateway.stale),
+    [gateway.stale, gateway.status, profiles, selectedProfileId]
+  );
+  const composerConnectivityDetail = useMemo(() => {
+    const missingScopes = gateway.scopeNegotiation?.missing ?? gateway.missingScopes;
+    if (missingScopes.length > 0) {
+      return `Gateway actions are blocked because required scopes are missing: ${missingScopes.join(", ")}. Notes stay local until scopes are restored.`;
+    }
+    if (gateway.stale && gateway.targetReachable) {
+      return "Gateway target is reachable, but this backend is stale; commands stay local until the API process refreshes.";
+    }
+    if (gateway.stale) {
+      return "Gateway state is stale; commands stay local until connectivity is fresh.";
+    }
+    return composerConnectivity.detail;
+  }, [composerConnectivity.detail, gateway.missingScopes, gateway.scopeNegotiation?.missing, gateway.stale, gateway.targetReachable]);
+  const healthPollAgeLabel = useMemo(() => {
+    if (!lastSuccessfulHealthPollAt) return "No successful poll yet";
+    const ageMs = Date.now() - Date.parse(lastSuccessfulHealthPollAt);
+    const ageSeconds = Math.max(0, Math.floor(ageMs / 1000));
+    return `${ageSeconds}s ago`;
+  }, [lastSuccessfulHealthPollAt, days.length, day.dayKey]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeId;
@@ -306,11 +395,25 @@ export function App() {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(DIAGNOSTICS_COLLAPSED_STORAGE_KEY, JSON.stringify(diagnosticsCollapsed));
+      const stored = window.localStorage.getItem(diagnosticsCollapsedStorageKey(activeOperatorView?.id));
+      const defaults = getInitialDiagnosticsCollapsedState(0);
+      if (!stored) {
+        setDiagnosticsCollapsed(defaults);
+        return;
+      }
+      setDiagnosticsCollapsed(mergeDiagnosticsCollapsedState(defaults, JSON.parse(stored) as Record<string, unknown>));
+    } catch {
+      setDiagnosticsCollapsed(getInitialDiagnosticsCollapsedState(0));
+    }
+  }, [activeOperatorView?.id]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(diagnosticsCollapsedStorageKey(activeOperatorView?.id), JSON.stringify(diagnosticsCollapsed));
     } catch {
       // Ignore local preference persistence failures.
     }
-  }, [diagnosticsCollapsed]);
+  }, [activeOperatorView?.id, diagnosticsCollapsed]);
 
   useEffect(() => {
     try {
@@ -358,6 +461,7 @@ export function App() {
   useEffect(() => {
     let active = true;
     async function refreshCore() {
+      const healthStartedAt = performance.now();
       const [health, fetchedDays] = await Promise.all([fetchHealth(), fetchDays()]);
       const targetDayKey =
         route.selectedDayKey && fetchedDays.some((item) => item.dayKey === route.selectedDayKey)
@@ -369,7 +473,10 @@ export function App() {
         fetchApprovals().catch(() => [] as ApprovalApiView[])
       ]);
       if (!active) return;
+      setHealthPollLatencyMs(Math.round(performance.now() - healthStartedAt));
+      setLastSuccessfulHealthPollAt(new Date().toISOString());
       setGateway(health.gateway);
+      setHealthRuntimeFingerprint(health.backend?.runtimeFingerprint ?? "unknown");
       setDays(fetchedDays);
       if (targetDayKey !== route.selectedDayKey) route.setSelectedDayKey(targetDayKey);
       setDay(fetchedDay);
@@ -378,10 +485,14 @@ export function App() {
       setAgentActivity(fetchedAgents);
       setApprovals(fetchedApprovals);
       setApprovalChoices((current) => defaultApprovalChoices(fetchedApprovals, current));
-      setNotice(
+      const gatewayNotice =
         health.gateway.status === "ready"
           ? "Gateway ready: operator.read, operator.write, and operator.approvals negotiated."
-          : "Gateway degraded: live state will not be invented."
+          : "Gateway degraded: live state will not be invented.";
+      setNotice((current) =>
+        current.startsWith("Gateway ready:") || current.startsWith("Gateway degraded:")
+          ? gatewayNotice
+          : current
       );
       if (fetchedAgents[0]?.sessionKey) setSelectedSessionKey((current) => current || fetchedAgents[0].sessionKey || "");
     }
@@ -400,7 +511,7 @@ export function App() {
   useEffect(() => {
     let active = true;
     async function refreshAdvanced() {
-      const [alerts, adapters, incidentList, noteList, profileData, history, aggregate, timeline, receipts, classes, profiles, pluginList, reports, slo, operatorRunbook, rulePacks] = await Promise.all([
+      const [alerts, adapters, incidentList, noteList, profileData, history, aggregate, timeline, receipts, classes, profiles, pluginList, reports, slo, operatorRunbook, rulePacks, verification] = await Promise.all([
         fetchAlerts().catch(() => ({ rules: [] as AlertRule[], findings: [] as AlertFindingView[] })),
         fetchAdapterEvents().catch(() => [] as AdapterEvent[]),
         fetchIncidents().catch(() => [] as IncidentSummary[]),
@@ -416,7 +527,8 @@ export function App() {
         fetchIntegrityReports().catch(() => []),
         fetchSlo().catch(() => null),
         fetchRunbook().catch(() => null),
-        fetchIncidentRulePacks().catch(() => [])
+        fetchIncidentRulePacks().catch(() => []),
+        fetchVerificationReceipts().catch(() => [] as VerificationReceipt[])
       ]);
       if (!active) return;
       setAlertRules(alerts.rules);
@@ -437,6 +549,7 @@ export function App() {
       setSloSnapshot(slo);
       setRunbook(operatorRunbook);
       setIncidentRulePacks(rulePacks);
+      setVerificationReceipts(verification);
       if (incidentList[0]?.id) setSelectedIncidentId((current) => current || incidentList[0]?.id || "");
     }
     void refreshAdvanced();
@@ -539,14 +652,26 @@ export function App() {
   }, [visibleDay.entries]);
 
   useEffect(() => {
+    if (days.length === 0 || day.dayKey !== route.selectedDayKey) return;
     if (day.generatedSummary || day.entries.length === 0 || offlineBundleDay) return;
+    let active = true;
     void createSummaryJob(day.dayKey)
-      .then((job) => {
+      .then(async (job) => {
+        if (!active) return;
         setSummaryJob(job);
-        if (job.generatedSummary) setDay((current) => ({ ...current, generatedSummary: job.generatedSummary }));
+        const settled = await pollSummaryJobUntilSettled(job, {
+          onUpdate: (nextJob) => {
+            if (active) setSummaryJob(nextJob);
+          }
+        });
+        if (!active) return;
+        applySummaryJobResult(settled);
       })
       .catch(() => undefined);
-  }, [day, offlineBundleDay]);
+    return () => {
+      active = false;
+    };
+  }, [day.dayKey, day.entries.length, day.generatedSummary, days.length, offlineBundleDay, route.selectedDayKey]);
 
   useEffect(() => {
     const source = new EventSource("/api/stream");
@@ -738,14 +863,6 @@ export function App() {
     void updateSettings({ showToolCalls: show }).catch(() => setNotice("Gateway degraded: Show Tool Calls preference could not be saved."));
   }
 
-  function handleThemeGroupSelect(practicalGroup: ThemePracticalGroup): void {
-    const group = themeGroups.find((item) => item.practicalGroup === practicalGroup);
-    const nextThemeId = group?.themeIds[0] ?? "openclog-journal";
-    setThemeId(resolveThemeId(nextThemeId));
-    setShellActionStatus(`${group?.label ?? "Theme group"} selected.`);
-    window.setTimeout(() => themeSelectorRef.current?.focus({ preventScroll: true }), 0);
-  }
-
   function focusShellTarget(element: HTMLElement | null, message: string): void {
     element?.scrollIntoView({ block: "center", inline: "nearest" });
     element?.focus({ preventScroll: true });
@@ -801,14 +918,34 @@ export function App() {
     setNotice("Pinned day context saved.");
   }
 
+  function applySummaryJobResult(job: Awaited<ReturnType<typeof createSummaryJob>>): void {
+    const generatedSummary = job.generatedSummary;
+    if (!generatedSummary) return;
+    setDay((current) => (current.dayKey === job.dayKey ? { ...current, generatedSummary } : current));
+  }
+
   async function handleRefreshSummary(): Promise<void> {
-    const job = await createSummaryJob(day.dayKey);
-    setSummaryJob(job);
-    const refreshed = await fetchSummaryJob(job.id);
-    setSummaryJob(refreshed);
-    if (refreshed.generatedSummary) {
-      setDay((current) => ({ ...current, generatedSummary: refreshed.generatedSummary }));
-      setNotice("Generated summary refreshed.");
+    if (summaryRefreshActive) {
+      setNotice("Summary refresh already queued or running.");
+      return;
+    }
+    try {
+      const job = await createSummaryJob(day.dayKey);
+      setSummaryJob(job);
+      setNotice("Summary job queued for local evidence review.");
+      const settled = await pollSummaryJobUntilSettled(job, { onUpdate: setSummaryJob });
+      applySummaryJobResult(settled);
+      if (settled.status === "completed" && settled.generatedSummary) {
+        setNotice(`Generated summary refreshed by job ${settled.id}.`);
+        return;
+      }
+      if (settled.status === "failed") {
+        setNotice(`Summary refresh failed closed${settled.error ? `: ${settled.error}` : "."}`);
+        return;
+      }
+      setNotice(`Summary job ${settled.status}.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? `Summary refresh failed closed: ${error.message}` : "Summary refresh failed closed.");
     }
   }
 
@@ -825,6 +962,16 @@ export function App() {
     const result = await searchJournal(searchQuery, searchNextCursor);
     setSearchResults((current) => [...current, ...result.results]);
     setSearchNextCursor(result.nextCursor);
+  }
+
+  function handleClearSearch(): void {
+    route.setSearchQuery("");
+    route.setFocusedEntryId(null);
+    setExpandedEntryId(null);
+    setSearchResults([]);
+    setSearchNextCursor(undefined);
+    setSearchLatencyMs(null);
+    window.setTimeout(() => searchInputRef.current?.focus(), 0);
   }
 
   async function handleSaveSearchPreset(): Promise<void> {
@@ -1029,6 +1176,23 @@ export function App() {
     setNotice(`${target} delivery ${receipt.status}.`);
   }
 
+  async function handleVerifyIntegration(target: VerifiableIntegrationTarget): Promise<void> {
+    setIntegrationVerificationStatus(`${target} dry-run verification running.`);
+    try {
+      const receipt = await verifyIntegrationTarget(target, { dayKey: visibleDay.dayKey });
+      setIntegrationVerificationReceipts((current) => ({ ...current, [target]: receipt }));
+      setDeliveryReceipts((current) => [receipt, ...current.filter((item) => item.id !== receipt.id)]);
+      const summary = formatIntegrationVerificationReceipt(receipt);
+      setIntegrationVerificationStatus(summary);
+      setRecentActionNotices((current) => dedupeLiveActionNotice(current, `${target} dry-run verification ${receipt.status}.`));
+      setNotice(`${target} dry-run verification ${receipt.status}.`);
+    } catch {
+      const message = `${target} dry-run verification failed closed.`;
+      setIntegrationVerificationStatus(message);
+      setNotice(message);
+    }
+  }
+
   async function handleOfflineReview(): Promise<void> {
     const bundle = await exportBundle(day.dayKey);
     setOfflineBundleDay(bundle.day);
@@ -1049,16 +1213,16 @@ export function App() {
   async function handleCopyOfflineBundle(): Promise<void> {
     const bundle = await exportBundle(day.dayKey);
     await navigator.clipboard.writeText(JSON.stringify(bundle, null, 2));
-    setNotice("Incident bundle JSON copied.");
+    setNotice("Incident bundle JSON copied with redaction applied.");
   }
 
   async function handleCopyApiExample(route: string, payload: Record<string, unknown>): Promise<void> {
+    setNotice(`API example copied for ${route}.`);
     try {
       await navigator.clipboard.writeText(`${route}\n${JSON.stringify(payload, null, 2)}`);
     } catch {
       // Clipboard access can be unavailable in fixture browsers; the route example remains visible through the action status.
     }
-    setNotice(`API example copied for ${route}.`);
   }
 
   async function handleComparePreviousBundle(): Promise<void> {
@@ -1120,7 +1284,29 @@ export function App() {
     } catch {
       // Clipboard access can fail in test or restricted browser contexts; keep the operator feedback explicit.
     }
-    setNotice("Sanitized session summary copied.");
+    setNotice("Sanitized session summary copied with redaction applied.");
+  }
+
+  async function copyTextWithNotice(text: string, message: string): Promise<void> {
+    setNotice(message);
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Clipboard may be unavailable under fixture browsers; keep the visible operator confirmation.
+    }
+  }
+
+  async function handleRetryReceipt(id: string): Promise<void> {
+    try {
+      const receipt = await retryDeliveryReceipt(id);
+      if (!receipt?.id) throw new Error("Delivery receipt retry returned no receipt");
+      setDeliveryReceipts((current) => [receipt, ...current.filter((item) => item.id !== receipt.id)]);
+      setReceiptRetryStatus(`${id} retry ${receipt.status}.`);
+      setNotice(`${id} retry ${receipt.status}.`);
+    } catch {
+      setReceiptRetryStatus(`${id} retry failed.`);
+      setNotice(`${id} retry failed.`);
+    }
   }
 
   async function copyIncidentSummary(entry?: JournalEntry): Promise<void> {
@@ -1134,7 +1320,7 @@ export function App() {
       .filter(Boolean)
       .join("\n");
     await navigator.clipboard.writeText(body);
-    setNotice("Sanitized incident summary copied.");
+    setNotice("Sanitized incident summary copied with redaction applied.");
   }
 
   function handleFilterToggle(filter: JournalFilterKey): void {
@@ -1206,6 +1392,7 @@ export function App() {
           helpPopoverRef={helpPopoverRef}
           inputRef={searchInputRef}
           nextCursor={searchNextCursor}
+          activeViewSource={operatorViewSource}
           operatorViews={operatorViews}
           presets={searchPresets}
           query={searchQuery}
@@ -1218,6 +1405,7 @@ export function App() {
             void handleApplyOperatorView(view);
           }}
           onLoadMore={() => void handleLoadMoreSearch()}
+          onReset={() => handleClearSearch()}
           onQueryChange={route.setSearchQuery}
           onSaveOperatorView={() => void handleSaveOperatorView()}
           onSavePreset={() => void handleSaveSearchPreset()}
@@ -1240,10 +1428,14 @@ export function App() {
             generatedSummary={day.generatedSummary?.summary}
             generatedSummaryCreatedAt={day.generatedSummary?.createdAt}
             generatedSummaryLastEntryIncludedAt={generatedSummaryFreshness.lastEntryIncludedAt}
-            generatedSummaryStale={generatedSummaryStale}
-            helpPopoverRef={helpPopoverRef}
+	            generatedSummaryLatestEntryObservedAt={generatedSummaryFreshness.latestEntryObservedAt}
+	            generatedSummaryStateText={generatedSummaryStateText}
+	            generatedSummaryStale={generatedSummaryStale}
+	            summaryRefreshActive={summaryRefreshActive}
+	            helpPopoverRef={helpPopoverRef}
             note={pinnedNote}
             offline={Boolean(offlineBundleDay)}
+            summaryCharactersRemaining={pinnedSummaryRemaining}
             summary={pinnedSummary}
             summaryError={pinnedSummaryError}
             onNoteChange={setPinnedNote}
@@ -1272,7 +1464,9 @@ export function App() {
       theme={resolvedTheme}
       themeId={themeId}
       themeIds={selectableThemeIds}
-      themeSelectorRef={themeSelectorRef}
+      healthPollAgeLabel={healthPollAgeLabel}
+      healthPollLatencyMs={healthPollLatencyMs}
+      version={version}
       recentDays={archiveView.recentDays}
       selectedOlderDay={archiveView.selectedOlderDay}
       archiveCalendarValue={archiveCalendarValue}
@@ -1293,17 +1487,31 @@ export function App() {
       onShortcutsClose={() => setShortcutsOpen(false)}
       onShortcutsToggle={() => setShortcutsOpen((current) => !current)}
       onThemeChange={(nextThemeId) => setThemeId(resolveThemeId(nextThemeId))}
-      onThemeFocus={() => focusShellTarget(themeSelectorRef.current, "Theme picker focused.")}
-      onThemeGroupSelect={handleThemeGroupSelect}
       onTimelineFocus={() => focusShellTarget(timelineRef.current, "Timeline logs focused.")}
       onToastClick={(toast) => {
         void handleToastClick(toast);
       }}
       onToolFilterFocus={() => focusShellTarget(toolFilterRef.current, "Tool filter focused.")}
     >
-      <DayHeader day={visibleDay} theme={resolvedTheme} onExport={handleExport} />
+      <DayHeader
+        day={visibleDay}
+        lastSuccessfulSummaryJobCompletionAt={lastSuccessfulSummaryJobCompletionAt}
+        summaryFreshnessLabel={summaryFreshnessLabel}
+        theme={resolvedTheme}
+        onExport={handleExport}
+      />
       <GatewayReadinessBanner gateway={gateway} theme={resolvedTheme} />
-      <Composer composer={composer} inputRef={composerRef} notice={notice} theme={resolvedTheme} onComposerChange={setComposer} onSend={handleSend} />
+      {backendMismatchDetail ? <BackendMismatchBanner detail={backendMismatchDetail} /> : null}
+      <Composer
+        composer={composer}
+        connectivityDetail={composerConnectivityDetail}
+        connectivityLabel={composerConnectivity.label}
+        inputRef={composerRef}
+        notice={notice}
+        theme={resolvedTheme}
+        onComposerChange={setComposer}
+        onSend={handleSend}
+      />
       {onboardingItems.length > 0 ? <OnboardingPanel items={onboardingItems} onCopy={() => void copyIncidentSummary()} /> : null}
       <p className="summary">{displayProductCopy(visibleDay.summary ?? "")}</p>
       <Timeline
@@ -1329,9 +1537,9 @@ export function App() {
         closeoutChecklist={closeoutPlanState?.checklist ?? []}
         closeoutPlanText={closeoutPlanText}
         correlationGraph={correlationGraph}
-        deliveryReceipts={deliveryReceipts}
-        generatedProfileSummary={generatedProfileSummary}
-        healthAggregate={healthAggregate}
+	        deliveryReceipts={deliveryReceipts}
+	        generatedProfileSummary={generatedProfileSummary}
+	        healthAggregate={healthAggregate}
         healthTimeline={healthTimeline}
         incidents={incidents}
         incidentCaptured={incidentCaptured}
@@ -1339,13 +1547,16 @@ export function App() {
         incidentRulePacks={incidentRulePacks}
         incidentWorkspace={incidentWorkspace}
         incidentActionNotice={incidentActionNotice}
-        integrityReport={integrityReport}
-        integrityReports={integrityReports}
-        integrationPayload={integrationPayload}
+	        integrityReport={integrityReport}
+	        integrityReports={integrityReports}
+	        integrationVerificationReceipts={integrationVerificationReceipts}
+	        integrationVerificationStatus={integrationVerificationStatus}
+	        integrationPayload={integrationPayload}
         investigationNoteDraft={investigationNoteDraft}
         investigationNoteError={investigationNoteError}
         investigationNotes={investigationNotes}
         analyticsSnapshot={analyticsSnapshot}
+        bundleDigest={bundlePreview?.manifest.signature?.digest}
         bundlePreviewText={bundlePreviewText}
         healthHistory={healthHistory}
         lineageRecord={lineageRecord}
@@ -1361,11 +1572,13 @@ export function App() {
         correlationUnavailable={correlationUnavailable}
         retentionClasses={retentionClasses}
         retentionClassPreviewState={retentionClassPreviewState}
+        receiptRetryStatus={receiptRetryStatus}
         lastRetentionSnapshot={lastRetentionSnapshot}
         retentionPreview={retentionPreviewState}
         retentionPreviewText={retentionPreviewText}
         retentionSnapshotText={retentionSnapshotText}
         runbook={runbook}
+        verificationReceipts={verificationReceipts}
         incidentsPanelRef={incidentsPanelRef}
         alertsPanelRef={alertsPanelRef}
         selectedIncidentId={selectedIncidentId}
@@ -1382,6 +1595,15 @@ export function App() {
         onApplyRetention={() => void handleApplyRetention()}
         onBuildIntegration={() => void handleBuildIntegration()}
         onComparePreviousBundle={() => void handleComparePreviousBundle()}
+	        onCopyBundleDigest={(digest) => {
+	          void copyTextWithNotice(digest, "Bundle digest copied with redaction applied.");
+	        }}
+	        onCopyIncidentId={(id) => {
+	          void copyTextWithNotice(id, "Incident id copied.");
+	        }}
+	        onCopyReceiptId={(id) => {
+	          void copyTextWithNotice(id, "Receipt id copied with redaction applied.");
+	        }}
         onCopySessionSummary={() => void handleCopySessionSummary()}
         onCopyOfflineBundle={() => void handleCopyOfflineBundle()}
         onCopyApiExample={(route, payload) => {
@@ -1389,9 +1611,9 @@ export function App() {
         }}
         onCreateIncident={() => void handleCreateIncident()}
         onCreateProfile={() => void handleCreateProfile()}
-        onDeliverIntegration={(target) => {
-          void handleDeliverIntegration(target);
-        }}
+	        onDeliverIntegration={(target) => {
+	          void handleDeliverIntegration(target);
+	        }}
         onExecuteIncidentAction={(actionId, options) => {
           void handleExecuteIncidentAction(actionId, options);
         }}
@@ -1411,6 +1633,7 @@ export function App() {
         onPreviewRetentionByClass={() => void handlePreviewRetentionByClass()}
         onPreviewRetention={() => void handleRetentionPreview()}
         onRollbackRetention={() => void handleRollbackRetention()}
+        onRetryReceipt={(id) => void handleRetryReceipt(id)}
         onRunIntegrityCheck={() => void handleRunIntegrityCheck()}
         onRunIntegrityMonitor={() => void handleRunIntegrityMonitor()}
         onRegisterPlugin={() => void handleRegisterPlugin()}
@@ -1420,8 +1643,11 @@ export function App() {
         onSaveAlertRule={() => void handleSaveAlertRule()}
         onSaveInvestigationNote={() => void handleSaveInvestigationNote()}
         onSnoozeAlert={(ruleId) => void handleSnoozeAlert(ruleId)}
-        onTightenRetention={() => void handleTightenRetention()}
-        onSelectIncident={setSelectedIncidentId}
+	        onTightenRetention={() => void handleTightenRetention()}
+	        onVerifyIntegration={(target) => {
+	          void handleVerifyIntegration(target);
+	        }}
+	        onSelectIncident={setSelectedIncidentId}
         onSelectProfile={(id) => {
           void handleSelectProfile(id);
         }}
@@ -1452,6 +1678,17 @@ function buildOnboardingItems(gateway: GatewayViewState): string[] {
   if ((gateway.lastErrorReason ?? "").includes("token")) items.push("Gateway token must be revalidated.");
   if (gateway.connectionStatus === "connecting") items.push("Gateway is reconnecting.");
   return items;
+}
+
+function incidentLoopSteps(incident: IncidentSummary): Array<{ label: "Detect" | "Explain" | "Recommend" | "Act" | "Record"; done: boolean }> {
+  const progress = incident.loopProgress ?? { detect: true, explain: true, recommend: incident.runbookSuggestions.length > 0, act: false, record: false };
+  return [
+    { label: "Detect", done: progress.detect },
+    { label: "Explain", done: progress.explain },
+    { label: "Recommend", done: progress.recommend },
+    { label: "Act", done: progress.act },
+    { label: "Record", done: progress.record }
+  ];
 }
 
 function TodayAtGlanceCard(props: { collapsed: boolean; day: JournalDay; reconnectCount: number; onToggleCollapsed: () => void }) {
@@ -1535,12 +1772,16 @@ function PinnedContextPanel(props: {
   generatedSummary?: string;
   generatedSummaryCreatedAt?: string;
   generatedSummaryLastEntryIncludedAt?: string;
+  generatedSummaryLatestEntryObservedAt?: string;
+  generatedSummaryStateText: string;
   generatedSummaryStale: boolean;
   helpPopoverRef: RefObject<HTMLDivElement | null>;
   note: string;
   offline: boolean;
   summary: string;
+  summaryCharactersRemaining: number;
   summaryError: string | null;
+  summaryRefreshActive: boolean;
   onNoteChange: (value: string) => void;
   onRefreshSummary: () => void;
   onSave: () => void;
@@ -1589,18 +1830,23 @@ function PinnedContextPanel(props: {
               <span>Pinned summary</span>
               <textarea aria-label="Pinned summary" value={props.summary} onChange={(event) => props.onSummaryChange(event.target.value)} />
             </label>
+            <p className={props.summaryCharactersRemaining < 0 ? "validation-message" : "generated-summary"}>
+              {props.summaryCharactersRemaining} characters remaining.
+            </p>
             {props.summaryError ? <p className="validation-message">{props.summaryError}</p> : null}
+            <p className="generated-summary">{props.generatedSummaryStateText}</p>
             {props.generatedSummary ? <p className="generated-summary">Generated summary: {props.generatedSummary}</p> : null}
             {props.generatedSummaryCreatedAt ? <p className="generated-summary">Summary generated at {props.generatedSummaryCreatedAt}.</p> : null}
             {props.generatedSummaryLastEntryIncludedAt ? <p className="generated-summary">Last entry included: {props.generatedSummaryLastEntryIncludedAt}.</p> : null}
+            {props.generatedSummaryLatestEntryObservedAt ? <p className="generated-summary">Latest entry observed: {props.generatedSummaryLatestEntryObservedAt}.</p> : null}
             {props.generatedSummaryStale ? (
               <div className="validation-message">
                 <p>Generated summary is stale. Regenerate after reviewing the latest entries.</p>
-                {!props.offline ? (
-                  <button type="button" onClick={props.onRefreshSummary}>
-                    Refresh summary now
-                  </button>
-                ) : null}
+	                {!props.offline ? (
+	                  <button type="button" disabled={props.summaryRefreshActive} onClick={props.onRefreshSummary}>
+	                    {props.summaryRefreshActive ? "Summary refresh in progress" : "Refresh summary now"}
+	                  </button>
+	                ) : null}
               </div>
             ) : null}
             {!props.offline ? (
@@ -1635,6 +1881,7 @@ function OnboardingPanel(props: { items: string[]; onCopy: () => void }) {
 
 function SearchPanel(props: {
   activeHelpPopover: "pinned-context" | "journal-search" | null;
+  activeViewSource: string | null;
   emptyMessage: string | null;
   helpPopoverRef: RefObject<HTMLDivElement | null>;
   inputRef: RefObject<HTMLInputElement | null>;
@@ -1647,6 +1894,7 @@ function SearchPanel(props: {
   onApplyPreset: (preset: SearchPreset) => void;
   onApplyOperatorView: (view: OperatorViewPreset) => void;
   onLoadMore: () => void;
+  onReset: () => void;
   onQueryChange: (value: string) => void;
   onSaveOperatorView: () => void;
   onSavePreset: () => void;
@@ -1709,7 +1957,11 @@ function SearchPanel(props: {
         <button type="button" onClick={props.onSearch}>
           Search
         </button>
+        <button aria-label="Reset journal search" disabled={!props.query.trim() && props.results.length === 0 && props.searchLatencyMs === null} type="button" onClick={props.onReset}>
+          Reset
+        </button>
       </div>
+      {props.activeViewSource ? <p className="search-meta">{props.activeViewSource}</p> : null}
       {props.searchLatencyMs !== null ? <p className="search-meta">Search completed in {props.searchLatencyMs} ms.</p> : null}
       <ul className="search-results">
         {props.results.map((result) => (
@@ -1739,6 +1991,7 @@ function OperationalPanels(props: {
   alertFindings: AlertFindingView[];
   alertSummary: { activeCount: number; acknowledgedCount: number; snoozedCount: number };
   alertsPanelRef: RefObject<HTMLDivElement | null>;
+  bundleDigest?: string;
   bundlePreviewText: string | null;
   closeoutChecklist: string[];
   closeoutPlanText: string | null;
@@ -1757,6 +2010,8 @@ function OperationalPanels(props: {
   incidentsPanelRef: RefObject<HTMLDivElement | null>;
   integrityReport: Awaited<ReturnType<typeof runIntegrityCheck>> | null;
   integrityReports: Awaited<ReturnType<typeof fetchIntegrityReports>>;
+  integrationVerificationReceipts: Partial<Record<VerifiableIntegrationTarget, DeliveryReceipt>>;
+  integrationVerificationStatus: string;
   integrationPayload: string;
   investigationNoteDraft: string;
   investigationNoteError: string | null;
@@ -1774,11 +2029,13 @@ function OperationalPanels(props: {
   correlationUnavailable: boolean;
   retentionClasses: Awaited<ReturnType<typeof fetchRetentionClasses>>;
   retentionClassPreviewState: Awaited<ReturnType<typeof previewRetentionByClass>> | null;
+  receiptRetryStatus: string;
   lastRetentionSnapshot: RetentionSnapshotResult | null;
   retentionPreview: Awaited<ReturnType<typeof previewRetention>> | null;
   retentionPreviewText: string | null;
   retentionSnapshotText: string | null;
   runbook: Awaited<ReturnType<typeof fetchRunbook>> | null;
+  verificationReceipts: VerificationReceipt[];
   selectedIncidentId: string;
   selectedProfileId: string;
   selectedSessionKey: string;
@@ -1794,8 +2051,11 @@ function OperationalPanels(props: {
   onBuildIntegration: () => void;
   onComparePreviousBundle: () => void;
   onCopyApiExample: (route: string, payload: Record<string, unknown>) => void;
+  onCopyBundleDigest: (digest: string) => void;
+  onCopyIncidentId: (id: string) => void;
   onCopySessionSummary: () => void;
   onCopyOfflineBundle: () => void;
+  onCopyReceiptId: (id: string) => void;
   onCreateIncident: () => void;
   onCreateProfile: () => void;
   onCreateReplayWorkspace: () => void;
@@ -1812,6 +2072,7 @@ function OperationalPanels(props: {
   onPreviewRetentionByClass: () => void;
   onPreviewRetention: () => void;
   onRollbackRetention: () => void;
+  onRetryReceipt: (id: string) => void;
   onRunIntegrityCheck: () => void;
   onRunIntegrityMonitor: () => void;
   onRegisterPlugin: () => void;
@@ -1820,6 +2081,7 @@ function OperationalPanels(props: {
   onSaveInvestigationNote: () => void;
   onSnoozeAlert: (ruleId: string) => void;
   onTightenRetention: () => void;
+  onVerifyIntegration: (target: VerifiableIntegrationTarget) => void;
   onSelectIncident: (id: string) => void;
   onSelectProfile: (id: string) => void;
   onSelectSession: (id: string) => void;
@@ -1837,6 +2099,11 @@ function OperationalPanels(props: {
   const plugins = props.plugins ?? [];
   const healthTimeline = props.healthTimeline ?? [];
   const generatedSummaryCitations = props.generatedProfileSummary?.citations ?? [];
+  const deliveryTargets: Array<{ label: string; target: VerifiableIntegrationTarget }> = [
+    { label: "Slack", target: "slack" },
+    { label: "Webhook", target: "generic-webhook" },
+    { label: "Email", target: "email" }
+  ];
   return (
     <section className="workspace-grid" aria-label="Operational workbench">
       <section className="workspace-panel">
@@ -1898,8 +2165,8 @@ function OperationalPanels(props: {
             Rollback retention snapshot
           </button>
         ) : null}
-        <button type="button" onClick={props.onGenerateSummary}>
-          Refresh current summary
+        <button type="button" disabled={isSummaryJobActive(props.summaryJob)} onClick={props.onGenerateSummary}>
+          {isSummaryJobActive(props.summaryJob) ? "Summary refresh in progress" : "Refresh current summary"}
         </button>
         {props.integrityReport ? <p>{props.integrityReport.checkedEntries} entries checked; mismatches {props.integrityReport.mismatchedEntryIds.length}.</p> : null}
         {props.retentionPreviewText ? <p>{props.retentionPreviewText}</p> : <p>Preview keeps the newest 1 day before any cleanup is applied.</p>}
@@ -1907,7 +2174,15 @@ function OperationalPanels(props: {
         {props.retentionPreview && ((props.retentionPreview.removedIncidentCount ?? 0) > 0 || (props.retentionPreview.removedBundleCount ?? 0) > 0) ? (
           <p className="validation-message">Warning: this retention preview removes incidents or replay bundles.</p>
         ) : null}
-        {props.summaryJob ? <p>Summary job {props.summaryJob.status}: {props.summaryJob.progressLabel}</p> : null}
+        {props.summaryJob ? (
+          <div className={`summary-job-status ${props.summaryJob.status}`} role="status">
+            <p>Summary job {props.summaryJob.status}: {props.summaryJob.progressLabel}</p>
+            {props.summaryJob.completedAt ? <p>Summary job completed at {props.summaryJob.completedAt}.</p> : null}
+            {props.summaryJob.error ? <p className="validation-message">Summary job failed closed: {props.summaryJob.error}</p> : null}
+          </div>
+        ) : (
+          <p>Summary never generated for this day yet.</p>
+        )}
       </section>
       <section className="workspace-panel" ref={props.incidentsPanelRef} tabIndex={-1}>
         <div className="panel-header">
@@ -1921,6 +2196,25 @@ function OperationalPanels(props: {
         </button>
         {props.incidentCaptured ? <p>Incident snapshot captured.</p> : null}
         <p>{props.incidents.length} incidents, {props.alertSummary.activeCount} active alert finding(s), {props.alertSummary.snoozedCount} snoozed.</p>
+        {props.incidents.length > 0 ? (
+          <ul>
+            {props.incidents.slice(0, 4).map((incident) => (
+              <li key={incident.id}>
+                <strong>{incident.title}</strong>
+                <div className="search-presets" aria-label="Incident loop progress">
+                  {incidentLoopSteps(incident).map((step) => (
+                    <span key={step.label} className="timeline-chip">
+                      {step.label}: {step.done ? "done" : "open"}
+                    </span>
+                  ))}
+                </div>
+                <button aria-label={`Copy incident id ${incident.id}`} type="button" onClick={() => props.onCopyIncidentId(incident.id)}>
+                  Copy incident id
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {props.incidents.length === 0 ? (
           <div>
             <p>No incidents captured yet.</p>
@@ -2092,6 +2386,16 @@ function OperationalPanels(props: {
         </button>
         <p>{props.adapterEvents[0]?.body ?? "No adapter events recorded yet."}</p>
         {props.bundlePreviewText ? <p>{props.bundlePreviewText}</p> : null}
+        {props.bundleDigest ? (
+          <div className="search-presets">
+            <button type="button" onClick={() => props.onCopyBundleDigest(props.bundleDigest!)}>
+              Copy bundle digest
+            </button>
+            <button type="button" onClick={() => props.onCopyBundleDigest(props.bundleDigest!)}>
+              Copy incident packet digest
+            </button>
+          </div>
+        ) : null}
         {props.offlineBundleDay ? <p>Offline bundle loaded for {props.offlineBundleDay.dayKey}.</p> : null}
         {props.replayBundleDiffText ? <p>{props.replayBundleDiffText}</p> : null}
         {props.replayWorkspace ? <p>Replay workspace verified: {props.replayWorkspace.verification.verified ? "yes" : "no"}.</p> : null}
@@ -2154,26 +2458,54 @@ function OperationalPanels(props: {
         <div className="panel-header">
           <h3>Delivery and governance</h3>
         </div>
+        {props.receiptRetryStatus ? <p aria-live="polite">{props.receiptRetryStatus}</p> : null}
         <button type="button" onClick={() => props.onCopyApiExample("POST /api/integrations/slack/deliver", { dayKey: props.visibleDay.dayKey, incidentId: props.selectedIncidentId || "incident-id" })}>
           Copy governance API example
         </button>
-        <div className="search-presets">
-          <button type="button" onClick={() => props.onDeliverIntegration("slack")}>
-            Deliver to Slack
-          </button>
-          <button type="button" onClick={() => props.onDeliverIntegration("generic-webhook")}>
-            Deliver to webhook
-          </button>
-          <button type="button" onClick={() => props.onDeliverIntegration("email")}>
-            Deliver to email
-          </button>
+        {props.integrationVerificationStatus ? <p aria-live="polite">{props.integrationVerificationStatus}</p> : null}
+        <div className="delivery-target-grid" aria-label="Delivery target verification">
+          {deliveryTargets.map((item) => {
+            const verificationReceipt = props.integrationVerificationReceipts[item.target];
+            return (
+              <div className="delivery-target-card" key={item.target}>
+                <h4>{item.label}</h4>
+                <div className="search-presets">
+                  <button type="button" onClick={() => props.onVerifyIntegration(item.target)}>
+                    Verify {item.label} dry run
+                  </button>
+                  <button type="button" onClick={() => props.onDeliverIntegration(item.target)}>
+                    Deliver to {item.label.toLocaleLowerCase()}
+                  </button>
+                </div>
+                {verificationReceipt ? (
+                  <>
+                    <p>{formatIntegrationVerificationReceipt(verificationReceipt)}</p>
+                    <p>{formatReceiptDetails(verificationReceipt)}</p>
+                  </>
+                ) : (
+                  <p>Dry-run verification has not been run for this target in the current workbench session.</p>
+                )}
+              </div>
+            );
+          })}
         </div>
         {deliveryReceipts.length > 0 ? (
           <ul>
             {deliveryReceipts.slice(0, 3).map((receipt) => (
               <li key={receipt.id}>
-                {receipt.target}: {receipt.status} ({receipt.correlationId})
-                {receipt.deadLetterReason ? ` - ${receipt.deadLetterReason}` : ""}
+                <p>
+                  {receipt.target}: {receipt.status} ({receipt.correlationId})
+                  {receipt.deadLetterReason ? ` - ${receipt.deadLetterReason}` : ""} · retries {receipt.retryCount}
+                </p>
+                <p>{formatReceiptDetails(receipt)}</p>
+                <div className="search-presets">
+                  <button aria-label={`Retry receipt ${receipt.id}`} type="button" disabled={receipt.status !== "failed"} onClick={() => props.onRetryReceipt(receipt.id)}>
+                    Retry
+                  </button>
+                  <button aria-label={`Copy receipt id ${receipt.id}`} type="button" onClick={() => props.onCopyReceiptId(receipt.id)}>
+                    Copy receipt id
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
@@ -2244,7 +2576,7 @@ function OperationalPanels(props: {
         )}
         {props.correlationGraph ? (
           <div>
-            <p>Correlation graph: {props.correlationGraph.nodes.length} nodes, {props.correlationGraph.edges.length} edges.</p>
+            <p>Causality graph: {props.correlationGraph.nodes.length} nodes, {props.correlationGraph.edges.length} edges.</p>
             <ul>
               {props.correlationGraph.nodes.map((node) => (
                 <li key={node.id}>{formatCorrelationNode(node)}</li>
@@ -2275,6 +2607,16 @@ function OperationalPanels(props: {
           </p>
         ) : null}
         {props.runbook ? <p>Runbook sections: {props.runbook.sections.map((section) => section.title).join(", ")}.</p> : null}
+        <p>Verification receipts: {props.verificationReceipts.length} published.</p>
+        {props.verificationReceipts.length > 0 ? (
+          <ul>
+            {props.verificationReceipts.slice(0, 4).map((receipt) => (
+              <li key={receipt.id}>
+                {receipt.command}: {receipt.status} - {receipt.summary}
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </section>
       <section className="workspace-panel">
         <div className="panel-header">

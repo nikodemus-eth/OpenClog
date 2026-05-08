@@ -43,7 +43,11 @@ test("journal quick wins and advanced workbench stay usable together", async ({ 
   await page.goto("/?day=2026-05-03&view=raw&entry=2026-05-03-entry-1");
 
   await expect(page.getByLabel("Daily page")).toContainText("OpenClog Journal");
+  await expect(page.getByLabel("OpenClog operator shell")).toContainText("PID 4321");
+  await expect(page.getByLabel("OpenClog operator shell")).toContainText("abc1234");
   await expect(page.getByLabel("Gateway readiness: ready")).toBeVisible();
+  await expect(page.getByText(/Have scopes: operator\.read, operator\.write, operator\.approvals/i)).toBeVisible();
+  await expect(page.getByText(/Missing scopes: none/i)).toBeVisible();
   await expect(page.getByLabel("Saved filters").getByLabel("Errors")).toBeChecked();
   await expect(page.getByLabel("Saved filters").getByLabel("Tool failures")).toBeChecked();
   await expect(page.getByRole("button", { name: "Raw timeline" })).toHaveAttribute("aria-pressed", "true");
@@ -63,6 +67,9 @@ test("journal quick wins and advanced workbench stay usable together", async ({ 
   await page.getByRole("button", { name: "Save operator view" }).click();
   await expect(page.getByRole("button", { name: "timeout", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "2026-05-03 timeout", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Saved operator views").getByRole("button", { name: "Stale summaries", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Saved operator views").getByRole("button", { name: "Failed receipts", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Saved operator views").getByRole("button", { name: "Scope missing", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /Tool call Called/i })).toContainText("Called get_repository_status for 2026-05-03.");
   await expect(page.getByText(/Matched in toolName and body/i)).toBeVisible();
   await expect(page).toHaveURL(/q=timeout/);
@@ -89,8 +96,12 @@ test("journal quick wins and advanced workbench stay usable together", async ({ 
   await expect(page.getByText(/removed 1 day\(s\), 2 entries, 1 summaries, 1 audit rows, 1 incidents, 1 alerts, and 1 bundles/i)).toBeVisible();
   await page.getByRole("button", { name: "Rollback retention snapshot" }).click();
   await expect(page.getByText(/Retention rollback restored 2 day\(s\)/i)).toBeVisible();
+  await page.getByRole("button", { name: "Refresh current summary" }).click();
+  await expect(page.getByLabel("Operational workbench").getByText(/Summary job completed: Summary generated from current journal evidence/i)).toBeVisible();
+  await expect(page.getByText(/Generated summary refreshed by job summary-job-fixture/i)).toBeVisible();
+  await expect(page.getByText(/Last summary completion 2026-05-04T12:02:02.000Z/i)).toBeVisible();
 
-  await page.getByRole("button", { name: "Capture incident" }).click();
+  await page.getByRole("button", { name: "Capture incident", exact: true }).click();
   await expect(page.getByText(/Incident snapshot captured/i)).toBeVisible();
   await page.getByRole("button", { name: "Save alert rule" }).click();
   await expect(page.getByText(/incidents, 1 active alert finding\(s\), 0 snoozed\./i)).toBeVisible();
@@ -105,18 +116,26 @@ test("journal quick wins and advanced workbench stay usable together", async ({ 
   await expect(page.getByRole("heading", { name: "Recommend", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Act", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Record", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Incident loop progress").first()).toContainText("Detect");
+  await page.getByRole("button", { name: "Copy incident id incident-1" }).click();
+  await expect(page.getByText(/Incident id copied/i)).toBeVisible();
   await page.getByLabel("Investigation note").fill("Operator captured the reconnect sequence.");
   await page.getByRole("button", { name: "Save investigation note" }).click();
   await expect(page.getByText(/Investigation note recorded/i)).toBeVisible();
 
   await page.getByRole("button", { name: "Preview bundle manifest" }).click();
   await expect(page.getByText(/Bundle contains 3 entries/i)).toBeVisible();
+  await page.getByRole("button", { name: "Copy bundle digest" }).click();
+  await expect(page.getByText(/Bundle digest copied/i)).toBeVisible();
+  await page.getByRole("button", { name: "Copy incident packet digest" }).click();
+  await expect(page.getByText(/Bundle digest copied/i)).toBeVisible();
   await page.getByRole("button", { name: "Open offline review bundle" }).click();
   await expect(page.getByText(/Offline bundle loaded/i)).toBeVisible();
   await expect(page.getByRole("button", { name: "Copy incident bundle JSON" })).toBeVisible();
   await page.getByRole("button", { name: "Compare previous day bundle" }).click();
   await expect(page.getByText(/Bundle diff 2026-05-02 -> 2026-05-03/i)).toBeVisible();
   await page.getByRole("button", { name: "Copy sanitized session summary" }).click();
+  await expect(page.getByText(/Sanitized session summary copied/i)).toBeVisible();
   await page.getByRole("button", { name: "Build GitHub issue payload" }).click();
   await page.getByRole("button", { name: "Prepare end-of-day closeout" }).click();
   await expect(page.getByText(/Closeout for 2026-05-03/i)).toBeVisible();
@@ -124,9 +143,13 @@ test("journal quick wins and advanced workbench stay usable together", async ({ 
   await expect(page.getByText(/OpenClog Journal/).last()).toBeVisible();
   await page.getByRole("button", { name: "Copy governance API example" }).click();
   await expect(page.getByText(/API example copied for POST \/api\/integrations\/slack\/deliver/i)).toBeVisible();
+  await page.getByRole("button", { name: "Verify Slack dry run" }).click();
+  await expect(page.getByLabel("Delivery target verification").getByText(/slack dry-run verification failed/i)).toBeVisible();
+  await expect(page.getByLabel("Delivery target verification").getByText(/Delivery reference dry-run/i)).toBeVisible();
   await page.getByRole("button", { name: "Copy replay API example" }).click();
   await expect(page.getByText(/API example copied for GET \/api\/correlation/i)).toBeVisible();
   await expect(page.getByText(/Mission replay generated at 2026-05-04T12:10:00.000Z/i)).toBeVisible();
+  await expect(page.getByText(/Causality graph/i)).toBeVisible();
   await expect(page.getByText(/Step 1: entry at 2026-05-03T12:01:00.000Z - Session started - entries 2026-05-03-entry-1 - sources 2026-05-03-entry-1\./i)).toBeVisible();
   await expect(page.getByRole("button", { name: "Open entry 2026-05-03-entry-1" }).first()).toBeVisible();
   await expect(page.getByText(/incident-1: Operational instability narrative \(incident\)/i)).toBeVisible();
@@ -142,7 +165,35 @@ test("journal quick wins and advanced workbench stay usable together", async ({ 
   await expect(page.getByText(/challenge_timeout/i).first()).toBeVisible();
   await expect(page.getByText(/Gateway reconnected/i)).toBeVisible();
   await expect(page.getByText(/Last entry included/i)).toBeVisible();
+  await expect(page.getByText(/Latest entry observed/i)).toBeVisible();
+  await expect(page.getByText(/characters remaining/i).first()).toBeVisible();
+  await page.getByRole("button", { name: "Backend mismatch" }).click();
+  await expect(page.getByText(/Built-in view: Backend mismatch/i)).toBeVisible();
   await expect(page.getByText(/Evidence [0-4]\/4/i).first()).toBeVisible();
+  await expect(page.getByText(/Theme and background settings are decorative only/i)).toBeVisible();
+  await expect(page.getByText(/Health poll .* last success/i)).toBeVisible();
+  await page.getByRole("button", { name: "Retry receipt receipt-1" }).click();
+  await expect(page.getByLabel("Operational workbench").getByText(/receipt-1 retry failed/i)).toBeVisible();
+  await expect(page.getByText(/retries 0|retries 1/i).first()).toBeVisible();
+  await page.getByRole("button", { name: "Copy receipt id receipt-1", exact: true }).click();
+  await expect(page.getByText(/Receipt id copied/i)).toBeVisible();
+  await expect(page.getByText(/Verification receipts/i)).toBeVisible();
+});
+
+test("shows backend mismatch when stale health still has a reachable Gateway target", async ({ page }) => {
+  await installApiFixtures(page, {
+    gatewayStatus: "blocked",
+    approvalCount: 0,
+    gatewayDetails: {
+      stale: true,
+      targetReachable: true,
+      scopes: ["operator.read", "operator.write"],
+      missingScopes: ["operator.approvals"]
+    }
+  });
+  await page.goto("/?day=2026-05-03");
+
+  await expect(page.getByRole("status", { name: "Backend mismatch" })).toContainText("Gateway target is reachable");
 });
 
 test("keyboard shortcuts jump to operational entries and the composer", async ({ page }) => {
@@ -221,6 +272,7 @@ test("fails closed when replay and correlation endpoints are unavailable", async
   await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0, failReplayCorrelation: true });
   await page.goto("/?day=2026-05-03");
 
+  await expect(page.getByLabel("Incident workspace selector")).toBeVisible({ timeout: 15000 });
   await expect(page.getByText("Mission replay unavailable: local replay endpoint failed closed.")).toBeVisible();
   await expect(page.getByText("Correlation graph unavailable: local correlation endpoint failed closed.")).toBeVisible();
 });

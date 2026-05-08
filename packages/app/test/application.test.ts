@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { AlertFinding, AlertRule, JournalDay, JournalSearchResult, SessionDrilldown } from "@openclog/core";
+import type { AlertFinding, AlertRule, DeliveryReceipt, JournalDay, JournalSearchResult, SessionDrilldown } from "@openclog/core";
 import { createOpenClogApplication } from "../src/index.js";
 
 function buildDay(dayKey: string, entryIds: string[]): JournalDay {
@@ -380,5 +380,131 @@ describe("OpenClog application layer", () => {
     expect(app.registerPlugin({ id: "plugin-2", label: "Plugin 2", version: "0.1.0", capabilities: ["annotation"], readScopes: ["entries"] })).toMatchObject({ id: "plugin-2" });
     expect(app.runPlugin({ pluginId: "plugin-1" })).toMatchObject({ status: "completed" });
     expect(app.listHealthTimeline({ limit: 5 }).items[0]).toMatchObject({ category: "reconnect" });
+  });
+
+  test("coordinates roadmap reliability contracts from shared application seams", () => {
+    const receipts: DeliveryReceipt[] = [
+      {
+        id: "receipt-failed",
+        target: "slack",
+        dayKey: "2026-05-04",
+        incidentId: "incident-1",
+        title: "handoff",
+        status: "failed",
+        requestedAt: "2026-05-04T12:00:00.000Z",
+        completedAt: "2026-05-04T12:00:01.000Z",
+        correlationId: "corr-1",
+        retryCount: 0,
+        idempotencyKey: "incident-1:slack",
+        requestFingerprint: "fingerprint-1",
+        errorCategory: "missing_config",
+        deadLetterReason: "delivery target is not configured"
+      }
+    ];
+    const summaryDay = {
+      ...buildDay("2026-05-04", ["entry-a", "entry-b"]),
+      generatedSummary: {
+        summary: "stale",
+        createdAt: "2026-05-04T00:00:00.000Z",
+        source: "rules" as const,
+        lastEntryIncludedAt: "2026-05-04T00:00:00.000Z",
+        latestEntryObservedAt: "2026-05-04T01:00:00.000Z",
+        freshnessState: "stale" as const
+      }
+    };
+    const app = createOpenClogApplication({
+      repo: {
+        getBackendFingerprint: () => ({
+          id: "boot-1",
+          pid: 1001,
+          bootedAt: "2026-05-04T12:00:00.000Z",
+          runtimeFingerprint: "runtime-1",
+          commitSha: "abc1234",
+          buildTimestamp: "2026-05-04T11:59:00.000Z",
+          nodeVersion: "v26.0.0"
+        }),
+        listDeliveryReceipts: () => receipts,
+        retryDeliveryReceipt(id) {
+          const original = receipts.find((receipt) => receipt.id === id);
+          if (!original) throw new Error("receipt_not_found");
+          const retry: DeliveryReceipt = {
+            ...original,
+            id: "receipt-retry",
+            status: "failed",
+            requestedAt: "2026-05-04T12:02:00.000Z",
+            completedAt: "2026-05-04T12:02:01.000Z",
+            correlationId: "corr-2",
+            retryCount: 1,
+            attemptNumber: 2,
+            retryOfReceiptId: original.id,
+            idempotencyKey: `${original.id}:retry:2`
+          };
+          receipts.unshift(retry);
+          return retry;
+        },
+        verifyIntegrationTarget: (target) => ({
+          id: `receipt-${target}-verify`,
+          target,
+          dayKey: "2026-05-04",
+          title: "dry-run verification",
+          status: "delivered",
+          requestedAt: "2026-05-04T12:03:00.000Z",
+          completedAt: "2026-05-04T12:03:00.000Z",
+          correlationId: "corr-verify",
+          retryCount: 0,
+          attemptNumber: 1,
+          dryRun: true,
+          requestFingerprint: `verify-${target}`,
+          deliveryReference: "dry-run"
+        }),
+        getDay: () => summaryDay,
+        previewRetention: () => ({ keepDays: 1, removedDayKeys: [], removedEntryCount: 0, removedSummaryCount: 0, removedAuditCount: 0 }),
+        listIncidents: () => [{ id: "incident-1", title: "Incident", summary: "Summary", dayKeys: ["2026-05-04"], entryIds: ["entry-a"], createdAt: "2026-05-04T12:00:00.000Z", runbookSuggestions: [], loopProgress: { detect: true, explain: true, recommend: true, act: false, record: false } }],
+        listInvestigationNotes: () => [{ id: "note-1", dayKey: "2026-05-04", incidentId: "incident-1", author: "operator", body: "note", linkedEntryIds: ["entry-a"], createdAt: "2026-05-04T12:01:00.000Z", updatedAt: "2026-05-04T12:01:00.000Z" }],
+        completeCloseout: () => ({
+          id: "closeout-1",
+          dayKey: "2026-05-04",
+          completedAt: "2026-05-04T12:04:00.000Z",
+          blocked: false,
+          checklist: ["Generated summary is current."],
+          receiptIds: ["receipt-failed"]
+        }),
+        listVerificationReceipts: () => [
+          { id: "verify-1", command: "npm run verify", status: "passed", startedAt: "2026-05-04T12:05:00.000Z", completedAt: "2026-05-04T12:06:00.000Z", summary: "verify passed" }
+        ],
+        createInvestigationWorkspace: () => ({
+          id: "workspace-1",
+          dayKeys: ["2026-05-04", "2026-05-05"],
+          incidentIds: ["incident-1"],
+          createdAt: "2026-05-04T12:07:00.000Z",
+          title: "Two day outage",
+          summary: "2 days stitched."
+        }),
+        getInvestigationWorkspace: () => ({
+          id: "workspace-1",
+          dayKeys: ["2026-05-04", "2026-05-05"],
+          incidentIds: ["incident-1"],
+          createdAt: "2026-05-04T12:07:00.000Z",
+          title: "Two day outage",
+          summary: "2 days stitched."
+        }),
+        getRemoteOpsPolicy: () => ({
+          enabled: false,
+          environmentLabel: "local",
+          allowedOrigins: ["http://127.0.0.1:5173"],
+          secretAccess: "fail-closed"
+        })
+      }
+    });
+
+    expect(app.getBackendFingerprint()).toMatchObject({ runtimeFingerprint: "runtime-1", pid: 1001 });
+    expect(app.getDeliveryReceipt({ id: "receipt-failed" })).toMatchObject({ requestFingerprint: "fingerprint-1" });
+    expect(app.retryDeliveryReceipt({ id: "receipt-failed" })).toMatchObject({ retryOfReceiptId: "receipt-failed", attemptNumber: 2 });
+    expect(app.verifyIntegrationTarget({ target: "slack", dayKey: "2026-05-04" })).toMatchObject({ dryRun: true, deliveryReference: "dry-run" });
+    expect(app.completeCloseout({ dayKey: "2026-05-04", exportTargets: ["slack"] })).toMatchObject({ blocked: false, receiptIds: ["receipt-failed"] });
+    expect(app.listVerificationReceipts()[0]).toMatchObject({ command: "npm run verify", status: "passed" });
+    expect(app.createInvestigationWorkspace({ dayKeys: ["2026-05-04", "2026-05-05"], title: "Two day outage" })).toMatchObject({ dayKeys: ["2026-05-04", "2026-05-05"] });
+    expect(app.getInvestigationWorkspace({ id: "workspace-1" })).toMatchObject({ id: "workspace-1" });
+    expect(app.getRemoteOpsPolicy()).toMatchObject({ enabled: false, secretAccess: "fail-closed" });
   });
 });
