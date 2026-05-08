@@ -387,6 +387,84 @@ describe("advanced OpenClog features", () => {
     await app.close();
   });
 
+  test("requires explicit local confirmation for monitoring imports and exposes imported provenance plus capabilities", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    const app = createApiApp({ repo, gateway: createMemoryGateway({ ready: true }) });
+
+    const blocked = await app.inject({
+      method: "POST",
+      url: "/api/monitoring-imports",
+      payload: {
+        dayKey: "2026-05-08",
+        markdown: "- High-signal: surface Gmail source as incident handoff",
+        sourceWorkflow: ["gmail", "blogwatcher", "openclaw"]
+      }
+    });
+    const imported = await app.inject({
+      method: "POST",
+      url: "/api/monitoring-imports",
+      payload: {
+        confirmedLocalImport: true,
+        dayKey: "2026-05-08",
+        importedAt: "2026-05-08T12:00:00.000Z",
+        sourcePath: "/Users/m4/newsletter-monitoring.md",
+        sourceWorkflow: ["gmail", "blogwatcher", "openclaw"],
+        markdown: [
+          "## Gmail",
+          "- Decision: keep quiet triage as note with token=secret-token",
+          "## blogwatcher",
+          "- High-signal: surface processswarm outage as incident handoff"
+        ].join("\n")
+      }
+    });
+    const notes = await app.inject({ method: "GET", url: "/api/investigation-notes?dayKey=2026-05-08" });
+    const packets = await app.inject({ method: "GET", url: "/api/monitoring-imports/handoff-packets?dayKey=2026-05-08" });
+    const context = await app.inject({ method: "GET", url: "/api/days/2026-05-08/context" });
+    const capabilities = await app.inject({ method: "GET", url: "/api/capabilities" });
+
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json()).toEqual({ error: "monitoring_import_requires_local_confirmation" });
+    expect(imported.json()).toMatchObject({
+      ok: true,
+      import: {
+        decisions: [
+          expect.objectContaining({ body: expect.stringContaining("token=[REDACTED_SECRET]") }),
+          expect.objectContaining({ disposition: "incident_handoff" })
+        ],
+        handoffPackets: [expect.objectContaining({ title: expect.stringContaining("processswarm outage") })],
+        provenance: {
+          sourceWorkflow: ["gmail", "blogwatcher", "openclaw"],
+          sourceHash: expect.stringMatching(/^sha256-/)
+        }
+      }
+    });
+    expect(notes.json()).toMatchObject({
+      notes: expect.arrayContaining([expect.objectContaining({ author: "local-monitoring-import" })])
+    });
+    expect(JSON.stringify(notes.json())).not.toContain("secret-token");
+    expect(packets.json()).toMatchObject({
+      packets: [expect.objectContaining({ deliveryTargets: ["github-issue", "slack", "email"] })]
+    });
+    expect(context.json()).toMatchObject({
+      ok: true,
+      context: { summary: "Monitoring import: 2 decision(s), 1 handoff packet(s)." }
+    });
+    const notifySlackCapability = capabilities.json().capabilities.find((capability: { id: string }) => capability.id === "incident-action:deliver_slack");
+    expect(notifySlackCapability).toMatchObject({
+      id: "incident-action:deliver_slack",
+      purpose: expect.any(String),
+      version: expect.any(String),
+      permissions: expect.any(Array),
+      failureModes: expect.any(Array),
+      auditProvenance: expect.any(Array),
+      approvalSignature: expect.any(String),
+      reviewBy: expect.any(String),
+      useGate: { allowed: true }
+    });
+    await app.close();
+  });
+
   test("paginates search and session drilldown responses", async () => {
     const repo = createSqliteRepository(":memory:");
     cleanup.push(() => repo.close());

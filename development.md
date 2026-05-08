@@ -145,3 +145,10 @@ Track OpenClog implementation decisions, verification passes, refactors, and clo
 - Added client wrappers for retention apply/rollback and alert acknowledge/snooze, then kept React mutation handlers fail-closed: successful actions refetch authoritative data; failed actions leave existing state untouched and report explicit local notices.
 - Continued the frontend refactor by moving retention impact, alert-state classification, snooze calculation, replay-step formatting, correlation formatting, and workbench-copy redaction into `apps/web/src/state/operator-workspace.ts`.
 - Expanded the fixture-driven browser lane so lifecycle execution, per-finding alert controls, and replay/correlation inspection are tested as operator workflows instead of helper-only behavior.
+
+## 2026-05-08 Monitoring Import And Capability Registry
+- Added a local, explicit monitoring-import flow for `newsletter-monitoring.md` style Gmail, blogwatcher, and OpenClaw triage decisions, turning bullets into redacted investigation notes, incident summaries, handoff packets, pinned context, and delivery payload context.
+- Added capability registry manifests for incident actions, delivery targets, plugins, and governance surfaces with purpose, version, permissions, failure modes, audit provenance, approval signature, and review or expiry gates before live use.
+- Kept the new lanes fail-closed: monitoring imports require explicit local confirmation, malformed capability manifests block execution, incident action buttons surface registry state, and delivery/plugin routes translate blocked capabilities into bounded API errors.
+- Refactored capability error handling in the API, moved registry and monitoring-import logic into `@openclog/app`, extended the SQLite schema and Drizzle schema list, and refreshed mobile visual baselines for the new operator panels.
+- Verification passed with `npm run verify` after the visual refresh, keeping configured coverage at 100% statements, branches, functions, and lines; `npm run verify:gateway` also passed against the live Gateway with mutation testing disabled; `npm run verify:desktop-native` passed the desktop-native cargo tests.

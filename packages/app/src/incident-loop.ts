@@ -12,6 +12,7 @@ import type {
   JournalEntry,
   PluginManifest
 } from "@openclog/core";
+import { buildCapabilityViews, incidentActionCapabilityId, pluginCapabilityId } from "./capabilities.js";
 import type { ApplicationRepository } from "./contracts.js";
 import { latestEntryAt, requireMethod } from "./utils.js";
 
@@ -25,6 +26,7 @@ interface IncidentLoopContext {
   receipts: DeliveryReceipt[];
   actionRecords: IncidentActionRecord[];
   plugins: PluginManifest[];
+  capabilities: ReturnType<typeof buildCapabilityViews>;
   integrityOk: boolean;
 }
 
@@ -44,6 +46,7 @@ export function buildIncidentWorkspace(repo: ApplicationRepository, incidentId: 
   const receipts = (repo.listDeliveryReceipts ? repo.listDeliveryReceipts() : []).filter((receipt) => receipt.incidentId === incidentId);
   const actionRecords = repo.listIncidentActionRecords ? repo.listIncidentActionRecords({ incidentId }) : [];
   const plugins = repo.listPlugins ? repo.listPlugins() : [];
+  const capabilities = buildCapabilityViews(repo, new Date().toISOString());
   const integrityOk = repo.getIntegrityReport ? repo.getIntegrityReport().ok : true;
   const loop = buildIncidentLoop({
     incident,
@@ -55,6 +58,7 @@ export function buildIncidentWorkspace(repo: ApplicationRepository, incidentId: 
     receipts,
     actionRecords,
     plugins,
+    capabilities,
     integrityOk
   });
   return {
@@ -79,6 +83,15 @@ export function executeIncidentAction(
   const now = new Date().toISOString();
   const saveActionRecord = requireMethod(repo.saveIncidentActionRecord, "saveIncidentActionRecord");
   const refreshWorkspace = () => buildIncidentWorkspace(repo, input.incidentId);
+  const assertActionCapability = (actionId: IncidentActionKind, pluginId?: string): void => {
+    const capabilities = buildCapabilityViews(repo, now);
+    const capabilityId = actionId === "run_plugin" && pluginId ? pluginCapabilityId(pluginId) : incidentActionCapabilityId(actionId);
+    const capability = capabilities.find((item) => item.id === capabilityId) ?? capabilities.find((item) => item.id === incidentActionCapabilityId(actionId));
+    if (!capability) throw new Error(`capability_not_found:${capabilityId}`);
+    if (!capability.useGate.allowed) throw new Error(`capability_blocked:${capability.id}:${capability.useGate.blockers.join(",")}`);
+  };
+
+  assertActionCapability(input.actionId, input.pluginId);
 
   const record = (partial: Omit<IncidentActionRecord, "id" | "incidentId" | "createdAt">): IncidentActionRecord =>
     saveActionRecord({
@@ -168,6 +181,7 @@ export function executeIncidentAction(
   if (input.actionId === "run_plugin") {
     const pluginId = input.pluginId ?? requireMethod(repo.listPlugins, "listPlugins")()[0]?.id;
     if (!pluginId) throw new Error("plugin_not_found");
+    assertActionCapability(input.actionId, pluginId);
     const result = requireMethod(repo.runPlugin, "runPlugin")(pluginId, { dryRun: false });
     const actionRecord = record({
       kind: input.actionId,
@@ -414,14 +428,27 @@ function buildActions(category: IncidentCauseCategory, context: IncidentLoopCont
     ? createAction("run_plugin", `Run plugin: ${context.plugins[0].label}`, "Run the first available bounded plugin action.", "confirm")
     : createAction("run_plugin", "Run plugin", "No plugin is currently registered.", "confirm", "blocked", "Register a plugin before executing this action.");
   actions.push(pluginAction);
+  const gateActions = (items: IncidentLoopAction[]): IncidentLoopAction[] =>
+    items.map((action) => {
+      const capabilityId = incidentActionCapabilityId(action.id);
+      const capability = context.capabilities.find((item) => item.id === capabilityId);
+      const capabilityReason = capability && !capability.useGate.allowed ? capability.useGate.blockers.join(", ") : undefined;
+      return {
+        ...action,
+        capabilityId,
+        availability: capabilityReason ? "blocked" : action.availability,
+        reason: capabilityReason ?? action.reason
+      };
+    });
   if (category === "evidence_incomplete") {
-    return actions.map((action) =>
-      action.id === "deliver_slack" || action.id === "deliver_generic_webhook" || action.id === "deliver_email" || action.id === "create_github_issue"
+    return gateActions(actions).map((action) =>
+      action.availability !== "blocked" &&
+      (action.id === "deliver_slack" || action.id === "deliver_generic_webhook" || action.id === "deliver_email" || action.id === "create_github_issue")
         ? { ...action, availability: "degraded", reason: "Evidence is incomplete; outbound escalation remains available but should be treated cautiously." }
         : action
     );
   }
-  return actions;
+  return gateActions(actions);
 }
 
 function createAction(

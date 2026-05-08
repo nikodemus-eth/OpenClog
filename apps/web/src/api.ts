@@ -12,6 +12,7 @@ import type {
   AlertFinding,
   AlertRule,
   BackendFingerprint,
+  CapabilityView,
   CloseoutPlan,
   CloseoutCompletion,
   LineageRecord,
@@ -19,6 +20,8 @@ import type {
   GeneratedSummary,
   IncidentActionKind,
   IncidentActionRecord,
+  MonitoringImportInput,
+  MonitoringImportResult,
   IncidentSummary,
   IncidentWorkspace,
   InvestigationNote,
@@ -381,6 +384,22 @@ export async function createInvestigationNote(payload: {
   if (!response.ok) throw new Error("Investigation note save failed");
   const result = (await response.json()) as { note: InvestigationNote };
   return result.note;
+}
+
+export async function importMonitoringDecisions(payload: MonitoringImportInput & { confirmedLocalImport: true }): Promise<MonitoringImportResult> {
+  const response = await fetch("/api/monitoring-imports", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) throw new Error("Monitoring import failed closed");
+  const result = (await response.json()) as { import: MonitoringImportResult };
+  return result.import;
+}
+
+export async function fetchCapabilities(): Promise<CapabilityView[]> {
+  const result = await fetchJson<{ capabilities: CapabilityView[] }>("/api/capabilities");
+  return result.capabilities;
 }
 
 export async function fetchAlerts(): Promise<{ rules: AlertRule[]; findings: AlertFinding[] }> {

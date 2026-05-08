@@ -4,6 +4,7 @@ import type {
   AnalyticsSnapshot,
   BackendFingerprint,
   BundleVerificationResult,
+  CapabilityManifest,
   CloseoutCompletion,
   DeliveryReceipt,
   DeliveryRequestOptions,
@@ -14,6 +15,7 @@ import type {
   HealthHistoryEntry,
   IncidentRulePack,
   IncidentActionRecord,
+  IncidentHandoffPacket,
   IncidentSummary,
   InvestigationWorkspace,
   InvestigationNote,
@@ -24,6 +26,7 @@ import type {
   MissionReplay,
   OpenClogSettings,
   OperatorRunbook,
+  PinnedDayContext,
   PluginExecutionResult,
   PluginManifest,
   RemoteOpsPolicy,
@@ -81,6 +84,7 @@ export interface DrilldownRepository {
 export interface RetentionRepository {
   listDays(): Array<Omit<JournalDay, "entries">>;
   getDay(dayKey: string): JournalDay | null;
+  upsertDay?(day: JournalDay): void;
   previewRetention(policy: RetentionPolicy): RetentionPreview;
   deleteDays(dayKeys: string[]): void;
   saveRetentionSnapshot(snapshot: RetentionSnapshotRecord): RetentionSnapshotRecord;
@@ -102,6 +106,7 @@ export interface IncidentRepository {
   getIncident(id: string): IncidentSummary | undefined;
   listIncidents(): IncidentSummary[];
   getDay(dayKey: string): JournalDay | null;
+  saveIncident?(incident: IncidentSummary): IncidentSummary;
   saveInvestigationNote(note: InvestigationNote): InvestigationNote;
   listInvestigationNotes(filter?: {
     dayKey?: string;
@@ -109,6 +114,8 @@ export interface IncidentRepository {
   }): InvestigationNote[];
   listIncidentActionRecords(filter?: { incidentId?: string }): IncidentActionRecord[];
   saveIncidentActionRecord(record: IncidentActionRecord): IncidentActionRecord;
+  listIncidentHandoffPackets?(filter?: { dayKey?: string; incidentId?: string }): IncidentHandoffPacket[];
+  saveIncidentHandoffPacket?(packet: IncidentHandoffPacket): IncidentHandoffPacket;
   generateSummary(dayKey: string): JournalDay["generatedSummary"];
   listIncidentRulePacks?(): IncidentRulePack[];
 }
@@ -155,6 +162,8 @@ export interface GovernanceRepository {
     missingRedactedHashes: string[];
     ok: boolean;
   };
+  listCapabilityManifests?(): CapabilityManifest[];
+  saveCapabilityManifest?(manifest: CapabilityManifest): CapabilityManifest;
 }
 
 export interface SecureStorageRepository {
@@ -166,6 +175,7 @@ export interface SecureStorageRepository {
 export interface SettingsRepository {
   getSetting<T>(key: string, fallback: T): T;
   setSetting(key: string, value: unknown): void;
+  setPinnedDayContext?(dayKey: string, context: Pick<PinnedDayContext, "note" | "summary">, now?: Date): PinnedDayContext;
 }
 
 export type ApplicationRepository = Partial<

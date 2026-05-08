@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { formatCorrelationNode, formatMissionReplayStep, formatReceiptDetails, formatRetentionSnapshotImpact } from "../../apps/web/src/state/operator-workspace.js";
+import { formatCapabilitySummary, formatCorrelationNode, formatMissionReplayStep, formatMonitoringImportSummary, formatReceiptDetails, formatRetentionSnapshotImpact } from "../../apps/web/src/state/operator-workspace.js";
 import { browserVisibleEntryText, classifyComposerInput, redactGatewayPayload, toPersistableRedactedEvent } from "../../packages/core/src/index.js";
 
 describe("red-team fixtures", () => {
@@ -124,6 +124,45 @@ describe("red-team fixtures", () => {
     expect(receipt).not.toMatch(/oc_token_secret|Bearer nope|\/Users\/m4\/OpenClog\/\.env/);
     expect(receipt).toContain("[REDACTED_SECRET]");
     expect(receipt).toContain("[LOCAL_PATH]");
+  });
+
+  test("monitoring import and capability registry copy preserve local secret boundaries", () => {
+    const importSummary = formatMonitoringImportSummary({
+      batchId: "batch-secret",
+      importedAt: "2026-05-08T12:00:00.000Z",
+      provenance: {
+        sourceWorkflow: ["gmail", "blogwatcher", "openclaw"],
+        sourcePath: "/Users/m4/OpenClog/.env",
+        sourceHash: "sha256-secret",
+        importedAt: "2026-05-08T12:00:00.000Z",
+        lineNumbers: [1],
+        redactionCount: 1,
+        redactedPaths: ["$.markdown"]
+      },
+      decisions: [],
+      notes: [],
+      incidents: [],
+      handoffPackets: []
+    });
+    const capability = formatCapabilitySummary({
+      id: "delivery:slack",
+      kind: "delivery_target",
+      label: "Slack",
+      purpose: "Send Authorization: Bearer registry-secret to Slack.",
+      version: "2026.05.08",
+      permissions: ["delivery:slack"],
+      failureModes: ["missing_config"],
+      auditProvenance: ["journal_delivery_receipts"],
+      approvalSignature: "local-openclog:delivery:slack",
+      reviewBy: "2026-06-08",
+      source: "local_manifest",
+      deliveryTarget: "slack",
+      useGate: { capabilityId: "delivery:slack", allowed: true, status: "available", blockers: [], checkedAt: "2026-05-08T12:00:00.000Z" }
+    });
+
+    expect(`${importSummary}\n${capability}`).not.toMatch(/registry-secret|\/Users\/m4\/OpenClog\/\.env/);
+    expect(capability).toContain("[REDACTED_SECRET]");
+    expect(importSummary).toContain("[LOCAL_PATH]");
   });
 });
 

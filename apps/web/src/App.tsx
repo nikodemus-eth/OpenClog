@@ -9,6 +9,7 @@ import {
   type AgentActivity,
   type AlertRule,
   type ApprovalView,
+  type CapabilityView,
   type DeliveryReceipt,
   type IncidentActionRecord,
   type IncidentSummary,
@@ -29,6 +30,7 @@ import {
   type BundleExport,
   buildCloseoutPlan,
   executeIncidentAction,
+  fetchCapabilities,
   deliverIntegration,
   createReplayWorkspace,
   createSummaryJob,
@@ -70,6 +72,7 @@ import {
   fetchVerificationReceipts,
   fetchVersion,
   generateSummaryProfile,
+  importMonitoringDecisions,
   pollSummaryJobUntilSettled,
   previewRetention,
   previewRetentionByClass,
@@ -140,8 +143,11 @@ import {
   getInitialDiagnosticsCollapsedState,
   hasRetentionImpact,
   classifyGatewayUrl,
+  capabilityGateAllows,
   formatRetentionPreview,
+  formatCapabilitySummary,
   isGeneratedSummaryStale,
+  formatMonitoringImportSummary,
   isSummaryJobActive,
   remainingPinnedSummaryCharacters,
   searchEmptyState,
@@ -248,7 +254,11 @@ export function App() {
   const [replayWorkspace, setReplayWorkspace] = useState<Awaited<ReturnType<typeof createReplayWorkspace>> | null>(null);
   const [lastRetentionSnapshot, setLastRetentionSnapshot] = useState<RetentionSnapshotResult | null>(null);
   const [plugins, setPlugins] = useState<Awaited<ReturnType<typeof fetchPlugins>>>([]);
+  const [capabilities, setCapabilities] = useState<CapabilityView[]>([]);
   const [pluginRunResult, setPluginRunResult] = useState<Awaited<ReturnType<typeof runPlugin>> | null>(null);
+  const [monitoringImportDraft, setMonitoringImportDraft] = useState("");
+  const [monitoringImportResult, setMonitoringImportResult] = useState<Awaited<ReturnType<typeof importMonitoringDecisions>> | null>(null);
+  const [monitoringImportStatus, setMonitoringImportStatus] = useState("");
   const [incidentActionNotice, setIncidentActionNotice] = useState("");
   const [recentActionNotices, setRecentActionNotices] = useState<string[]>([]);
   const [sloSnapshot, setSloSnapshot] = useState<Awaited<ReturnType<typeof fetchSlo>> | null>(null);
@@ -511,7 +521,7 @@ export function App() {
   useEffect(() => {
     let active = true;
     async function refreshAdvanced() {
-      const [alerts, adapters, incidentList, noteList, profileData, history, aggregate, timeline, receipts, classes, profiles, pluginList, reports, slo, operatorRunbook, rulePacks, verification] = await Promise.all([
+      const [alerts, adapters, incidentList, noteList, profileData, history, aggregate, timeline, receipts, classes, profiles, pluginList, capabilityList, reports, slo, operatorRunbook, rulePacks, verification] = await Promise.all([
         fetchAlerts().catch(() => ({ rules: [] as AlertRule[], findings: [] as AlertFindingView[] })),
         fetchAdapterEvents().catch(() => [] as AdapterEvent[]),
         fetchIncidents().catch(() => [] as IncidentSummary[]),
@@ -524,6 +534,7 @@ export function App() {
         fetchRetentionClasses().catch(() => []),
         fetchSummaryProfiles().catch(() => []),
         fetchPlugins().catch(() => []),
+        fetchCapabilities().catch(() => [] as CapabilityView[]),
         fetchIntegrityReports().catch(() => []),
         fetchSlo().catch(() => null),
         fetchRunbook().catch(() => null),
@@ -545,6 +556,7 @@ export function App() {
       setRetentionClasses(classes);
       setSummaryProfiles(profiles);
       setPlugins(pluginList);
+      setCapabilities(capabilityList);
       setIntegrityReports(reports);
       setSloSnapshot(slo);
       setRunbook(operatorRunbook);
@@ -1148,6 +1160,37 @@ export function App() {
     await handleExecuteIncidentAction("save_note", { body: investigationNoteDraft.trim() });
   }
 
+  async function handleImportMonitoringDecisions(): Promise<void> {
+    const markdown = monitoringImportDraft.trim();
+    if (!markdown) {
+      setMonitoringImportStatus("Monitoring import blocked: paste newsletter-monitoring.md decisions first.");
+      return;
+    }
+    try {
+      const result = await importMonitoringDecisions({
+        confirmedLocalImport: true,
+        markdown,
+        dayKey: visibleDay.dayKey,
+        sourceWorkflow: ["gmail", "blogwatcher", "openclaw"],
+        sourcePath: "newsletter-monitoring.md"
+      });
+      setMonitoringImportResult(result);
+      setMonitoringImportStatus(formatMonitoringImportSummary(result) ?? "Monitoring import completed.");
+      setInvestigationNotes((current) => [...result.notes, ...current.filter((note) => !result.notes.some((imported) => imported.id === note.id))]);
+      setIncidents((current) => [...result.incidents, ...current.filter((incident) => !result.incidents.some((imported) => imported.id === incident.id))]);
+      if (result.incidents[0]?.id) setSelectedIncidentId(result.incidents[0].id);
+      if (result.pinnedContext) {
+        setPinnedNote(result.pinnedContext.note ?? "");
+        setPinnedSummary(result.pinnedContext.summary ?? "");
+        setDay((current) => ({ ...current, pinnedContext: result.pinnedContext }));
+      }
+      setNotice("Monitoring decisions imported into local operator context.");
+    } catch {
+      setMonitoringImportStatus("Monitoring import failed closed: no local notes or handoff packets were confirmed.");
+      setNotice("Monitoring import failed closed.");
+    }
+  }
+
   async function handleSaveAlertRule(): Promise<void> {
     const rule = await saveAlertRule({ id: "reconnect-storm", kind: "reconnect_storm", threshold: 1, enabled: true, title: "Reconnect storm" });
     setAlertRules((current) => [rule, ...current.filter((item) => item.id !== rule.id)]);
@@ -1534,6 +1577,7 @@ export function App() {
         adapterEvents={adapterEvents}
         alertSummary={alertSummary}
         alertFindings={alertFindings}
+        capabilities={capabilities}
         closeoutChecklist={closeoutPlanState?.checklist ?? []}
         closeoutPlanText={closeoutPlanText}
         correlationGraph={correlationGraph}
@@ -1555,6 +1599,9 @@ export function App() {
         investigationNoteDraft={investigationNoteDraft}
         investigationNoteError={investigationNoteError}
         investigationNotes={investigationNotes}
+        monitoringImportDraft={monitoringImportDraft}
+        monitoringImportResult={monitoringImportResult}
+        monitoringImportStatus={monitoringImportStatus}
         analyticsSnapshot={analyticsSnapshot}
         bundleDigest={bundlePreview?.manifest.signature?.digest}
         bundlePreviewText={bundlePreviewText}
@@ -1619,8 +1666,10 @@ export function App() {
         }}
         onGenerateSummaryProfile={() => void handleGenerateSummaryProfile()}
         onGenerateSummary={() => void handleRefreshSummary()}
+        onImportMonitoringDecisions={() => void handleImportMonitoringDecisions()}
         onOfflineReview={() => void handleOfflineReview()}
         onInvestigationNoteChange={setInvestigationNoteDraft}
+        onMonitoringImportDraftChange={setMonitoringImportDraft}
         onLoadAnalytics={() => void handleLoadAnalytics()}
         onJumpToEntry={(entryId) => {
           setExpandedEntryId(entryId);
@@ -1993,6 +2042,7 @@ function OperationalPanels(props: {
   alertsPanelRef: RefObject<HTMLDivElement | null>;
   bundleDigest?: string;
   bundlePreviewText: string | null;
+  capabilities: CapabilityView[];
   closeoutChecklist: string[];
   closeoutPlanText: string | null;
   correlationGraph: Awaited<ReturnType<typeof fetchCorrelation>> | null;
@@ -2018,6 +2068,9 @@ function OperationalPanels(props: {
   investigationNotes: InvestigationNote[];
   lineageRecord: Awaited<ReturnType<typeof fetchLineage>> | null;
   missionReplay: Awaited<ReturnType<typeof fetchReplay>> | null;
+  monitoringImportDraft: string;
+  monitoringImportResult: Awaited<ReturnType<typeof importMonitoringDecisions>> | null;
+  monitoringImportStatus: string;
   offlineBundleDay: JournalDay | null;
   plugins: Awaited<ReturnType<typeof fetchPlugins>>;
   pluginRunResult: Awaited<ReturnType<typeof runPlugin>> | null;
@@ -2063,7 +2116,9 @@ function OperationalPanels(props: {
   onExecuteIncidentAction: (actionId: Parameters<typeof executeIncidentAction>[0]["actionId"], options?: { body?: string; pluginId?: string }) => void;
   onGenerateSummary: () => void;
   onGenerateSummaryProfile: () => void;
+  onImportMonitoringDecisions: () => void;
   onInvestigationNoteChange: (value: string) => void;
+  onMonitoringImportDraftChange: (value: string) => void;
   onJumpToEntry: (entryId: string) => void;
   onLoadAnalytics: () => void;
   onOfflineReview: () => void;
@@ -2092,6 +2147,7 @@ function OperationalPanels(props: {
   const selectedProfile = props.profiles.find((profile) => profile.id === props.selectedProfileId) ?? props.profiles[0];
   const profileSafety = classifyGatewayUrl(selectedProfile?.gatewayUrl);
   const deliveryReceipts = props.deliveryReceipts ?? [];
+  const capabilities = props.capabilities ?? [];
   const retentionClasses = props.retentionClasses ?? [];
   const retentionClassPreviewState = props.retentionClassPreviewState ?? [];
   const summaryProfiles = props.summaryProfiles ?? [];
@@ -2183,6 +2239,32 @@ function OperationalPanels(props: {
         ) : (
           <p>Summary never generated for this day yet.</p>
         )}
+      </section>
+      <section className="workspace-panel">
+        <div className="panel-header">
+          <h3>Monitoring import</h3>
+        </div>
+        <label>
+          <span>newsletter-monitoring.md decisions</span>
+          <textarea
+            aria-label="Monitoring import markdown"
+            value={props.monitoringImportDraft}
+            onChange={(event) => props.onMonitoringImportDraftChange(event.target.value)}
+          />
+        </label>
+        <button type="button" onClick={props.onImportMonitoringDecisions}>
+          Import monitoring decisions
+        </button>
+        {props.monitoringImportStatus ? <p>{props.monitoringImportStatus}</p> : <p>Paste local Gmail, blogwatcher, and OpenClaw triage decisions to create notes or handoff packets.</p>}
+        {props.monitoringImportResult?.handoffPackets.length ? (
+          <ul>
+            {props.monitoringImportResult.handoffPackets.map((packet) => (
+              <li key={packet.id}>
+                {packet.title} · {packet.provenance.sourceHash}
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </section>
       <section className="workspace-panel" ref={props.incidentsPanelRef} tabIndex={-1}>
         <div className="panel-header">
@@ -2459,6 +2541,18 @@ function OperationalPanels(props: {
           <h3>Delivery and governance</h3>
         </div>
         {props.receiptRetryStatus ? <p aria-live="polite">{props.receiptRetryStatus}</p> : null}
+        {capabilities.length > 0 ? (
+          <div className="capability-registry" aria-label="Capability registry">
+            {capabilities.slice(0, 6).map((capability) => (
+              <article className="delivery-target-card" key={capability.id}>
+                <h4>{capability.label}</h4>
+                <p>{formatCapabilitySummary(capability)}</p>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="validation-message">Capability registry unavailable; live actions fail closed.</p>
+        )}
         <button type="button" onClick={() => props.onCopyApiExample("POST /api/integrations/slack/deliver", { dayKey: props.visibleDay.dayKey, incidentId: props.selectedIncidentId || "incident-id" })}>
           Copy governance API example
         </button>
@@ -2473,7 +2567,7 @@ function OperationalPanels(props: {
                   <button type="button" onClick={() => props.onVerifyIntegration(item.target)}>
                     Verify {item.label} dry run
                   </button>
-                  <button type="button" onClick={() => props.onDeliverIntegration(item.target)}>
+                  <button type="button" disabled={!capabilityGateAllows(capabilities, `delivery:${item.target}`)} onClick={() => props.onDeliverIntegration(item.target)}>
                     Deliver to {item.label.toLocaleLowerCase()}
                   </button>
                 </div>
@@ -2634,7 +2728,7 @@ function OperationalPanels(props: {
               {plugins.map((plugin) => (
                 <li key={plugin.id}>
                   {plugin.label} ({plugin.capabilities.join(", ")}) {plugin.supportsDryRun === false ? "live-only" : "dry-run ready"}
-                  <button type="button" onClick={() => props.onRunPlugin(plugin.id)}>
+                  <button type="button" disabled={!capabilityGateAllows(capabilities, `plugin:${plugin.id}`)} onClick={() => props.onRunPlugin(plugin.id)}>
                     Run
                   </button>
                 </li>

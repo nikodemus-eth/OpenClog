@@ -96,3 +96,9 @@ Capture durable lessons that should shape future OpenClog work.
 - Preview-gated mutation controls need tests for the disabled state as much as the success state; otherwise cleanup can drift from “inspect first” into a one-click destructive path.
 - Snoozed and acknowledged alerts are different operator states, so active counts should exclude future-snoozed findings while still keeping the finding visible.
 - Count-only replay/correlation summaries are not enough for incident review; even a small list of steps, nodes, edges, and local jump buttons makes the evidence inspectable without widening authority.
+
+## 2026-05-08 Monitoring Import And Capability Registry
+- Local imports need an explicit operator confirmation boundary; turning pasted monitoring decisions into notes or handoffs should never happen as a passive sync side effect.
+- Capability manifests should replace earlier defaults by id, not merge into them, because inheriting a default approval signature can accidentally turn a malformed local override into an approved live action.
+- Incident action availability and execution gates must read the same registry state; otherwise the UI can imply an action is usable while the API correctly refuses it.
+- Full-page mobile visual baselines are expected to move when new operator panels are added, but only after a screenshot check confirms the additional height is clean flow rather than overlap.

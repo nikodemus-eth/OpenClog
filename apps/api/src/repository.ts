@@ -10,6 +10,7 @@ import type {
   BackendFingerprint,
   BundleSignature,
   BundleVerificationResult,
+  CapabilityManifest,
   CloseoutCompletion,
   CorrelationEdge,
   CorrelationGraph,
@@ -24,6 +25,7 @@ import type {
   HealthHistoryEntry,
   IncidentRulePack,
   IncidentActionRecord,
+  IncidentHandoffPacket,
   IncidentSummary,
   InvestigationWorkspace,
   OperatorRunbook,
@@ -91,6 +93,8 @@ export interface OpenClogRepository {
   getSummaryJob(id: string): SummaryJob | undefined;
   getInvestigationWorkspace(id: string): InvestigationWorkspace | undefined;
   getRemoteOpsPolicy(): RemoteOpsPolicy;
+  listCapabilityManifests(): CapabilityManifest[];
+  listIncidentHandoffPackets(filter?: { dayKey?: string; incidentId?: string }): IncidentHandoffPacket[];
   getAlertState(ruleId: string): AlertStateRecord | undefined;
   generateOperatorRunbook(): OperatorRunbook;
   listAdapterEvents(): AdapterEvent[];
@@ -120,6 +124,8 @@ export interface OpenClogRepository {
   createInvestigationWorkspace(input: { dayKeys: string[]; title?: string }): InvestigationWorkspace;
   saveIncident(incident: IncidentSummary): IncidentSummary;
   saveIncidentActionRecord(record: IncidentActionRecord): IncidentActionRecord;
+  saveCapabilityManifest(manifest: CapabilityManifest): CapabilityManifest;
+  saveIncidentHandoffPacket(packet: IncidentHandoffPacket): IncidentHandoffPacket;
   saveInvestigationNote(note: InvestigationNote): InvestigationNote;
   saveRetentionClass(retentionClass: RetentionClass): RetentionClass;
   saveRetentionSnapshot(snapshot: RetentionSnapshotRecord): RetentionSnapshotRecord;
@@ -275,7 +281,12 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
     buildIntegrationPayload(target, dayKey) {
       const day = repo.getDay(dayKey) ?? emptyDay(dayKey);
       const title = `${day.title} handoff for ${day.dayKey}`;
-      const body = `${day.dateLabel}\n\n${exportDayAsMarkdown(day)}\n`;
+      const packets = repo.listIncidentHandoffPackets({ dayKey });
+      const packetSection =
+        packets.length > 0
+          ? `\n\n## Incident Handoff Packets\n\n${packets.map((packet) => `### ${packet.title}\n${packet.body}\nProvenance: ${packet.provenance.sourceHash}`).join("\n\n")}\n`
+          : "";
+      const body = `${day.dateLabel}\n\n${exportDayAsMarkdown(day)}${packetSection}\n`;
       return { target, title, body };
     },
     createGithubIssue(dayKey, options) {
@@ -760,6 +771,9 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
         secretAccess: "fail-closed"
       };
     },
+    listCapabilityManifests() {
+      return db.prepare("SELECT capability_json FROM journal_capabilities ORDER BY id ASC").all().map((row) => JSON.parse(String(row.capability_json)) as CapabilityManifest);
+    },
     getAlertState(ruleId) {
       const row = db.prepare("SELECT state_json FROM journal_alert_states WHERE id = ?").get(ruleId);
       return row ? (JSON.parse(String(row.state_json)) as AlertStateRecord) : undefined;
@@ -873,6 +887,13 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       const stored = db.prepare("SELECT incident_json FROM journal_incidents ORDER BY id ASC").all().map((row) => JSON.parse(String(row.incident_json)) as IncidentSummary);
       return stored.length > 0 ? stored : deriveIncidents(repo.listDays().map((day) => repo.getDay(day.dayKey)).filter((day): day is JournalDay => day !== null));
     },
+    listIncidentHandoffPackets(filter) {
+      return db
+        .prepare("SELECT packet_json FROM journal_incident_handoff_packets ORDER BY created_at DESC, id DESC")
+        .all()
+        .map((row) => JSON.parse(String(row.packet_json)) as IncidentHandoffPacket)
+        .filter((packet) => (!filter?.dayKey || packet.dayKey === filter.dayKey) && (!filter?.incidentId || packet.incidentId === filter.incidentId));
+    },
     listIncidentActionRecords(filter) {
       return db
         .prepare("SELECT record_json FROM journal_incident_action_records ORDER BY created_at DESC, id DESC")
@@ -945,6 +966,11 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
     registerPlugin(plugin) {
       const normalized: PluginManifest = {
         ...plugin,
+        purpose: plugin.purpose ?? `Run local plugin ${plugin.label} within OpenClog validation metadata.`,
+        failureModes: plugin.failureModes ?? ["plugin_failed", "validation_blocked"],
+        auditProvenance: plugin.auditProvenance ?? ["journal_plugins", "journal_plugin_runs"],
+        approvalSignature: plugin.approvalSignature ?? `local-openclog:plugin:${plugin.id}`,
+        reviewBy: plugin.reviewBy ?? "2026-06-08",
         supportsDryRun: plugin.supportsDryRun !== false,
         sandbox: plugin.sandbox ?? { capabilities: plugin.capabilities, dryRunWritesOnly: true, auditedOutputs: true },
         validationStatus: plugin.capabilities.length > 0 && plugin.readScopes.length > 0 ? "valid" : "blocked",
@@ -1065,6 +1091,26 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       saveJsonRow(db, "journal_incidents", incident.id, JSON.stringify(incident));
       syncLineageForIncident(db, incident.id, repo);
       return incident;
+    },
+    saveCapabilityManifest(manifest) {
+      saveJsonRow(db, "journal_capabilities", manifest.id, JSON.stringify(manifest));
+      return manifest;
+    },
+    saveIncidentHandoffPacket(packet) {
+      db.prepare(
+        "INSERT INTO journal_incident_handoff_packets (id, day_key, incident_id, created_at, packet_json) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET day_key = excluded.day_key, incident_id = excluded.incident_id, created_at = excluded.created_at, packet_json = excluded.packet_json"
+      ).run(packet.id, packet.dayKey, packet.incidentId ?? null, packet.createdAt, JSON.stringify(packet));
+      if (packet.incidentId) {
+        const incident = repo.getIncident(packet.incidentId);
+        if (incident) repo.saveIncident({ ...incident, handoffPacketIds: [...new Set([...(incident.handoffPacketIds ?? []), packet.id])] });
+      }
+      repo.addAudit("monitoring_import.handoff_packet", {
+        target_type: "incident_handoff_packet",
+        target_id: packet.id,
+        day_key: packet.dayKey,
+        incident_id: packet.incidentId ?? null
+      });
+      return packet;
     },
     saveIncidentActionRecord(record) {
       db.prepare(
@@ -1266,7 +1312,9 @@ function migrate(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS journal_analytics_snapshots (id TEXT PRIMARY KEY, snapshot_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_correlation_graph (id TEXT PRIMARY KEY, graph_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_plugins (id TEXT PRIMARY KEY, plugin_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_capabilities (id TEXT PRIMARY KEY, capability_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_plugin_runs (id TEXT PRIMARY KEY, plugin_id TEXT, run_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_incident_handoff_packets (id TEXT PRIMARY KEY, day_key TEXT NOT NULL, incident_id TEXT, created_at TEXT NOT NULL, packet_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_bundle_exports (id TEXT PRIMARY KEY, export_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_summary_jobs (id TEXT PRIMARY KEY, day_key TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, job_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_replay_workspaces (id TEXT PRIMARY KEY, day_key TEXT NOT NULL, workspace_json TEXT NOT NULL);
@@ -1281,6 +1329,7 @@ function migrate(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS idx_journal_adapter_events_id ON journal_adapter_events(id);
     CREATE INDEX IF NOT EXISTS idx_journal_delivery_receipts_requested ON journal_delivery_receipts(requested_at, target);
     CREATE INDEX IF NOT EXISTS idx_journal_incident_action_records_created ON journal_incident_action_records(created_at, incident_id);
+    CREATE INDEX IF NOT EXISTS idx_journal_handoff_packets_day ON journal_incident_handoff_packets(day_key, created_at);
   `);
 }
 
@@ -1319,42 +1368,27 @@ function saveJsonRow(db: DatabaseSync, table: string, id: string, json: string, 
     db.prepare("INSERT INTO journal_lineage (entry_id, lineage_json) VALUES (?, ?) ON CONFLICT(entry_id) DO UPDATE SET lineage_json = excluded.lineage_json").run(id, json);
     return;
   }
-  const jsonColumn =
-    table === "journal_incidents"
-      ? "incident_json"
-      : table === "journal_alert_rules"
-        ? "rule_json"
-        : table === "journal_profiles"
-          ? "profile_json"
-          : table === "journal_retention_snapshots"
-            ? "snapshot_json"
-            : table === "journal_alert_states"
-              ? "state_json"
-              : table === "journal_adapter_events"
-                ? "adapter_event_json"
-                : table === "journal_plugins"
-                  ? "plugin_json"
-                  : table === "journal_integrity_reports"
-                    ? "report_json"
-                    : table === "journal_analytics_snapshots"
-                      ? "snapshot_json"
-                      : table === "journal_correlation_graph"
-                        ? "graph_json"
-                  : table === "journal_retention_classes"
-                    ? "retention_class_json"
-                    : table === "journal_lineage"
-                      ? "lineage_json"
-                      : table === "journal_bundle_exports"
-                        ? "export_json"
-                        : table === "journal_backend_fingerprints"
-                          ? "fingerprint_json"
-                          : table === "journal_closeout_completions"
-                            ? "completion_json"
-                            : table === "journal_verification_receipts"
-                              ? "receipt_json"
-                              : table === "journal_investigation_workspaces"
-                                ? "workspace_json"
-                        : "";
+  const jsonColumns: Record<string, string> = {
+    journal_incidents: "incident_json",
+    journal_alert_rules: "rule_json",
+    journal_profiles: "profile_json",
+    journal_retention_snapshots: "snapshot_json",
+    journal_alert_states: "state_json",
+    journal_adapter_events: "adapter_event_json",
+    journal_plugins: "plugin_json",
+    journal_capabilities: "capability_json",
+    journal_integrity_reports: "report_json",
+    journal_analytics_snapshots: "snapshot_json",
+    journal_correlation_graph: "graph_json",
+    journal_retention_classes: "retention_class_json",
+    journal_lineage: "lineage_json",
+    journal_bundle_exports: "export_json",
+    journal_backend_fingerprints: "fingerprint_json",
+    journal_closeout_completions: "completion_json",
+    journal_verification_receipts: "receipt_json",
+    journal_investigation_workspaces: "workspace_json"
+  };
+  const jsonColumn = jsonColumns[table] ?? "";
   if (!jsonColumn) throw new Error(`unsupported_json_table:${table}`);
   db.prepare(`INSERT INTO ${table} (id${table === "journal_lineage" ? "" : ""}, ${jsonColumn}) VALUES (?, ?) ON CONFLICT(id${table === "journal_lineage" ? "" : ""}) DO UPDATE SET ${jsonColumn} = excluded.${jsonColumn}`).run(id, json);
 }

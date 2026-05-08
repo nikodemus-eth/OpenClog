@@ -8,6 +8,7 @@ import type {
   ReplayWorkspace
 } from "@openclog/core";
 import type { ApplicationRepository, PaginatedListResult } from "./contracts.js";
+import { buildCapabilityViews, deliveryCapabilityId, pluginCapabilityId } from "./capabilities.js";
 import { buildBundleEntryMetadata, diffRecordKeys, paginateItems, requireMethod, sha256Digest, sortByTimestamp } from "./utils.js";
 
 export function buildDeliveryModule(repo: ApplicationRepository) {
@@ -23,9 +24,11 @@ export function buildDeliveryModule(repo: ApplicationRepository) {
       dryRun,
       secretRef
     }: { target: DeliveryReceipt["target"]; dayKey: string } & DeliveryRequestOptions): DeliveryReceipt {
+      assertCapabilityReady(repo, deliveryCapabilityId(target));
       return requireMethod(repo.deliverIntegration, "deliverIntegration")(target, dayKey, { incidentId, idempotencyKey, dryRun, secretRef });
     },
     createGithubIssue({ dayKey, incidentId, idempotencyKey, dryRun, secretRef }: { dayKey: string } & DeliveryRequestOptions): DeliveryReceipt {
+      assertCapabilityReady(repo, deliveryCapabilityId("github-issue"));
       return requireMethod(repo.createGithubIssue, "createGithubIssue")(dayKey, { incidentId, idempotencyKey, dryRun, secretRef });
     },
     getDeliveryReceipt({ id }: { id: string }): DeliveryReceipt {
@@ -37,6 +40,7 @@ export function buildDeliveryModule(repo: ApplicationRepository) {
       return requireMethod(repo.retryDeliveryReceipt, "retryDeliveryReceipt")(id);
     },
     verifyIntegrationTarget({ target, dayKey }: { target: DeliveryAdapterTarget; dayKey: string }): DeliveryReceipt {
+      assertCapabilityReady(repo, deliveryCapabilityId(target));
       return requireMethod(repo.verifyIntegrationTarget, "verifyIntegrationTarget")(target, dayKey);
     },
     listDeliveryReceipts({
@@ -134,6 +138,11 @@ export function buildDeliveryModule(repo: ApplicationRepository) {
     registerPlugin(plugin: PluginManifest): PluginManifest {
       const normalized: PluginManifest = {
         ...plugin,
+        purpose: plugin.purpose ?? `Run local plugin ${plugin.label} within OpenClog validation metadata.`,
+        failureModes: plugin.failureModes ?? ["plugin_failed", "validation_blocked"],
+        auditProvenance: plugin.auditProvenance ?? ["journal_plugins", "journal_plugin_runs"],
+        approvalSignature: plugin.approvalSignature ?? `local-openclog:plugin:${plugin.id}`,
+        reviewBy: plugin.reviewBy ?? "2026-06-08",
         supportsDryRun: plugin.supportsDryRun !== false,
         actionIds: plugin.actionIds ?? ["run_plugin"],
         sandbox: plugin.sandbox ?? { capabilities: plugin.capabilities, dryRunWritesOnly: true, auditedOutputs: true },
@@ -149,7 +158,14 @@ export function buildDeliveryModule(repo: ApplicationRepository) {
       return requireMethod(repo.listPlugins, "listPlugins")();
     },
     runPlugin({ pluginId, dryRun }: { pluginId: string; dryRun?: boolean }): PluginExecutionResult {
+      assertCapabilityReady(repo, pluginCapabilityId(pluginId));
       return requireMethod(repo.runPlugin, "runPlugin")(pluginId, { dryRun });
     }
   };
+}
+
+function assertCapabilityReady(repo: ApplicationRepository, capabilityId: string): void {
+  const capability = buildCapabilityViews(repo, new Date().toISOString()).find((item) => item.id === capabilityId);
+  if (!capability) throw new Error(`capability_not_found:${capabilityId}`);
+  if (!capability.useGate.allowed) throw new Error(`capability_blocked:${capability.id}:${capability.useGate.blockers.join(",")}`);
 }

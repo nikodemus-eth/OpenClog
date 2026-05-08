@@ -250,6 +250,7 @@ export interface IncidentSummary {
   createdAt: string;
   runbookSuggestions: RunbookSuggestion[];
   loopProgress?: IncidentLoopProgress;
+  handoffPacketIds?: string[];
 }
 
 export interface InvestigationNote {
@@ -385,6 +386,7 @@ export interface IncidentLoopAction {
   availability: IncidentActionAvailability;
   confirmation: IncidentActionConfirmation;
   reason?: string;
+  capabilityId?: string;
 }
 
 export interface IncidentActionRecord {
@@ -717,6 +719,12 @@ export interface PluginManifest {
   sandbox?: PluginSandboxManifest;
   validationStatus?: "valid" | "blocked";
   validationMessage?: string;
+  purpose?: string;
+  failureModes?: string[];
+  auditProvenance?: string[];
+  approvalSignature?: string;
+  reviewBy?: string;
+  expiresAt?: string;
 }
 
 export interface PluginSandboxManifest {
@@ -754,6 +762,98 @@ export interface SignedBundleVerification {
   signatureVerified: boolean;
   signer: "local-openclog";
 }
+
+export type MonitoringSourceKind = "gmail" | "blogwatcher" | "openclaw" | "manual";
+export type MonitoringDecisionDisposition = "operator_note" | "incident_handoff";
+
+export interface MonitoringImportProvenance {
+  sourceWorkflow: MonitoringSourceKind[];
+  sourcePath?: string;
+  sourceHash: string;
+  importedAt: string;
+  lineNumbers: number[];
+  redactionCount: number;
+  redactedPaths: string[];
+}
+
+export interface MonitoringDecision {
+  id: string;
+  title: string;
+  body: string;
+  dayKey: string;
+  disposition: MonitoringDecisionDisposition;
+  source: MonitoringSourceKind;
+  tags: string[];
+  provenance: MonitoringImportProvenance;
+}
+
+export interface IncidentHandoffPacket {
+  id: string;
+  incidentId?: string;
+  dayKey: string;
+  title: string;
+  summary: string;
+  body: string;
+  createdAt: string;
+  deliveryTargets: DeliveryAdapterTarget[];
+  provenance: MonitoringImportProvenance;
+}
+
+export interface MonitoringImportInput {
+  markdown: string;
+  dayKey?: string;
+  incidentId?: string;
+  importedAt?: string;
+  sourcePath?: string;
+  sourceWorkflow?: MonitoringSourceKind[];
+  defaultDisposition?: MonitoringDecisionDisposition;
+  updatePinnedContext?: boolean;
+}
+
+export interface MonitoringImportResult {
+  batchId: string;
+  importedAt: string;
+  provenance: MonitoringImportProvenance;
+  decisions: MonitoringDecision[];
+  notes: InvestigationNote[];
+  incidents: IncidentSummary[];
+  handoffPackets: IncidentHandoffPacket[];
+  pinnedContext?: PinnedDayContext;
+}
+
+export type CapabilityKind = "incident_action" | "delivery_target" | "plugin" | "governance_surface";
+export type CapabilityManifestSource = "local_manifest" | "plugin_validation" | "derived";
+export type CapabilityGateStatus = "available" | "blocked" | "expired" | "review_required";
+
+export interface CapabilityManifest {
+  id: string;
+  kind: CapabilityKind;
+  label: string;
+  purpose: string;
+  version: string;
+  permissions: string[];
+  failureModes: string[];
+  auditProvenance: string[];
+  approvalSignature?: string;
+  reviewBy?: string;
+  expiresAt?: string;
+  source: CapabilityManifestSource;
+  actionId?: IncidentActionKind;
+  deliveryTarget?: DeliveryAdapterTarget;
+  pluginId?: string;
+}
+
+export interface CapabilityUseGate {
+  capabilityId: string;
+  allowed: boolean;
+  status: CapabilityGateStatus;
+  blockers: string[];
+  checkedAt: string;
+}
+
+export type CapabilityView = CapabilityManifest & {
+  useGate: CapabilityUseGate;
+};
 
 export interface ReplayWorkspace {
   id: string;

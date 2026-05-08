@@ -540,6 +540,19 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
   await page.route("**/api/plugins", async (route) => {
     await route.fulfill({ json: { plugins: [] } });
   });
+  await page.route("**/api/capabilities", async (route) => {
+    await route.fulfill({
+      json: {
+        capabilities: [
+          buildCapability("delivery:slack", "Slack", "delivery_target", "delivery:slack"),
+          buildCapability("delivery:generic-webhook", "Generic webhook", "delivery_target", "delivery:generic-webhook"),
+          buildCapability("delivery:email", "Email", "delivery_target", "delivery:email"),
+          buildCapability("incident-action:deliver_slack", "Notify Slack", "incident_action", "delivery:slack"),
+          buildCapability("governance:integrity-monitor", "Integrity monitor", "governance_surface", "integrity:write")
+        ]
+      }
+    });
+  });
   await page.route("**/api/plugins/register", async (route) => {
     await route.fulfill({ json: { ok: true, plugin: { id: "local-annotation-plugin", label: "Local Annotation Plugin", version: "0.1.0", capabilities: ["annotation"], readScopes: ["entries", "incidents", "notes"] } } });
   });
@@ -847,5 +860,28 @@ function summaryFor(day: JournalDay): Omit<JournalDay, "entries"> {
     evidenceCompleteness: day.evidenceCompleteness,
     incidentIds: day.incidentIds,
     metrics: day.metrics
+  };
+}
+
+function buildCapability(id: string, label: string, kind: string, permission: string) {
+  return {
+    id,
+    kind,
+    label,
+    purpose: `${label} fixture capability.`,
+    version: "2026.05.08",
+    permissions: [permission],
+    failureModes: ["missing_config"],
+    auditProvenance: ["journal_audit_log"],
+    approvalSignature: `local-openclog:${id}`,
+    reviewBy: "2026-06-08",
+    source: "local_manifest",
+    useGate: {
+      capabilityId: id,
+      allowed: true,
+      status: "available",
+      blockers: [],
+      checkedAt: "2026-05-08T12:00:00.000Z"
+    }
   };
 }

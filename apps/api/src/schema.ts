@@ -214,6 +214,19 @@ export const journalIncidentActionRecords = sqliteTable("journal_incident_action
   recordJson: text("record_json").notNull()
 });
 
+export const journalCapabilities = sqliteTable("journal_capabilities", {
+  id: text("id").primaryKey(),
+  capabilityJson: text("capability_json").notNull()
+});
+
+export const journalIncidentHandoffPackets = sqliteTable("journal_incident_handoff_packets", {
+  id: text("id").primaryKey(),
+  dayKey: text("day_key").notNull(),
+  incidentId: text("incident_id"),
+  createdAt: text("created_at").notNull(),
+  packetJson: text("packet_json").notNull()
+});
+
 export const journalAuditLog = sqliteTable("journal_audit_log", {
   id: text("id").primaryKey(),
   action: text("action").notNull(),
@@ -233,6 +246,7 @@ export const journalTableNames = [
   "journal_audit_log",
   "journal_backend_fingerprints",
   "journal_bundle_exports",
+  "journal_capabilities",
   "journal_closeout_completions",
   "journal_correlation_graph",
   "journal_daily_summaries",
@@ -241,6 +255,7 @@ export const journalTableNames = [
   "journal_entries",
   "journal_entry_artifacts",
   "journal_incident_action_records",
+  "journal_incident_handoff_packets",
   "journal_incidents",
   "journal_integrity_reports",
   "journal_investigation_notes",

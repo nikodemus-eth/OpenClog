@@ -1,7 +1,7 @@
 import { execSync } from "node:child_process";
 import type { ServerResponse } from "node:http";
 import cors from "@fastify/cors";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { createOpenClogApplication } from "@openclog/app";
 import {
   classifyComposerInput,
@@ -19,6 +19,8 @@ import {
   type GatewayEventLike,
   type IncidentActionKind,
   type IncidentSummary,
+  type MonitoringImportInput,
+  type MonitoringSourceKind,
   type JournalDay,
   type JournalEntry,
   type PluginManifest,
@@ -331,6 +333,8 @@ export function createApiApp(services: ApiServices): FastifyInstance {
         if (error instanceof Error && error.message.startsWith("incident_not_found:")) return reply.code(404).send({ error: "incident_not_found" });
         if (error instanceof Error && error.message === "incident_action_body_required") return reply.code(400).send({ error: "incident_action_body_required" });
         if (error instanceof Error && error.message === "plugin_not_found") return reply.code(404).send({ error: "plugin_not_found" });
+        const capabilityError = sendCapabilityError(reply, error);
+        if (capabilityError) return capabilityError;
         throw error;
       }
     }
@@ -382,6 +386,33 @@ export function createApiApp(services: ApiServices): FastifyInstance {
       };
     }
   );
+
+  app.post<{
+    Body: MonitoringImportInput & { confirmedLocalImport?: boolean };
+  }>("/api/monitoring-imports", async (request, reply) => {
+    if (request.body?.confirmedLocalImport !== true) return reply.code(409).send({ error: "monitoring_import_requires_local_confirmation" });
+    if (typeof request.body?.markdown !== "string" || request.body.markdown.trim().length === 0) return reply.code(400).send({ error: "monitoring_import_markdown_required" });
+    const sourceWorkflow = Array.isArray(request.body.sourceWorkflow)
+      ? request.body.sourceWorkflow.filter((item): item is MonitoringSourceKind => item === "gmail" || item === "blogwatcher" || item === "openclaw" || item === "manual")
+      : undefined;
+    return {
+      ok: true,
+      import: openclog.importMonitoringDecisions({
+        markdown: request.body.markdown,
+        dayKey: request.body.dayKey,
+        incidentId: request.body.incidentId,
+        importedAt: request.body.importedAt,
+        sourcePath: request.body.sourcePath,
+        sourceWorkflow,
+        defaultDisposition: request.body.defaultDisposition,
+        updatePinnedContext: request.body.updatePinnedContext
+      })
+    };
+  });
+
+  app.get<{ Querystring: { dayKey?: string; incidentId?: string } }>("/api/monitoring-imports/handoff-packets", async (request) => ({
+    packets: openclog.listIncidentHandoffPackets({ dayKey: request.query.dayKey, incidentId: request.query.incidentId })
+  }));
 
   app.post<{ Body: { dayKey?: string; entryIds?: string[]; title?: string } }>("/api/incident-mode", async (request) => {
     const incident = buildIncidentSnapshot(
@@ -455,13 +486,19 @@ export function createApiApp(services: ApiServices): FastifyInstance {
 
   app.post<{ Params: { target: string }; Body: { dayKey?: string } }>("/api/integrations/:target/verify", async (request, reply) => {
     if (!isDeliveryTarget(request.params.target)) return reply.code(404).send({ error: "integration_target_not_found" });
-    return {
-      ok: true,
-      receipt: openclog.verifyIntegrationTarget({
-        target: request.params.target,
-        dayKey: request.body?.dayKey ?? todayKey()
-      })
-    };
+    try {
+      return {
+        ok: true,
+        receipt: openclog.verifyIntegrationTarget({
+          target: request.params.target,
+          dayKey: request.body?.dayKey ?? todayKey()
+        })
+      };
+    } catch (error) {
+      const capabilityError = sendCapabilityError(reply, error);
+      if (capabilityError) return capabilityError;
+      throw error;
+    }
   });
 
   app.post<{ Params: { target: string }; Body: { dayKey?: string } }>("/api/integrations/:target", async (request, reply) => {
@@ -487,16 +524,22 @@ export function createApiApp(services: ApiServices): FastifyInstance {
 
   app.post<{ Params: { target: string }; Body: { dayKey?: string; incidentId?: string } }>("/api/integrations/:target/deliver", async (request, reply) => {
     if (!isDeliveryTarget(request.params.target)) return reply.code(404).send({ error: "integration_target_not_found" });
-    return {
-      ok: true,
-      receipt: openclog.deliverIntegration({
-        target: request.params.target,
-        dayKey: request.body?.dayKey ?? todayKey(),
-        incidentId: request.body?.incidentId,
-        idempotencyKey: typeof request.body?.incidentId === "string" ? `${request.body.incidentId}:${request.params.target}` : undefined,
-        dryRun: request.headers["x-openclog-dry-run"] === "1"
-      })
-    };
+    try {
+      return {
+        ok: true,
+        receipt: openclog.deliverIntegration({
+          target: request.params.target,
+          dayKey: request.body?.dayKey ?? todayKey(),
+          incidentId: request.body?.incidentId,
+          idempotencyKey: typeof request.body?.incidentId === "string" ? `${request.body.incidentId}:${request.params.target}` : undefined,
+          dryRun: request.headers["x-openclog-dry-run"] === "1"
+        })
+      };
+    } catch (error) {
+      const capabilityError = sendCapabilityError(reply, error);
+      if (capabilityError) return capabilityError;
+      throw error;
+    }
   });
 
   app.get<{ Querystring: { cursor?: string; limit?: string; sort?: string } }>("/api/integrations/receipts", async (request) => {
@@ -651,15 +694,37 @@ export function createApiApp(services: ApiServices): FastifyInstance {
     plugins: openclog.listPlugins()
   }));
 
+  app.get("/api/capabilities", async () => ({
+    capabilities: openclog.listCapabilities()
+  }));
+
+  app.get<{ Params: { id: string } }>("/api/capabilities/:id", async (request, reply) => {
+    try {
+      return { ok: true, capability: openclog.getCapability({ capabilityId: decodeURIComponent(request.params.id) }) };
+    } catch (error) {
+      const capabilityError = sendCapabilityError(reply, error);
+      if (capabilityError) return capabilityError;
+      throw error;
+    }
+  });
+
   app.post<{ Body: PluginManifest }>("/api/plugins/register", async (request) => ({
     ok: true,
     plugin: openclog.registerPlugin(request.body)
   }));
 
-  app.post<{ Params: { id: string }; Body: { dryRun?: boolean } }>("/api/plugins/:id/run", async (request) => ({
-    ok: true,
-    result: openclog.runPlugin({ pluginId: request.params.id, dryRun: request.body?.dryRun === true })
-  }));
+  app.post<{ Params: { id: string }; Body: { dryRun?: boolean } }>("/api/plugins/:id/run", async (request, reply) => {
+    try {
+      return {
+        ok: true,
+        result: openclog.runPlugin({ pluginId: request.params.id, dryRun: request.body?.dryRun === true })
+      };
+    } catch (error) {
+      const capabilityError = sendCapabilityError(reply, error);
+      if (capabilityError) return capabilityError;
+      throw error;
+    }
+  });
 
   app.get<{ Querystring: { once?: string } }>("/api/stream", (request, reply) => {
     reply.hijack();
@@ -852,6 +917,13 @@ function stringValue(value: unknown): string {
 
 function todayKey(now = new Date()): string {
   return now.toISOString().slice(0, 10);
+}
+
+function sendCapabilityError(reply: FastifyReply, error: unknown): FastifyReply | null {
+  if (!(error instanceof Error)) return null;
+  if (error.message.startsWith("capability_blocked:")) return reply.code(409).send({ error: "capability_blocked", message: error.message });
+  if (error.message.startsWith("capability_not_found:")) return reply.code(404).send({ error: "capability_not_found" });
+  return null;
 }
 
 function publicGatewayState(state: ReturnType<GatewayPort["getState"]>): Record<string, unknown> {

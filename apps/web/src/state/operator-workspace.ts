@@ -3,6 +3,7 @@ import {
   browserVisibleEntryText,
   describeGeneratedSummaryFreshness as describeGeneratedSummaryFreshnessFromCore,
   type AlertFinding,
+  type CapabilityView,
   type CloseoutPlan,
   type CorrelationEdge,
   type CorrelationNode,
@@ -11,6 +12,7 @@ import {
   type JournalDay,
   type JournalEntry,
   type JournalFilterKey,
+  type MonitoringImportResult,
   type OperatorViewPreset,
   type ReplayBundleDiff,
   type ReplayStep,
@@ -403,6 +405,30 @@ export function validateInvestigationNote(body: string, maxLength = 1000): strin
 export function formatCloseoutPlan(plan: CloseoutPlan | null): string | null {
   if (!plan) return null;
   return `Closeout for ${plan.dayKey}: ${plan.generatedSummaryFresh ? "summary current" : "summary needs refresh"}, ${String(plan.incidentCount)} incidents, ${String(plan.noteCount)} notes, ${String(plan.retentionPreview.removedDayKeys.length)} day(s) in retention impact, exports ${plan.exportTargets.join(", ") || "not selected"}.`;
+}
+
+export function formatMonitoringImportSummary(result: MonitoringImportResult | null): string | null {
+  if (!result) return null;
+  const path = result.provenance.sourcePath ? safeWorkbenchCopy(result.provenance.sourcePath) : "local explicit paste";
+  return `Monitoring import ${safeWorkbenchCopy(result.batchId)}: ${String(result.notes.length)} operator note(s), ${String(result.handoffPackets.length)} handoff packet(s), workflow ${result.provenance.sourceWorkflow.join(", ")}, source ${path}, redactions ${String(result.provenance.redactionCount)}.`;
+}
+
+export function formatCapabilitySummary(capability: CapabilityView): string {
+  const gate = capability.useGate.allowed ? "available" : `${capability.useGate.status}: ${capability.useGate.blockers.join(", ") || "blocked"}`;
+  const purpose = safeWorkbenchCopy(capability.purpose);
+  return [
+    `${safeWorkbenchCopy(capability.label)} ${safeWorkbenchCopy(capability.version)} ${gate}.`,
+    `Purpose: ${purpose}${/[.!?]$/.test(purpose) ? "" : "."}`,
+    `Permissions: ${capability.permissions.map(safeWorkbenchCopy).join(", ") || "none"}.`,
+    `Failure modes: ${capability.failureModes.map(safeWorkbenchCopy).join(", ") || "none"}.`,
+    `Audit: ${capability.auditProvenance.map(safeWorkbenchCopy).join(", ") || "none"}.`,
+    `Approval: ${safeWorkbenchCopy(capability.approvalSignature ?? "missing")}.`,
+    `Review/expiry: ${safeWorkbenchCopy(capability.reviewBy ?? capability.expiresAt ?? "missing")}.`
+  ].join(" ");
+}
+
+export function capabilityGateAllows(capabilities: CapabilityView[], capabilityId: string): boolean {
+  return capabilities.find((capability) => capability.id === capabilityId)?.useGate.allowed === true;
 }
 
 export function addSearchPreset(current: SearchPreset[], query: string): SearchPreset[] {

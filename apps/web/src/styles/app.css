@@ -1069,6 +1069,12 @@ button {
   margin-top: 10px;
 }
 
+.capability-registry {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
 .delivery-target-card {
   display: grid;
   gap: 8px;

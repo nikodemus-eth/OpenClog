@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { AlertFinding, AlertRule, DeliveryReceipt, JournalDay, JournalSearchResult, SessionDrilldown } from "@openclog/core";
+import type { AlertFinding, AlertRule, CapabilityManifest, DeliveryReceipt, IncidentHandoffPacket, JournalDay, JournalSearchResult, SessionDrilldown } from "@openclog/core";
 import { createOpenClogApplication } from "../src/index.js";
 
 function buildDay(dayKey: string, entryIds: string[]): JournalDay {
@@ -506,5 +506,180 @@ describe("OpenClog application layer", () => {
     expect(app.createInvestigationWorkspace({ dayKeys: ["2026-05-04", "2026-05-05"], title: "Two day outage" })).toMatchObject({ dayKeys: ["2026-05-04", "2026-05-05"] });
     expect(app.getInvestigationWorkspace({ id: "workspace-1" })).toMatchObject({ id: "workspace-1" });
     expect(app.getRemoteOpsPolicy()).toMatchObject({ enabled: false, secretAccess: "fail-closed" });
+  });
+
+  test("imports newsletter monitoring decisions as redacted notes and incident handoff packets", () => {
+    const notes: Array<{ id: string; body: string; dayKey: string; incidentId?: string; author: string; linkedEntryIds: string[]; createdAt: string; updatedAt: string }> = [];
+    const packets: IncidentHandoffPacket[] = [];
+    const incidents: Array<{ id: string; title: string; summary: string; dayKeys: string[]; entryIds: string[]; createdAt: string; runbookSuggestions: [] }> = [];
+    const contexts = new Map<string, { note?: string; summary?: string; updatedAt: string }>();
+    const app = createOpenClogApplication({
+      repo: {
+        saveInvestigationNote(note) {
+          notes.push(note);
+          return note;
+        },
+        listInvestigationNotes: () => notes,
+        saveIncident(incident) {
+          incidents.push({ ...incident, runbookSuggestions: [] });
+          return incident;
+        },
+        saveIncidentHandoffPacket(packet) {
+          packets.push(packet);
+          return packet;
+        },
+        listIncidentHandoffPackets: () => packets,
+        setPinnedDayContext(dayKey, context, now = new Date("2026-05-08T12:00:00.000Z")) {
+          const next = { ...context, updatedAt: now.toISOString() };
+          contexts.set(dayKey, next);
+          return next;
+        }
+      }
+    });
+
+    const imported = app.importMonitoringDecisions({
+      dayKey: "2026-05-08",
+      importedAt: "2026-05-08T12:00:00.000Z",
+      markdown: [
+        "# newsletter-monitoring.md",
+        "## Gmail",
+        "- Decision: keep Oregon AI governance as an operator note; token=secret-token",
+        "## blogwatcher",
+        "- High-signal: surface Process Swarm outage as incident handoff for OpenClaw review",
+        "## OpenClaw",
+        "- Quiet triage complete: no 403 items surfaced"
+      ].join("\n"),
+      sourcePath: "/Users/m4/newsletter-monitoring.md",
+      sourceWorkflow: ["gmail", "blogwatcher", "openclaw"]
+    });
+
+    expect(imported.decisions).toHaveLength(3);
+    expect(imported.decisions[0].body).toContain("token=[REDACTED_SECRET]");
+    expect(imported.provenance).toMatchObject({
+      sourceWorkflow: ["gmail", "blogwatcher", "openclaw"],
+      sourcePath: "/Users/m4/newsletter-monitoring.md",
+      sourceHash: expect.stringMatching(/^sha256-/)
+    });
+    expect(notes).toHaveLength(3);
+    expect(notes.map((note) => note.body).join("\n")).not.toContain("secret-token");
+    expect(packets).toHaveLength(1);
+    expect(packets[0]).toMatchObject({
+      dayKey: "2026-05-08",
+      title: expect.stringContaining("Process Swarm outage"),
+      deliveryTargets: ["github-issue", "slack", "email"],
+      provenance: { lineNumbers: [5] }
+    });
+    expect(incidents).toHaveLength(1);
+    expect(contexts.get("2026-05-08")).toMatchObject({
+      summary: "Monitoring import: 3 decision(s), 1 handoff packet(s).",
+      note: expect.stringContaining("newsletter-monitoring.md")
+    });
+  });
+
+  test("builds a fail-closed capability registry from local manifests, actions, delivery targets, plugins, and governance surfaces", () => {
+    const manifests: CapabilityManifest[] = [
+      {
+        id: "incident-action:deliver_slack",
+        kind: "incident_action",
+        label: "Notify Slack",
+        purpose: "Send incident handoff packets to Slack.",
+        version: "2026.05.08",
+        permissions: ["delivery:slack"],
+        failureModes: ["missing_config"],
+        auditProvenance: ["journal_delivery_receipts"],
+        approvalSignature: "local-openclog:incident-action:deliver_slack",
+        reviewBy: "2026-06-08",
+        source: "local_manifest",
+        actionId: "deliver_slack"
+      },
+      {
+        id: "delivery:email",
+        kind: "delivery_target",
+        label: "Email",
+        purpose: "Send email handoffs.",
+        version: "2026.05.08",
+        permissions: ["delivery:email"],
+        failureModes: ["missing_config"],
+        auditProvenance: ["journal_delivery_receipts"],
+        reviewBy: "2026-06-08",
+        source: "local_manifest",
+        deliveryTarget: "email"
+      },
+      {
+        id: "incident-action:create_github_issue",
+        kind: "incident_action",
+        label: "Create GitHub issue",
+        purpose: "Create a GitHub issue from the local incident handoff.",
+        version: "2026.05.08",
+        permissions: ["delivery:github-issue"],
+        failureModes: ["missing_config"],
+        auditProvenance: ["journal_delivery_receipts"],
+        reviewBy: "2026-06-08",
+        source: "local_manifest",
+        actionId: "create_github_issue"
+      }
+    ];
+    const app = createOpenClogApplication({
+      repo: {
+        listCapabilityManifests: () => manifests,
+        listPlugins: () => [
+          {
+            id: "plugin-1",
+            label: "Plugin",
+            version: "0.1.0",
+            capabilities: ["annotation"],
+            readScopes: ["entries"],
+            validationStatus: "valid",
+            approvalSignature: "local-openclog:plugin:plugin-1",
+            reviewBy: "2026-06-08"
+          }
+        ],
+        listIncidentRulePacks: () => [],
+        listDeliveryReceipts: () => [],
+        listIncidentActionRecords: () => [],
+        getIntegrityReport: () => ({ ok: true, checkedEntries: 0, mismatchedEntryIds: [], missingRedactedHashes: [] }),
+        listInvestigationNotes: () => [],
+        evaluateAlertRules: () => [],
+        getIncident: () => ({
+          id: "incident-1",
+          title: "Incident",
+          summary: "Summary",
+          dayKeys: ["2026-05-08"],
+          entryIds: ["entry-a"],
+          createdAt: "2026-05-08T12:00:00.000Z",
+          runbookSuggestions: []
+        }),
+        getDay: () => ({
+          ...buildDay("2026-05-08", ["entry-a"])
+        })
+      }
+    });
+
+    const capabilities = app.listCapabilities({ now: "2026-05-08T12:00:00.000Z" });
+
+    expect(capabilities.map((item) => item.id)).toEqual(expect.arrayContaining(["incident-action:deliver_slack", "delivery:email", "plugin:plugin-1"]));
+    expect(capabilities.find((item) => item.id === "incident-action:deliver_slack")?.useGate).toMatchObject({ allowed: true, status: "available", blockers: [] });
+    expect(capabilities.find((item) => item.id === "delivery:email")?.useGate).toMatchObject({
+      allowed: false,
+      status: "blocked",
+      blockers: expect.arrayContaining(["approval signature missing"])
+    });
+    expect(app.getCapability({ capabilityId: "plugin:plugin-1", now: "2026-05-08T12:00:00.000Z" })).toMatchObject({
+      id: "plugin:plugin-1",
+      useGate: { allowed: true }
+    });
+    expect(() => app.assertCapabilityReady({ capabilityId: "delivery:email", now: "2026-05-08T12:00:00.000Z" })).toThrow(
+      /capability_blocked:delivery:email/
+    );
+    expect(app.getIncidentWorkspace({ incidentId: "incident-1" }).loop.act.find((action) => action.id === "deliver_slack")).toMatchObject({
+      capabilityId: "incident-action:deliver_slack",
+      availability: "degraded",
+      reason: expect.stringContaining("Evidence is incomplete")
+    });
+    expect(app.getIncidentWorkspace({ incidentId: "incident-1" }).loop.act.find((action) => action.id === "create_github_issue")).toMatchObject({
+      capabilityId: "incident-action:create_github_issue",
+      availability: "blocked",
+      reason: expect.stringContaining("approval signature missing")
+    });
   });
 });

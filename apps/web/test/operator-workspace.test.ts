@@ -1,11 +1,12 @@
 import { describe, expect, test } from "vitest";
-import type { DeliveryReceipt, GeneratedSummary, JournalEntry } from "@openclog/core";
+import type { CapabilityView, DeliveryReceipt, GeneratedSummary, JournalEntry, MonitoringImportResult } from "@openclog/core";
 import {
   addSearchPreset,
   buildNamedOperatorViews,
   buildReconnectTrendText,
   classifyGatewayErrorCategory,
   classifyGatewayUrl,
+  capabilityGateAllows,
   describeActiveOperatorView,
   describeAlertFindingState,
   describeComposerConnectivity,
@@ -20,6 +21,8 @@ import {
   formatIntegrationVerificationReceipt,
   formatBundleManifestPreview,
   formatCloseoutPlan,
+  formatCapabilitySummary,
+  formatMonitoringImportSummary,
   formatMissionReplayStep,
   formatReceiptDetails,
   getLastSuccessfulSummaryJobCompletionAt,
@@ -531,6 +534,104 @@ describe("operator workspace helpers", () => {
     expect(mergeSearchPresets([])).toHaveLength(8);
     expect(mergeSearchPresets([{ id: "custom", label: "Custom", query: "custom" }])[0]).toMatchObject({ query: "custom" });
     expect(mergeSearchPresets([{ id: "dup", label: "Duplicate", query: "gateway reconnect" }])).toHaveLength(8);
+  });
+
+  test("formats monitoring imports and capability registry gates without leaking secrets", () => {
+    const imported: MonitoringImportResult = {
+      batchId: "monitoring-import-1",
+      importedAt: "2026-05-08T12:00:00.000Z",
+      provenance: {
+        sourceWorkflow: ["gmail", "blogwatcher", "openclaw"],
+        sourcePath: "/Users/m4/OpenClog/.env",
+        sourceHash: "sha256-source",
+        importedAt: "2026-05-08T12:00:00.000Z",
+        lineNumbers: [2, 4],
+        redactionCount: 1,
+        redactedPaths: ["$.line"]
+      },
+      decisions: [],
+      notes: [],
+      incidents: [],
+      handoffPackets: [
+        {
+          id: "packet-1",
+          dayKey: "2026-05-08",
+          title: "Authorization: Bearer secret",
+          summary: "token=secret",
+          body: "body",
+          createdAt: "2026-05-08T12:00:00.000Z",
+          deliveryTargets: ["github-issue", "slack", "email"],
+          provenance: {
+            sourceWorkflow: ["gmail"],
+            sourceHash: "sha256-source",
+            importedAt: "2026-05-08T12:00:00.000Z",
+            lineNumbers: [4],
+            redactionCount: 1,
+            redactedPaths: ["$.line"]
+          }
+        }
+      ]
+    };
+    const allowed: CapabilityView = {
+      id: "delivery:slack",
+      kind: "delivery_target",
+      label: "Slack",
+      purpose: "Send Slack handoffs.",
+      version: "2026.05.08",
+      permissions: ["delivery:slack"],
+      failureModes: ["missing_config"],
+      auditProvenance: ["journal_delivery_receipts"],
+      approvalSignature: "local-openclog:delivery:slack",
+      reviewBy: "2026-06-08",
+      source: "local_manifest",
+      deliveryTarget: "slack",
+      useGate: { capabilityId: "delivery:slack", allowed: true, status: "available", blockers: [], checkedAt: "2026-05-08T12:00:00.000Z" }
+    };
+    const blocked: CapabilityView = {
+      ...allowed,
+      id: "delivery:email",
+      label: "Email",
+      approvalSignature: undefined,
+      deliveryTarget: "email",
+      useGate: {
+        capabilityId: "delivery:email",
+        allowed: false,
+        status: "blocked",
+        blockers: ["approval signature missing"],
+        checkedAt: "2026-05-08T12:00:00.000Z"
+      }
+    };
+
+    expect(formatMonitoringImportSummary(imported)).toBe(
+      "Monitoring import monitoring-import-1: 0 operator note(s), 1 handoff packet(s), workflow gmail, blogwatcher, openclaw, source [LOCAL_PATH], redactions 1."
+    );
+    expect(formatMonitoringImportSummary(null)).toBeNull();
+    expect(formatMonitoringImportSummary({ ...imported, provenance: { ...imported.provenance, sourcePath: undefined } })).toContain("source local explicit paste");
+    expect(formatMonitoringImportSummary(imported)).not.toMatch(/secret|\.env/);
+    expect(formatCapabilitySummary(allowed)).toContain("Slack 2026.05.08 available");
+    expect(formatCapabilitySummary({ ...allowed, purpose: "Send Slack handoffs" })).toContain("Purpose: Send Slack handoffs.");
+    expect(formatCapabilitySummary({ ...allowed, reviewBy: undefined, expiresAt: "2026-06-08T00:00:00.000Z" })).toContain("Review/expiry: 2026-06-08T00:00:00.000Z.");
+    expect(formatCapabilitySummary(blocked)).toContain("blocked: approval signature missing");
+    expect(
+      formatCapabilitySummary({
+        ...blocked,
+        permissions: [],
+        failureModes: [],
+        auditProvenance: [],
+        approvalSignature: undefined,
+        reviewBy: undefined,
+        useGate: {
+          capabilityId: "delivery:email",
+          allowed: false,
+          status: "blocked",
+          blockers: [],
+          checkedAt: "2026-05-08T12:00:00.000Z"
+        }
+      })
+    ).toContain("blocked. Purpose: Send Slack handoffs. Permissions: none. Failure modes: none. Audit: none. Approval: missing. Review/expiry: missing.");
+    expect(capabilityGateAllows([allowed], "delivery:slack")).toBe(true);
+    expect(capabilityGateAllows([blocked], "delivery:email")).toBe(false);
+    expect(capabilityGateAllows([], "delivery:slack")).toBe(false);
   });
 });
 
