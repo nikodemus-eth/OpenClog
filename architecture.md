@@ -166,3 +166,8 @@ Track OpenClog architecture, component ownership, and authority boundaries.
 - `@openclog/app` composes those reports from local evidence through [`packages/app/src/operations.ts`](/Users/m4/OpenClog/packages/app/src/operations.ts), while Fastify exposes `/api/operations/center`, `/api/operations/delivery-ledger`, and `/api/operations/simulations`; the browser consumes the same report instead of rebuilding policy in React.
 - The operator shell now renders a Verification Center, operations backlog panel, persistent backend-recovery action, summary-job durations and correlation badges, same-idempotency retry confirmation, inline blocked-scope labels, stale-summary warnings, dry-run failure jump links, and the built-in `Only unresolved incidents` view with hypothesis and validation steps.
 - Delivery retry now preserves the original idempotency key, requires explicit confirmation, bypasses local receipt dedupe for that confirmed attempt, and records a fresh receipt; correlation ids are copyable across receipts, incident records, and summary jobs.
+
+## 2026-05-09 Process Swarm Compatibility Closeout
+- Process Swarm integration stays outside the Gateway authority boundary and uses the public investigation-note ingress as an operator-visible heartbeat record.
+- Workspace build ownership is now explicit in the root build script: `@openclog/core`, `@openclog/app`, `@openclog/api`, `@openclog/web`, then `@openclog/desktop`.
+- Vite and Vitest resolve local workspace packages with decoded filesystem paths so iCloud folder names do not become encoded module specifiers.

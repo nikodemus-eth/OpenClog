@@ -102,3 +102,8 @@ Capture durable lessons that should shape future OpenClog work.
 - Capability manifests should replace earlier defaults by id, not merge into them, because inheriting a default approval signature can accidentally turn a malformed local override into an approved live action.
 - Incident action availability and execution gates must read the same registry state; otherwise the UI can imply an action is usable while the API correctly refuses it.
 - Full-page mobile visual baselines are expected to move when new operator panels are added, but only after a screenshot check confirms the additional height is clean flow rather than overlap.
+
+## 2026-05-09 Process Swarm Compatibility Closeout
+- iCloud workspace paths can break bundler aliases when URL pathnames are used directly; use `fileURLToPath(...)` for module aliases that must survive spaces and tildes.
+- Root workspace builds need explicit dependency order when a downstream desktop package checks for another package's built web artifacts.
+- Process Swarm compatibility is safest when it reuses an existing operator-note ingress instead of adding a parallel heartbeat authority path.

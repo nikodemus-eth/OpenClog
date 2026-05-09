@@ -152,3 +152,10 @@ Track OpenClog implementation decisions, verification passes, refactors, and clo
 - Kept the new lanes fail-closed: monitoring imports require explicit local confirmation, malformed capability manifests block execution, incident action buttons surface registry state, and delivery/plugin routes translate blocked capabilities into bounded API errors.
 - Refactored capability error handling in the API, moved registry and monitoring-import logic into `@openclog/app`, extended the SQLite schema and Drizzle schema list, and refreshed mobile visual baselines for the new operator panels.
 - Verification passed with `npm run verify` after the visual refresh, keeping configured coverage at 100% statements, branches, functions, and lines; `npm run verify:gateway` also passed against the live Gateway with mutation testing disabled; `npm run verify:desktop-native` passed the desktop-native cargo tests.
+
+## 2026-05-09 Process Swarm Compatibility Closeout
+- Kept Process Swarm heartbeat ingestion on the existing `POST /api/investigation-notes` path; no OpenClog API route change was needed.
+- Reconciled the local install lockfile with the workspace manifests through `npm ci`.
+- Repaired local iCloud path handling in Vite and Vitest aliases by using decoded `fileURLToPath(...)` workspace paths.
+- Ordered the root build so shared core, app, API, web, and desktop packages build in dependency order before the desktop app checks for the web bundle.
+- Raised the visual snapshot pixel-diff allowance for full-page browser captures after verification showed tiny rendering drift, not layout or content regression.

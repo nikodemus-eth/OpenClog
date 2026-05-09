@@ -8,7 +8,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build -w @openclog/core && npm run build -w @openclog/app && npm run build -w @openclog/api && npm run build -w @openclog/web && npm run build -w @openclog/desktop",
     "check:forbidden-rpc": "tsx scripts/check-forbidden-rpc.ts",
     "dev": "npm run dev -w @openclog/web",
     "dev:api": "npm run dev -w @openclog/api",

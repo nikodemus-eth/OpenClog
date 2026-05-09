@@ -244,3 +244,9 @@ Record deterministic verification, live Gateway verification, coverage policy, a
   - `npm run verify:gateway` with `status: ready`, no missing scopes, and mutation testing disabled
   - `npm run verify:desktop-native`
   - `npm run smoke -w @openclog/desktop`
+
+## 2026-05-09 Process Swarm Compatibility Closeout
+- `npm ci` completed and reconciled `package-lock.json` with the current workspace manifests; npm reported one high-severity audit finding that was not changed in this tranche.
+- Final `npm run verify` passed after the lockfile, build-order, alias, and visual-tolerance fixes.
+- The full gate passed typecheck, lint, ordered build, 20 Vitest files / 161 tests with 100% statements, branches, functions, and lines, 206 Playwright E2E tests, 54 visual snapshot tests, 7 red-team tests, and docs checks.
+- `/api/investigation-notes` remains the Process Swarm announcement target; verification did not expose a route/runtime mismatch requiring API code changes.

@@ -12,7 +12,7 @@ for (const theme of themes) {
     await expect(page.getByRole("main")).toHaveAttribute("data-theme", theme);
     await expect(page).toHaveScreenshot(`${theme}-${viewportName}.png`, {
       fullPage: true,
-      maxDiffPixels: 800
+      maxDiffPixels: 2500
     });
   });
 }

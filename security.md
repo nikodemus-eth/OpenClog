@@ -173,3 +173,8 @@ Track OpenClog security posture, Gateway authority boundaries, redaction, and fa
 - Failed delivery retry now requires explicit same-idempotency-key confirmation, performs a new backend attempt, and records a new receipt instead of silently reusing success copy; dead-letter and dry-run paths remain fail-closed.
 - Role-aware simulations are declared with `liveSideEffects: false`, and governed SDK manifests expose permissions, expiry, and dry-run metadata rather than secret material.
 - Backend recovery reload refreshes health, active day, and operations report state but does not bypass stale runtime guards or Gateway scope negotiation.
+
+## 2026-05-09 Process Swarm Compatibility Closeout
+- Process Swarm heartbeat notes remain ordinary investigation notes and do not gain Gateway scopes, credential access, approval authority, or command-forwarding behavior.
+- No OpenClog API authentication, Gateway token handling, raw frame exposure, redaction policy, or browser credential boundary changed.
+- `npm ci` reported one high-severity npm audit finding during lockfile reconciliation; it remains a tracked follow-up rather than an unreported green security claim.

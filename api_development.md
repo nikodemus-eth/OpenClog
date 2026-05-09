@@ -103,3 +103,8 @@ Track public API contracts and Gateway RPC usage.
 - Retention apply sends the same bounded local retention policy used by preview, records the returned snapshot id and preview impact, and refetches the day index after apply or rollback.
 - Alert lifecycle actions remain local operator state layered onto `GET /api/alerts`; the UI refetches from the API after acknowledgement or snooze rather than treating the button click as authoritative.
 - Replay and correlation remain read-only local evidence endpoints through `GET /api/replay/:incidentId` and `GET /api/correlation/:incidentId`; endpoint failures produce browser-visible fail-closed copy, not fabricated counts.
+
+## 2026-05-09 Process Swarm Compatibility Closeout
+- Process Swarm continues to announce OpenClog heartbeats through `POST /api/investigation-notes`.
+- No public API route, Gateway RPC method, scope request, composer behavior, approval behavior, persistence contract, or delivery behavior changed.
+- The compatibility work was limited to dependency lockfile reconciliation and workspace verification fixes needed to keep the existing API runnable from the local path.
