@@ -58,6 +58,9 @@ button {
   --stitch-action: #181919;
   --stitch-action-text: #ffffff;
   --stitch-ui-font: Inter, "Avenir Next", ui-sans-serif, system-ui, sans-serif;
+  --left-rail-width: 280px;
+  --right-rail-width: 360px;
+  --collapsed-rail-width: 66px;
   min-height: 100vh;
   position: relative;
   isolation: isolate;
@@ -65,7 +68,7 @@ button {
   grid-template-areas:
     "header header header"
     "left main right";
-  grid-template-columns: 280px minmax(0, 1fr) 360px;
+  grid-template-columns: var(--left-rail-width) minmax(0, 1fr) var(--right-rail-width);
   grid-template-rows: 56px minmax(0, 1fr);
   gap: 0;
   padding: 0;
@@ -73,6 +76,14 @@ button {
   color: var(--stitch-text);
   font-family: var(--body-font);
   overflow-x: hidden;
+}
+
+.app-shell[data-left-rail-collapsed="true"] {
+  --left-rail-width: var(--collapsed-rail-width);
+}
+
+.app-shell[data-right-rail-collapsed="true"] {
+  --right-rail-width: var(--collapsed-rail-width);
 }
 
 .app-shell::before {
@@ -109,10 +120,24 @@ button {
 
 .top-app-bar {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr) auto;
+  grid-template-columns: var(--left-rail-width) minmax(0, 1fr) auto;
   gap: 0;
   align-items: center;
   min-height: 56px;
+}
+
+.app-shell[data-left-rail-collapsed="true"] .top-app-bar-brand {
+  justify-content: center;
+}
+
+.app-shell[data-left-rail-collapsed="true"] .top-app-bar .brand-row {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.app-shell[data-left-rail-collapsed="true"] .top-app-bar .brand-row > div,
+.app-shell[data-left-rail-collapsed="true"] .operator-avatar-button {
+  display: none;
 }
 
 .top-app-bar-brand {
@@ -161,7 +186,13 @@ button {
 
 .top-nav {
   gap: 28px;
+  overflow-x: auto;
   padding-inline: 4px 18px;
+  scrollbar-width: none;
+}
+
+.top-nav::-webkit-scrollbar {
+  display: none;
 }
 
 .top-nav button,
@@ -181,6 +212,7 @@ button {
 }
 
 .top-nav button {
+  flex: 0 0 auto;
   position: relative;
   min-width: 0;
   min-height: 56px;
@@ -413,6 +445,22 @@ button {
   padding-bottom: 18px;
 }
 
+.operator-console-heading,
+.rail-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.operator-console-heading strong,
+.rail-title-row h2 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .operator-console p,
 .operator-console strong {
   margin: 0;
@@ -448,6 +496,58 @@ button {
   font-family: var(--stitch-ui-font);
   font-size: 1rem;
   font-weight: 800;
+}
+
+.operator-console-heading .rail-collapse-toggle,
+.rail-title-row .rail-collapse-toggle,
+.collapsed-rail .rail-collapse-toggle,
+.collapsed-rail-button {
+  display: inline-grid;
+  width: 42px;
+  min-width: 42px;
+  height: 42px;
+  min-height: 42px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--stitch-line) 78%, var(--accent) 22%);
+  border-radius: 8px;
+  padding: 0;
+  background: color-mix(in srgb, var(--stitch-card) 88%, var(--stitch-soft) 12%);
+  color: var(--stitch-text);
+  box-shadow: none;
+}
+
+.operator-console-heading .rail-collapse-toggle {
+  justify-self: auto;
+  margin-top: 0;
+}
+
+.rail-collapse-toggle:hover,
+.rail-collapse-toggle:focus-visible,
+.collapsed-rail-button:hover,
+.collapsed-rail-button:focus-visible {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--stitch-soft) 82%, var(--accent) 18%);
+  color: var(--stitch-text);
+}
+
+.collapsed-rail {
+  justify-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 10px;
+  overflow: hidden auto;
+}
+
+.collapsed-rail-nav {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  width: 100%;
+}
+
+.collapsed-rail-button svg,
+.rail-collapse-toggle svg {
+  color: currentColor;
 }
 
 .rail-shortcuts p {
@@ -2331,16 +2431,20 @@ button {
       "header header"
       "left main"
       "right right";
-    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+    grid-template-columns: minmax(var(--left-rail-width), var(--left-rail-width)) minmax(0, 1fr);
     grid-template-rows: auto auto auto;
   }
 
   .top-app-bar {
-    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) auto;
+    grid-template-columns: minmax(var(--left-rail-width), var(--left-rail-width)) minmax(0, 1fr) auto;
   }
 
   .app-shell[data-accessibility-profile="dyslexia-friendly"] {
     grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  }
+
+  .app-shell[data-left-rail-collapsed="true"][data-accessibility-profile="dyslexia-friendly"] {
+    grid-template-columns: var(--collapsed-rail-width) minmax(0, 1fr);
   }
 
   .right-rail {
@@ -2349,7 +2453,19 @@ button {
     max-height: none;
   }
 
-  .right-rail h2 {
+  .right-rail.collapsed-rail {
+    grid-template-columns: none;
+  }
+
+  .right-rail.collapsed-rail .collapsed-rail-nav {
+    grid-auto-flow: column;
+    grid-template-columns: none;
+    justify-content: start;
+    overflow-x: auto;
+  }
+
+  .right-rail h2,
+  .rail-title-row {
     grid-column: 1 / -1;
   }
 }
@@ -2420,6 +2536,21 @@ button {
   .right-rail {
     grid-template-columns: 1fr;
     width: 100%;
+  }
+
+  .collapsed-rail {
+    grid-auto-flow: column;
+    justify-content: start;
+    min-height: auto;
+    max-height: none;
+    overflow: auto hidden;
+  }
+
+  .collapsed-rail-nav {
+    grid-auto-flow: column;
+    grid-template-columns: none;
+    justify-content: start;
+    overflow-x: auto;
   }
 
   .left-rail,

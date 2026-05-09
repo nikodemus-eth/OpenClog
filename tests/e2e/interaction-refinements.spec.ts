@@ -89,6 +89,42 @@ test("Stitch operator shell keeps approved desktop proportions without rail over
   expect((main?.x ?? 0) + (main?.width ?? 0)).toBeLessThanOrEqual((rightRail?.x ?? 0) + 1);
 });
 
+test("operator rails collapse to distinct icon strips and reopen focused surfaces", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 2 });
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Collapse left rail" }).click();
+  await page.getByRole("button", { name: "Collapse right rail" }).click();
+
+  const leftRail = page.locator(".left-rail");
+  const rightRail = page.locator(".right-rail");
+  await expect(page.getByRole("button", { name: "Expand left rail" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Expand right rail" })).toBeVisible();
+  await expect(leftRail).not.toContainText("Operator Console");
+  await expect(rightRail).not.toContainText("Diagnostics");
+
+  const leftBox = await leftRail.boundingBox();
+  const rightBox = await rightRail.boundingBox();
+  expect(leftBox?.width).toBeGreaterThanOrEqual(60);
+  expect(leftBox?.width).toBeLessThanOrEqual(72);
+  expect(rightBox?.width).toBeGreaterThanOrEqual(60);
+  expect(rightBox?.width).toBeLessThanOrEqual(72);
+
+  const iconNames = await page.locator(".collapsed-rail [data-rail-icon]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-rail-icon")));
+  expect(iconNames).toHaveLength(new Set(iconNames).size);
+
+  await page.getByRole("button", { name: "Journal search" }).click();
+  await expect(page.getByLabel("Journal search input")).toBeFocused();
+  const reopenedLeftBox = await leftRail.boundingBox();
+  expect(reopenedLeftBox?.width).toBeGreaterThanOrEqual(276);
+
+  await page.getByRole("button", { name: "Gateway diagnostics" }).click();
+  await expect(page.getByLabel(/Diagnostics card: Gateway/)).toBeFocused();
+  const reopenedRightBox = await rightRail.boundingBox();
+  expect(reopenedRightBox?.width).toBeGreaterThanOrEqual(356);
+});
+
 test("journal search stays inside the left rail, can be reset, and recent logs can jump to today", async ({ page }) => {
   await page.setViewportSize({ width: 1288, height: 1289 });
   await installApiFixtures(page, { gatewayStatus: "ready", approvalCount: 0 });

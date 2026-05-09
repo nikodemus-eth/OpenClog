@@ -299,6 +299,9 @@ export function App() {
   const gatewayCardRef = useRef<HTMLElement | null>(null);
   const agentActivityCardRef = useRef<HTMLElement | null>(null);
   const approvalsCardRef = useRef<HTMLElement | null>(null);
+  const pinnedContextRef = useRef<HTMLElement | null>(null);
+  const todayAtGlanceRef = useRef<HTMLElement | null>(null);
+  const timelineFiltersRef = useRef<HTMLElement | null>(null);
   const incidentsPanelRef = useRef<HTMLDivElement | null>(null);
   const alertsPanelRef = useRef<HTMLDivElement | null>(null);
   const timelineRef = useRef<HTMLOListElement | null>(null);
@@ -1543,6 +1546,7 @@ export function App() {
             summaryCharactersRemaining={pinnedSummaryRemaining}
             summary={pinnedSummary}
             summaryError={pinnedSummaryError}
+            sectionRef={pinnedContextRef}
             onNoteChange={setPinnedNote}
             onRefreshSummary={() => void handleRefreshSummary()}
             onSave={handleSavePinnedContext}
@@ -1554,11 +1558,13 @@ export function App() {
             collapsed={diagnosticsCollapsed.todayAtGlance ?? true}
             day={visibleDay}
             reconnectCount={gateway.reconnectCount ?? 0}
+            sectionRef={todayAtGlanceRef}
             onToggleCollapsed={() => setDiagnosticsCollapsed((current) => ({ ...current, todayAtGlance: !(current.todayAtGlance ?? true) }))}
           />
           <TimelineFiltersCard
             activeFilters={activeFilters}
             collapsed={diagnosticsCollapsed.timelineFilters ?? true}
+            sectionRef={timelineFiltersRef}
             onFilterToggle={handleFilterToggle}
             onToggleCollapsed={() => setDiagnosticsCollapsed((current) => ({ ...current, timelineFilters: !(current.timelineFilters ?? true) }))}
           />
@@ -1589,9 +1595,13 @@ export function App() {
       }}
       onMainFocus={() => focusShellTarget(mainRef.current, "Journal workspace focused.")}
       onJournalTopClick={handleJournalTopNavigation}
+      onPinnedContextFocus={() => focusShellTarget(pinnedContextRef.current, "Pinned context focused.")}
+      onSearchFocus={() => focusShellTarget(searchInputRef.current, "Journal search focused.")}
       onShortcutsClose={() => setShortcutsOpen(false)}
       onShortcutsToggle={() => setShortcutsOpen((current) => !current)}
       onThemeChange={(nextThemeId) => setThemeId(resolveThemeId(nextThemeId))}
+      onTimelineFiltersFocus={() => focusShellTarget(timelineFiltersRef.current, "Saved filters focused.")}
+      onTodayAtGlanceFocus={() => focusShellTarget(todayAtGlanceRef.current, "Today at a glance focused.")}
       onTimelineFocus={() => focusShellTarget(timelineRef.current, "Timeline logs focused.")}
       onToastClick={(toast) => {
         void handleToastClick(toast);
@@ -1805,7 +1815,7 @@ function incidentLoopSteps(incident: IncidentSummary): Array<{ label: "Detect" |
   ];
 }
 
-function TodayAtGlanceCard(props: { collapsed: boolean; day: JournalDay; reconnectCount: number; onToggleCollapsed: () => void }) {
+function TodayAtGlanceCard(props: { collapsed: boolean; day: JournalDay; reconnectCount: number; sectionRef: RefObject<HTMLElement | null>; onToggleCollapsed: () => void }) {
   const items = [
     { label: "Messages", value: props.day.metrics.messageCount },
     { label: "Tools", value: props.day.metrics.toolCallCount },
@@ -1814,7 +1824,7 @@ function TodayAtGlanceCard(props: { collapsed: boolean; day: JournalDay; reconne
     { label: "Reconnects", value: props.reconnectCount }
   ];
   return (
-    <section className="diagnostic-card info utility-rail-card" aria-label="Today at a glance" tabIndex={0}>
+    <section className="diagnostic-card info utility-rail-card" aria-label="Today at a glance" ref={props.sectionRef} tabIndex={0}>
       <SquareChartGantt aria-hidden="true" size={22} />
       <div>
         <div className="diagnostic-card-header">
@@ -1847,11 +1857,12 @@ function TodayAtGlanceCard(props: { collapsed: boolean; day: JournalDay; reconne
 function TimelineFiltersCard(props: {
   activeFilters: JournalFilterKey[];
   collapsed: boolean;
+  sectionRef: RefObject<HTMLElement | null>;
   onFilterToggle: (filter: JournalFilterKey) => void;
   onToggleCollapsed: () => void;
 }) {
   return (
-    <section className="diagnostic-card info utility-rail-card" aria-label="Saved filters" tabIndex={0}>
+    <section className="diagnostic-card info utility-rail-card" aria-label="Saved filters" ref={props.sectionRef} tabIndex={0}>
       <SlidersHorizontal aria-hidden="true" size={22} />
       <div>
         <div className="diagnostic-card-header">
@@ -1898,6 +1909,7 @@ function PinnedContextPanel(props: {
   summaryError: string | null;
   summaryJobDurations: ReturnType<typeof formatSummaryJobDurations> | null;
   summaryRefreshActive: boolean;
+  sectionRef: RefObject<HTMLElement | null>;
   onNoteChange: (value: string) => void;
   onRefreshSummary: () => void;
   onSave: () => void;
@@ -1906,7 +1918,7 @@ function PinnedContextPanel(props: {
   onToggleHelp: (id: "pinned-context") => void;
 }) {
   return (
-    <section className="diagnostic-card info pinned-context-card" aria-label="Pinned context" tabIndex={0}>
+    <section className="diagnostic-card info pinned-context-card" aria-label="Pinned context" ref={props.sectionRef} tabIndex={0}>
       <FileText aria-hidden="true" size={22} />
       <div>
         <div className="diagnostic-card-header">

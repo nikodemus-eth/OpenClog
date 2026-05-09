@@ -1,19 +1,37 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type React from "react";
 import {
+  Activity,
   AlertTriangle,
   AtSign,
+  Bot,
+  CalendarDays,
+  ClipboardList,
   Copy,
   Download,
+  FileSearch,
   FileText,
   Flag,
+  Gauge,
   Hash,
   HelpCircle,
+  Home,
+  ListFilter,
+  Network,
   Paperclip,
-  Plus,
+  Palette,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+  Pin,
+  RadioTower,
   Send,
   SlidersHorizontal,
-  Wrench
+  ShieldCheck,
+  SquarePen,
+  Wrench,
+  type LucideIcon
 } from "lucide-react";
 import {
   buildTimelineDisplayItems,
@@ -39,6 +57,9 @@ import { StatusChip } from "./StatusChip.js";
 import { themeVars } from "./theme-style.js";
 
 export type Theme = OpenClogTheme;
+
+const LEFT_RAIL_COLLAPSED_STORAGE_KEY = "openclog.shell.leftRailCollapsed";
+const RIGHT_RAIL_COLLAPSED_STORAGE_KEY = "openclog.shell.rightRailCollapsed";
 
 export interface GatewayViewState {
   connectionStatus?: "connected" | "connecting" | "disconnected";
@@ -93,7 +114,7 @@ interface AppShellProps {
   children: React.ReactNode;
   day: JournalDay;
   days: Array<Omit<JournalDay, "entries">>;
-  diagnosticsProps: Omit<DiagnosticsPanelProps, "day" | "gateway" | "theme">;
+  diagnosticsProps: Omit<DiagnosticsPanelProps, "day" | "gateway" | "theme" | "onRailCollapse">;
   extraDiagnosticCards?: DiagnosticCardDefinition[];
   gateway: GatewayViewState;
   leftRailContent?: ReactNode;
@@ -119,15 +140,36 @@ interface AppShellProps {
   onHomeClick: () => void;
   onJournalTopClick: () => void;
   onMainFocus: () => void;
+  onPinnedContextFocus: () => void;
+  onSearchFocus: () => void;
   onShortcutsToggle: () => void;
   onShortcutsClose: () => void;
   onThemeChange: (themeId: ThemeId) => void;
+  onTimelineFiltersFocus: () => void;
+  onTodayAtGlanceFocus: () => void;
   onTimelineFocus: () => void;
   onToolFilterFocus: () => void;
   onToastClick: (toast: LiveEventToast) => void;
 }
 
 export function AppShell(props: AppShellProps) {
+  const [leftRailCollapsed, setLeftRailCollapsed] = usePersistentBoolean(LEFT_RAIL_COLLAPSED_STORAGE_KEY, false);
+  const [rightRailCollapsed, setRightRailCollapsed] = usePersistentBoolean(RIGHT_RAIL_COLLAPSED_STORAGE_KEY, false);
+
+  function runAfterRender(callback: () => void): void {
+    window.setTimeout(callback, 0);
+  }
+
+  function expandLeftRail(callback?: () => void): void {
+    setLeftRailCollapsed(false);
+    if (callback) runAfterRender(callback);
+  }
+
+  function expandRightRail(callback?: () => void): void {
+    setRightRailCollapsed(false);
+    if (callback) runAfterRender(callback);
+  }
+
   return (
     <div
       className="app-shell"
@@ -142,6 +184,8 @@ export function AppShell(props: AppShellProps) {
       data-practical-group={props.theme.practicalGroup}
       data-theme={props.themeId}
       data-theme-use-case={props.theme.useCase}
+      data-left-rail-collapsed={leftRailCollapsed}
+      data-right-rail-collapsed={rightRailCollapsed}
       data-interaction-emphasis={props.theme.interactionEmphasis}
       data-timeline-layout={props.theme.timelineLayoutMode}
       data-timeline-style={props.theme.timelineStyle}
@@ -154,11 +198,11 @@ export function AppShell(props: AppShellProps) {
           onHomeClick={props.onHomeClick}
           onJournalTopClick={props.onJournalTopClick}
           onComposerFocus={props.onComposerFocus}
-          onGatewayFocus={props.onGatewayFocus}
+          onGatewayFocus={() => expandRightRail(props.onGatewayFocus)}
           onMainFocus={props.onMainFocus}
           onShortcutsToggle={props.onShortcutsToggle}
           onTimelineFocus={props.onTimelineFocus}
-          onToolFilterFocus={props.onToolFilterFocus}
+          onToolFilterFocus={() => expandRightRail(props.onToolFilterFocus)}
           healthPollAgeLabel={props.healthPollAgeLabel}
           healthPollLatencyMs={props.healthPollLatencyMs}
           shellActionStatus={props.shellActionStatus}
@@ -176,22 +220,73 @@ export function AppShell(props: AppShellProps) {
         theme={props.theme}
         themeId={props.themeId}
         themeIds={props.themeIds}
+        collapsed={leftRailCollapsed}
         onArchiveCalendarChange={props.onArchiveCalendarChange}
         onDaySelect={props.onDaySelect}
-        onAgentActivityFocus={props.onAgentActivityFocus}
-        onApprovalsFocus={props.onApprovalsFocus}
-        onGatewayFocus={props.onGatewayFocus}
+        onAgentActivityFocus={() => expandRightRail(props.onAgentActivityFocus)}
+        onApprovalsFocus={() => expandRightRail(props.onApprovalsFocus)}
+        onCollapse={() => setLeftRailCollapsed(true)}
+        onGatewayFocus={() => expandRightRail(props.onGatewayFocus)}
+        onExpand={() => setLeftRailCollapsed(false)}
+        onHomeClick={props.onHomeClick}
         onNewEntry={props.onComposerFocus}
+        onSearchFocus={() => expandLeftRail(props.onSearchFocus)}
         onThemeChange={props.onThemeChange}
       />
       <main id="main-content" className="journal-page" aria-label="Daily page" data-theme={props.themeId} ref={props.mainRef} tabIndex={-1}>
         {props.children}
       </main>
-      <DiagnosticsPanel {...props.diagnosticsProps} day={props.day} extraCards={props.extraDiagnosticCards ?? []} gateway={props.gateway} rightRailContent={props.rightRailContent} theme={props.theme} />
+      {rightRailCollapsed ? (
+        <CollapsedRightRail
+          theme={props.theme}
+          onAgentActivityFocus={() => expandRightRail(props.onAgentActivityFocus)}
+          onApprovalsFocus={() => expandRightRail(props.onApprovalsFocus)}
+          onExpand={() => setRightRailCollapsed(false)}
+          onGatewayFocus={() => expandRightRail(props.onGatewayFocus)}
+          onPinnedContextFocus={() => expandRightRail(props.onPinnedContextFocus)}
+          onTimelineFiltersFocus={() => expandRightRail(props.onTimelineFiltersFocus)}
+          onTodayAtGlanceFocus={() => expandRightRail(props.onTodayAtGlanceFocus)}
+          onToolFilterFocus={() => expandRightRail(props.onToolFilterFocus)}
+        />
+      ) : (
+        <DiagnosticsPanel
+          {...props.diagnosticsProps}
+          day={props.day}
+          extraCards={props.extraDiagnosticCards ?? []}
+          gateway={props.gateway}
+          rightRailContent={props.rightRailContent}
+          theme={props.theme}
+          onRailCollapse={() => setRightRailCollapsed(true)}
+        />
+      )}
       <ShortcutsHelp open={props.shortcutsOpen} onClose={props.onShortcutsClose} />
       <LiveEventToastStack toasts={props.liveEventToasts} onToastClick={props.onToastClick} />
     </div>
   );
+}
+
+function usePersistentBoolean(storageKey: string, defaultValue: boolean): [boolean, (value: boolean) => void] {
+  const [value, setValue] = useState(() => {
+    if (typeof window === "undefined") return defaultValue;
+    try {
+      const stored = window.localStorage.getItem(storageKey);
+      if (stored === "true") return true;
+      if (stored === "false") return false;
+    } catch {
+      // Keep the default when browser storage is unavailable.
+    }
+    return defaultValue;
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(storageKey, String(value));
+    } catch {
+      // Rail collapse preferences are helpful, but never required for rendering.
+    }
+  }, [storageKey, value]);
+
+  return [value, setValue];
 }
 
 function TopAppBar(props: {
@@ -267,6 +362,7 @@ function OperatorAvatar() {
 export function Sidebar(props: {
   archiveCalendarMessage: string;
   archiveCalendarValue: string;
+  collapsed: boolean;
   days: Array<Omit<JournalDay, "entries">>;
   leftRailContent?: ReactNode;
   recentDays: Array<Omit<JournalDay, "entries">>;
@@ -278,14 +374,43 @@ export function Sidebar(props: {
   onAgentActivityFocus: () => void;
   onApprovalsFocus: () => void;
   onArchiveCalendarChange: (value: string) => void;
+  onCollapse: () => void;
   onDaySelect: (dayKey: string) => void;
+  onExpand: () => void;
   onGatewayFocus: () => void;
+  onHomeClick: () => void;
   onNewEntry: () => void;
+  onSearchFocus: () => void;
   onThemeChange: (themeId: ThemeId) => void;
 }) {
+  if (props.collapsed) {
+    const items: CollapsedRailItem[] = [
+      { label: "Home", iconName: "home", Icon: Home, onClick: props.onHomeClick },
+      { label: "New entry", iconName: "square-pen", Icon: SquarePen, onClick: props.onNewEntry },
+      { label: "Journal search", iconName: "file-search", Icon: FileSearch, onClick: props.onSearchFocus },
+      { label: "Recent logs", iconName: "calendar-days", Icon: CalendarDays, onClick: props.onExpand },
+      { label: "Theme picker", iconName: "palette", Icon: Palette, onClick: props.onExpand },
+      { label: "Network diagnostics", iconName: "radio-tower", Icon: RadioTower, onClick: props.onGatewayFocus },
+      { label: "Agent monitors", iconName: "activity", Icon: Activity, onClick: props.onAgentActivityFocus },
+      { label: "Security approvals", iconName: "shield-check", Icon: ShieldCheck, onClick: props.onApprovalsFocus }
+    ];
+    return (
+      <CollapsedRail
+        ariaLabel={`${props.theme.labels.archiveTitle} collapsed`}
+        className="left-rail"
+        expandIcon={PanelLeftOpen}
+        expandIconName="panel-left-open"
+        expandLabel="Expand left rail"
+        items={items}
+        side="left"
+        onExpand={props.onExpand}
+      />
+    );
+  }
+
   return (
     <aside className="sidebar left-rail" aria-label={props.theme.labels.archiveTitle}>
-      <OperatorConsoleHeader onNewEntry={props.onNewEntry} />
+      <OperatorConsoleHeader onCollapse={props.onCollapse} onNewEntry={props.onNewEntry} />
       {props.leftRailContent}
       <DayArchive
         archiveCalendarMessage={props.archiveCalendarMessage}
@@ -305,13 +430,25 @@ export function Sidebar(props: {
   );
 }
 
-function OperatorConsoleHeader(props: { onNewEntry: () => void }) {
+function OperatorConsoleHeader(props: { onCollapse: () => void; onNewEntry: () => void }) {
   return (
     <div className="operator-console">
-      <strong>Operator Console</strong>
+      <div className="operator-console-heading">
+        <strong>Operator Console</strong>
+        <button
+          aria-label="Collapse left rail"
+          className="rail-collapse-toggle"
+          data-rail-icon="panel-left-close"
+          title="Collapse left rail"
+          type="button"
+          onClick={props.onCollapse}
+        >
+          <PanelLeftClose size={18} aria-hidden="true" />
+        </button>
+      </div>
       <p>Station 04-B</p>
       <button type="button" onClick={props.onNewEntry}>
-        <Plus size={18} aria-hidden="true" />
+        <SquarePen size={18} aria-hidden="true" />
         New Entry
       </button>
     </div>
@@ -320,9 +457,9 @@ function OperatorConsoleHeader(props: { onNewEntry: () => void }) {
 
 function RailSystemShortcuts(props: { onAgentActivityFocus: () => void; onApprovalsFocus: () => void; onGatewayFocus: () => void }) {
   const shortcuts = [
-    { label: "Network", icon: Hash, onClick: props.onGatewayFocus },
-    { label: "Monitors", icon: SlidersHorizontal, onClick: props.onAgentActivityFocus },
-    { label: "Security", icon: AlertTriangle, onClick: props.onApprovalsFocus }
+    { label: "Network", icon: RadioTower, onClick: props.onGatewayFocus },
+    { label: "Monitors", icon: Activity, onClick: props.onAgentActivityFocus },
+    { label: "Security", icon: ShieldCheck, onClick: props.onApprovalsFocus }
   ];
   return (
     <nav className="rail-shortcuts" aria-label="System shortcuts">
@@ -830,6 +967,7 @@ export interface DiagnosticsPanelProps {
   onJumpToFirstApproval: () => void;
   onShowToolCallsChange: (show: boolean) => void;
   onToggleApprovals: () => void;
+  onRailCollapse: () => void;
 }
 
 export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
@@ -837,7 +975,19 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
   const recovery = props.gateway.serviceRecovery;
   return (
     <aside className="sidebar right-rail" aria-label={props.theme.labels.diagnosticsTitle}>
-      <h2>{props.theme.labels.diagnosticsTitle}</h2>
+      <div className="rail-title-row">
+        <h2>{props.theme.labels.diagnosticsTitle}</h2>
+        <button
+          aria-label="Collapse right rail"
+          className="rail-collapse-toggle"
+          data-rail-icon="panel-right-close"
+          title="Collapse right rail"
+          type="button"
+          onClick={props.onRailCollapse}
+        >
+          <PanelRightClose size={18} aria-hidden="true" />
+        </button>
+      </div>
       <PendingApprovalsCard
         approvalButtonRef={props.approvalButtonRef}
         approvals={props.approvals}
@@ -884,6 +1034,89 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
       {props.extraCards?.map((card) => (
         <DiagnosticsCard key={card.label} collapsed={props.collapsed[card.label] ?? true} onToggleCollapsed={() => props.onCardToggle(card.label)} {...card} />
       ))}
+    </aside>
+  );
+}
+
+function CollapsedRightRail(props: {
+  theme: Theme;
+  onAgentActivityFocus: () => void;
+  onApprovalsFocus: () => void;
+  onExpand: () => void;
+  onGatewayFocus: () => void;
+  onPinnedContextFocus: () => void;
+  onTimelineFiltersFocus: () => void;
+  onTodayAtGlanceFocus: () => void;
+  onToolFilterFocus: () => void;
+}) {
+  const items: CollapsedRailItem[] = [
+    { label: "Pending approvals", iconName: "clipboard-list", Icon: ClipboardList, onClick: props.onApprovalsFocus },
+    { label: "Pinned context", iconName: "pin", Icon: Pin, onClick: props.onPinnedContextFocus },
+    { label: "Today at a glance", iconName: "gauge", Icon: Gauge, onClick: props.onTodayAtGlanceFocus },
+    { label: "Saved filters", iconName: "list-filter", Icon: ListFilter, onClick: props.onTimelineFiltersFocus },
+    { label: "Gateway diagnostics", iconName: "network", Icon: Network, onClick: props.onGatewayFocus },
+    { label: "Agent activity", iconName: "bot", Icon: Bot, onClick: props.onAgentActivityFocus },
+    { label: "Recent tools", iconName: "wrench", Icon: Wrench, onClick: props.onToolFilterFocus }
+  ];
+  return (
+    <CollapsedRail
+      ariaLabel={`${props.theme.labels.diagnosticsTitle} collapsed`}
+      className="right-rail"
+      expandIcon={PanelRightOpen}
+      expandIconName="panel-right-open"
+      expandLabel="Expand right rail"
+      items={items}
+      side="right"
+      onExpand={props.onExpand}
+    />
+  );
+}
+
+interface CollapsedRailItem {
+  label: string;
+  iconName: string;
+  Icon: LucideIcon;
+  onClick: () => void;
+}
+
+function CollapsedRail(props: {
+  ariaLabel: string;
+  className: "left-rail" | "right-rail";
+  expandIcon: LucideIcon;
+  expandIconName: string;
+  expandLabel: string;
+  items: CollapsedRailItem[];
+  side: "left" | "right";
+  onExpand: () => void;
+}) {
+  const ExpandIcon = props.expandIcon;
+  return (
+    <aside className={`sidebar ${props.className} collapsed-rail collapsed-${props.side}-rail`} aria-label={props.ariaLabel}>
+      <button
+        aria-label={props.expandLabel}
+        className="rail-collapse-toggle collapsed-rail-expand"
+        data-rail-icon={props.expandIconName}
+        title={props.expandLabel}
+        type="button"
+        onClick={props.onExpand}
+      >
+        <ExpandIcon size={20} aria-hidden="true" />
+      </button>
+      <nav className="collapsed-rail-nav" aria-label={`${props.side === "left" ? "Workspace" : "Diagnostics"} collapsed rail shortcuts`}>
+        {props.items.map((item) => (
+          <button
+            aria-label={item.label}
+            className="collapsed-rail-button"
+            data-rail-icon={item.iconName}
+            key={item.label}
+            title={item.label}
+            type="button"
+            onClick={item.onClick}
+          >
+            <item.Icon size={20} aria-hidden="true" />
+          </button>
+        ))}
+      </nav>
     </aside>
   );
 }
