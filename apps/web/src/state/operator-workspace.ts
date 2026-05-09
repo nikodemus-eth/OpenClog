@@ -170,8 +170,9 @@ export function remainingPinnedSummaryCharacters(summary: string, maxLength = PI
   return maxLength - summary.length;
 }
 
-export function diagnosticsCollapsedStorageKey(viewId: string | undefined): string {
-  return viewId ? `openclog.diagnostics.collapsed.${viewId}` : "openclog.diagnostics.collapsed.default";
+export function diagnosticsCollapsedStorageKey(viewId: string | undefined, deviceClass: "desktop" | "mobile" = "desktop", builtIn = false): string {
+  const scope = builtIn ? "builtin" : "user";
+  return viewId ? `openclog.diagnostics.collapsed.${scope}.${deviceClass}.${viewId}` : `openclog.diagnostics.collapsed.${scope}.${deviceClass}.default`;
 }
 
 export function describeActiveOperatorView(
@@ -199,7 +200,7 @@ export function describeComposerConnectivity(profileUrl: string | undefined, gat
   if (gatewayReady && (safety.kind === "loopback" || safety.kind === "lan" || safety.kind === "remote")) {
     return { label: "Live Gateway", detail: safety.detail };
   }
-  return { label: "Local only", detail: "Composer will preserve the note locally until a live Gateway path is ready." };
+  return { label: "Local only", detail: `Composer will preserve the note locally until a live Gateway path is ready. ${safety.label}: ${safety.detail}` };
 }
 
 export function describeSummaryJobState(summaryJob: { status: string } | null, generatedSummary: GeneratedSummary | undefined): string {
@@ -235,6 +236,10 @@ export function buildRetryReceiptConfirmation(receipt: DeliveryReceipt): string 
   return `Retry failed delivery ${safeWorkbenchCopy(receipt.id)} with the same idempotency key ${safeWorkbenchCopy(receipt.idempotencyKey ?? "unavailable")}. Confirm before resending this handoff.`;
 }
 
+export function buildRetryWithNewKeyReceiptConfirmation(receipt: DeliveryReceipt): string {
+  return `Retry failed delivery ${safeWorkbenchCopy(receipt.id)} with a new idempotency key to bypass dedupe on the next handoff attempt.`;
+}
+
 export function buildGatewayScopeButtonLabel(label: string, missingScopes: string[]): string {
   if (missingScopes.length === 0) return label;
   return `${label} blocked: missing ${missingScopes.map(safeWorkbenchCopy).join(", ")}`;
@@ -250,6 +255,14 @@ export function describeStaleSummaryWarning(freshness: { lastEntryIncludedAt?: s
   if (!freshness.lastEntryIncludedAt || !freshness.latestEntryObservedAt) return null;
   if (Date.parse(freshness.latestEntryObservedAt) <= Date.parse(freshness.lastEntryIncludedAt)) return null;
   return `Summary may exclude latest entries: latest entry ${safeWorkbenchCopy(freshness.latestEntryObservedAt)} is newer than included entry ${safeWorkbenchCopy(freshness.lastEntryIncludedAt)}.`;
+}
+
+export function describeStaleSummaryInterval(freshness: { lastEntryIncludedAt?: string; latestEntryObservedAt?: string }): string | null {
+  if (!freshness.lastEntryIncludedAt || !freshness.latestEntryObservedAt) return null;
+  const start = Date.parse(freshness.lastEntryIncludedAt);
+  const end = Date.parse(freshness.latestEntryObservedAt);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+  return `Stale because the summary is missing ${formatDuration(end - start)} of journal activity between ${safeWorkbenchCopy(freshness.lastEntryIncludedAt)} and ${safeWorkbenchCopy(freshness.latestEntryObservedAt)}.`;
 }
 
 export function buildDryRunFailureJumpNotice(receipt: DeliveryReceipt): { href: string; label: string; message: string } | null {

@@ -139,7 +139,7 @@ export interface OpenClogRepository {
   upsertAlertRule(rule: AlertRule): AlertRule;
   upsertDay(day: JournalDay): void;
   upsertProfile(profile: ProfileConfig): ProfileConfig;
-  retryDeliveryReceipt(id: string): DeliveryReceipt;
+  retryDeliveryReceipt(id: string, options?: { useNewIdempotencyKey?: boolean }): DeliveryReceipt;
   verifyIntegrationTarget(target: DeliveryAdapterTarget, dayKey: string): DeliveryReceipt;
   verifyReplayBundle(bundle: { manifest?: Record<string, unknown>; day?: { dayKey?: string; entries?: unknown[] }; markdown?: string }): BundleVerificationResult;
 }
@@ -1210,12 +1210,15 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       saveJsonRow(db, "journal_profiles", profile.id, JSON.stringify(profile));
       return profile;
     },
-    retryDeliveryReceipt(id) {
+    retryDeliveryReceipt(id, options) {
       const original = repo.listDeliveryReceipts().find((receipt) => receipt.id === id);
       if (!original) throw new Error(`delivery_receipt_not_found:${id}`);
       if (original.status !== "failed") return original;
       const retryCount = (original.retryCount ?? 0) + 1;
-      const retryIdempotencyKey = original.idempotencyKey ?? original.requestFingerprint ?? original.id;
+      const retryIdempotencyKey =
+        options?.useNewIdempotencyKey === true
+          ? `${original.idempotencyKey ?? original.requestFingerprint ?? original.id}:retry:${retryCount + 1}`
+          : original.idempotencyKey ?? original.requestFingerprint ?? original.id;
       const candidate = repo.deliverIntegration(original.target, original.dayKey, {
         incidentId: original.incidentId,
         dryRun: original.dryRun,
@@ -1228,7 +1231,13 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
         retryOfReceiptId: original.id,
         retryCount,
         attemptNumber: (original.attemptNumber ?? 1) + 1,
-        idempotencyKey: retryIdempotencyKey
+        idempotencyKey: retryIdempotencyKey,
+        retryPolicy: {
+          sameKeyRetryRequiresConfirmation: original.status === "failed" && Boolean(original.idempotencyKey),
+          nextAttemptUsesNewIdempotencyKey: true,
+          schedule: ["immediate", "5m", "15m"],
+          terminalAttemptRule: "Stop after the last bounded local retry and keep the failure visible."
+        }
       };
       saveJsonRow(db, "journal_delivery_receipts", receipt.id, JSON.stringify(receipt), {
         day_key: receipt.dayKey,

@@ -171,3 +171,8 @@ Track OpenClog architecture, component ownership, and authority boundaries.
 - Process Swarm integration stays outside the Gateway authority boundary and uses the public investigation-note ingress as an operator-visible heartbeat record.
 - Workspace build ownership is now explicit in the root build script: `@openclog/core`, `@openclog/app`, `@openclog/api`, `@openclog/web`, then `@openclog/desktop`.
 - Vite and Vitest resolve local workspace packages with decoded filesystem paths so iCloud folder names do not become encoded module specifiers.
+
+## 2026-05-09 Operations Report Follow-Through
+- `/api/operations/report` is now the canonical bounded morning-briefing route, with `/api/operations/center` retained as a compatibility alias while the browser consumes the new report path.
+- The shared operations contract now carries delivery-target health, incident timelines, guided incident-command stages, escalation playbooks, day-level evidence scores, richer verification timestamps, and docs-check commit evidence without pushing policy into Fastify handlers.
+- The operator shell stays split the intended way: `apps/web/src/state/operator-workspace.ts` owns stale-summary intervals, device-aware diagnostics persistence, and retry-confirmation copy, while `App.tsx` remains orchestration and API wiring.

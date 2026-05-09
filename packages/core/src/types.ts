@@ -494,6 +494,7 @@ export interface DeliverySecretRef {
 export interface DeliveryRequestOptions {
   incidentId?: string;
   idempotencyKey?: string;
+  useNewIdempotencyKey?: boolean;
   dryRun?: boolean;
   secretRef?: DeliverySecretRef;
   forceNewAttempt?: boolean;
@@ -577,6 +578,12 @@ export interface DeliveryReceipt {
   deliveryReference?: string;
   errorCategory?: "missing_config" | "network" | "authentication" | "validation" | "unknown";
   deadLetterReason?: string;
+  retryPolicy?: {
+    sameKeyRetryRequiresConfirmation: boolean;
+    nextAttemptUsesNewIdempotencyKey: boolean;
+    schedule?: string[];
+    terminalAttemptRule?: string;
+  };
 }
 
 export interface CapabilityGate {
@@ -910,6 +917,7 @@ export interface VerificationReceipt {
   completedAt?: string;
   summary: string;
   artifactPath?: string;
+  commitSha?: string;
 }
 
 export interface InvestigationWorkspace {
@@ -1037,7 +1045,11 @@ export interface VerificationCenterGate {
 export interface VerificationCenterReport {
   generatedAt: string;
   gates: VerificationCenterGate[];
+  lastSuccessfulVerifyAt?: string;
   lastSuccessfulGatewayVerifyAt?: string;
+  lastSuccessfulDesktopVerifyAt?: string;
+  lastSuccessfulDocsCheckAt?: string;
+  docsCheckedCommitSha?: string;
 }
 
 export interface GovernedSdkManifest {
@@ -1049,13 +1061,55 @@ export interface GovernedSdkManifest {
 }
 
 export interface EvidenceQualityScore {
-  incidentId: string;
+  incidentId?: string;
+  dayKey?: string;
   score: number;
   grade: "excellent" | "good" | "needs-work" | "blocked";
   freshness: number;
   completeness: number;
   provenance: number;
   actionOutcomeCoverage: number;
+}
+
+export interface DeliveryTargetHealth {
+  target: DeliveryAdapterTarget;
+  status: "ok" | "warning" | "blocked";
+  detail: string;
+  dryRunStatus: "passed" | "failed" | "missing";
+  latestReceiptId?: string;
+}
+
+export interface IncidentTimelineEvent {
+  id: string;
+  dayKey: string;
+  timestamp: string;
+  kind: "incident" | "note" | "delivery_receipt" | "summary_job" | "verification_receipt";
+  label: string;
+  relatedId?: string;
+}
+
+export interface IncidentTimeline {
+  startDayKey: string;
+  endDayKey: string;
+  events: IncidentTimelineEvent[];
+}
+
+export interface GuidedIncidentCommandStage {
+  id: "detect" | "explain" | "recommend" | "act" | "record";
+  title: string;
+  complete: boolean;
+  blocked: boolean;
+  detail: string;
+}
+
+export interface GuidedIncidentCommand {
+  stages: GuidedIncidentCommandStage[];
+}
+
+export interface EscalationPlaybook {
+  id: "missing-scopes" | "stale-summary" | "failed-dry-run" | "readiness-blocked";
+  title: string;
+  steps: string[];
 }
 
 export interface RoleAwareIncidentSimulation {
@@ -1101,15 +1155,19 @@ export interface OperationsBacklogReport {
   investigationBundlePreview: InvestigationBundlePreview;
   readinessHistory: ReadinessHistorySparkline;
   deliveryLedger: DeliveryLedger;
+  deliveryTargetHealth: DeliveryTargetHealth[];
+  incidentTimeline: IncidentTimeline;
   routePerformanceBudgets: RoutePerformanceBudget[];
   chaosScenarios: ChaosTestScenario[];
   recommendationRationales: RecommendationRationale[];
   verificationCenter: VerificationCenterReport;
   governedSdkManifests: GovernedSdkManifest[];
   evidenceQualityScores: EvidenceQualityScore[];
+  guidedIncidentCommand: GuidedIncidentCommand;
   roleAwareSimulations: RoleAwareIncidentSimulation[];
   causalityGraph: CorrelationGraph;
   operationsLedger: { entries: OperationsLedgerEntry[] };
   nativeTruthMonitor: NativeTruthMonitorReport;
   policyRecommendationPacks: PolicyRecommendationPack[];
+  escalationPlaybooks: EscalationPlaybook[];
 }

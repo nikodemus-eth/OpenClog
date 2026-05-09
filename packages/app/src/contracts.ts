@@ -126,7 +126,7 @@ export interface IntegrationRepository {
   deliverIntegration(target: DeliveryReceipt["target"], dayKey: string, options?: DeliveryRequestOptions): DeliveryReceipt;
   createGithubIssue(dayKey: string, options?: DeliveryRequestOptions): DeliveryReceipt;
   listDeliveryReceipts(): DeliveryReceipt[];
-  retryDeliveryReceipt(id: string): DeliveryReceipt;
+  retryDeliveryReceipt(id: string, options?: { useNewIdempotencyKey?: boolean }): DeliveryReceipt;
   verifyIntegrationTarget(target: DeliveryAdapterTarget, dayKey: string): DeliveryReceipt;
 }
 

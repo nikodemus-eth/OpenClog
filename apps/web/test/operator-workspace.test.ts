@@ -11,11 +11,13 @@ import {
   buildDryRunFailureJumpNotice,
   buildGatewayScopeButtonLabel,
   buildRetryReceiptConfirmation,
+  buildRetryWithNewKeyReceiptConfirmation,
   describeActiveOperatorView,
   describeAlertFindingState,
   describeComposerConnectivity,
   describeOperatorViewSource,
   describeSummaryJobState,
+  describeStaleSummaryInterval,
   describeStaleSummaryWarning,
   DEFAULT_SEARCH_PRESETS,
   dedupeLiveActionNotice,
@@ -305,6 +307,9 @@ describe("operator workspace helpers", () => {
     expect(buildRetryReceiptConfirmation(receipt)).toBe(
       "Retry failed delivery receipt-slack-failed with the same idempotency key incident-1:slack. Confirm before resending this handoff."
     );
+    expect(buildRetryWithNewKeyReceiptConfirmation(receipt)).toBe(
+      "Retry failed delivery receipt-slack-failed with a new idempotency key to bypass dedupe on the next handoff attempt."
+    );
     expect(buildGatewayScopeButtonLabel("Deliver to Slack", ["operator.approvals", "operator.write"])).toBe(
       "Deliver to Slack blocked: missing operator.approvals, operator.write"
     );
@@ -312,6 +317,10 @@ describe("operator workspace helpers", () => {
     expect(describeStaleSummaryWarning({ lastEntryIncludedAt: "2026-05-08T12:00:00.000Z", latestEntryObservedAt: "2026-05-08T12:05:00.000Z" })).toBe(
       "Summary may exclude latest entries: latest entry 2026-05-08T12:05:00.000Z is newer than included entry 2026-05-08T12:00:00.000Z."
     );
+    expect(describeStaleSummaryInterval({ lastEntryIncludedAt: "2026-05-08T12:00:00.000Z", latestEntryObservedAt: "2026-05-08T12:05:00.000Z" })).toBe(
+      "Stale because the summary is missing 5m of journal activity between 2026-05-08T12:00:00.000Z and 2026-05-08T12:05:00.000Z."
+    );
+    expect(describeStaleSummaryInterval({ lastEntryIncludedAt: "2026-05-08T12:00:00.000Z" })).toBeNull();
     expect(buildDryRunFailureJumpNotice(receipt)).toEqual({
       href: "#delivery-target-slack",
       label: "Open Slack delivery target",
@@ -381,10 +390,12 @@ describe("operator workspace helpers", () => {
       }).queuedFor
     ).toBe("0ms");
     expect(buildRetryReceiptConfirmation({ ...receipt, idempotencyKey: undefined })).toContain("idempotency key unavailable");
+    expect(buildRetryWithNewKeyReceiptConfirmation({ ...receipt, requestFingerprint: undefined })).toContain("bypass dedupe");
     expect(buildGatewayScopeButtonLabel("Deliver to Slack", [])).toBe("Deliver to Slack");
     expect(formatCorrelationBadge(undefined)).toBeNull();
     expect(describeStaleSummaryWarning({ lastEntryIncludedAt: "2026-05-08T12:05:00.000Z", latestEntryObservedAt: "2026-05-08T12:00:00.000Z" })).toBeNull();
     expect(describeStaleSummaryWarning({ latestEntryObservedAt: "2026-05-08T12:00:00.000Z" })).toBeNull();
+    expect(describeStaleSummaryInterval({ lastEntryIncludedAt: "2026-05-08T12:05:00.000Z", latestEntryObservedAt: "2026-05-08T12:00:00.000Z" })).toBeNull();
     expect(buildDryRunFailureJumpNotice({ ...receipt, status: "delivered" })).toBeNull();
     expect(buildDryRunFailureJumpNotice({ ...receipt, dryRun: false })).toBeNull();
   });
@@ -444,12 +455,13 @@ describe("operator workspace helpers", () => {
         grouped: false
       })
     ).toBe("Saved view: Saved view (saved query)");
-    expect(diagnosticsCollapsedStorageKey(active?.id)).toBe("openclog.diagnostics.collapsed.stale-backend-fingerprint");
-    expect(diagnosticsCollapsedStorageKey(undefined)).toBe("openclog.diagnostics.collapsed.default");
+    expect(diagnosticsCollapsedStorageKey(active?.id)).toBe("openclog.diagnostics.collapsed.user.desktop.stale-backend-fingerprint");
+    expect(diagnosticsCollapsedStorageKey(active?.id, "mobile", true)).toBe("openclog.diagnostics.collapsed.builtin.mobile.stale-backend-fingerprint");
+    expect(diagnosticsCollapsedStorageKey(undefined)).toBe("openclog.diagnostics.collapsed.user.desktop.default");
     expect(describeComposerConnectivity("ws://127.0.0.1:18789", true)).toMatchObject({ label: "Live Gateway" });
-    expect(describeComposerConnectivity("ws://127.0.0.1:18789", false)).toMatchObject({ label: "Local only" });
-    expect(describeComposerConnectivity("::bad-url::", true)).toMatchObject({ label: "Local only" });
-    expect(describeComposerConnectivity(undefined, false)).toMatchObject({ label: "Local only" });
+    expect(describeComposerConnectivity("ws://127.0.0.1:18789", false)).toMatchObject({ label: "Local only", detail: expect.stringContaining("Loopback-safe") });
+    expect(describeComposerConnectivity("::bad-url::", true)).toMatchObject({ label: "Local only", detail: expect.stringContaining("Invalid Gateway URL") });
+    expect(describeComposerConnectivity(undefined, false)).toMatchObject({ label: "Local only", detail: expect.stringContaining("Gateway URL unavailable") });
     expect(describeSummaryJobState(null, undefined)).toBe("Summary never generated for this day yet.");
     expect(describeSummaryJobState({ status: "completed" }, undefined)).toBe("Summary job completed.");
     expect(describeSummaryJobState({ status: "queued", progressLabel: "Queued for local evidence review." }, undefined)).toBe("Summary job queued: Queued for local evidence review.");

@@ -178,3 +178,8 @@ Track OpenClog security posture, Gateway authority boundaries, redaction, and fa
 - Process Swarm heartbeat notes remain ordinary investigation notes and do not gain Gateway scopes, credential access, approval authority, or command-forwarding behavior.
 - No OpenClog API authentication, Gateway token handling, raw frame exposure, redaction policy, or browser credential boundary changed.
 - `npm ci` reported one high-severity npm audit finding during lockfile reconciliation; it remains a tracked follow-up rather than an unreported green security claim.
+
+## 2026-05-09 Operations Report And Retry Hardening
+- The new `retry with new idempotency key` path stays explicit and bounded: same-key retries still require operator confirmation, while new-key retries mint a fresh bounded idempotency key and keep the failed receipt visible instead of collapsing evidence.
+- Verification Center timestamp/header copy and docs-check commit evidence are derived from local verification receipts only; they expose command timing and commit metadata, not raw logs, secrets, or filesystem paths.
+- Delivery-target health, incident timelines, escalation playbooks, and missing-scope copy all reuse sanitized report/view data, so the new morning-briefing surfaces do not widen browser access to Gateway credentials or unsanitized receipt content.

@@ -151,6 +151,7 @@ export interface SummaryJobPollingOptions {
   intervalMs?: number;
   maxAttempts?: number;
   onUpdate?: (job: SummaryJob) => void;
+  onPollLatency?: (latencyMs: number) => void;
   signal?: AbortSignal;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -170,7 +171,9 @@ export async function pollSummaryJobUntilSettled(initialJob: SummaryJob, options
     if (options.signal?.aborted) throw new Error("Summary job polling aborted");
     await sleep(intervalMs);
     if (options.signal?.aborted) throw new Error("Summary job polling aborted");
+    const startedAt = performance.now();
     current = await fetchSummaryJob(current.id);
+    options.onPollLatency?.(Math.round(performance.now() - startedAt));
     options.onUpdate?.(current);
     if (isSummaryJobSettled(current.status)) return current;
   }
@@ -541,11 +544,14 @@ export async function fetchDeliveryReceipts(
   return fetchJson<{ receipts: DeliveryReceipt[]; nextCursor?: string }>(`/api/integrations/receipts?${params.toString()}`);
 }
 
-export async function retryDeliveryReceipt(id: string, confirmSameIdempotencyKey = true): Promise<DeliveryReceipt> {
+export async function retryDeliveryReceipt(id: string, options: { confirmSameIdempotencyKey?: boolean; useNewIdempotencyKey?: boolean } = {}): Promise<DeliveryReceipt> {
   const response = await fetch(`/api/integrations/receipts/${encodeURIComponent(id)}/retry`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ confirmSameIdempotencyKey })
+    body: JSON.stringify({
+      confirmSameIdempotencyKey: options.confirmSameIdempotencyKey === true,
+      useNewIdempotencyKey: options.useNewIdempotencyKey === true
+    })
   });
   if (!response.ok) throw new Error("Delivery receipt retry failed");
   const result = (await response.json()) as { receipt: DeliveryReceipt };
@@ -555,7 +561,7 @@ export async function retryDeliveryReceipt(id: string, confirmSameIdempotencyKey
 export async function fetchOperationsBacklog(dayKey: string, incidentId?: string): Promise<OperationsBacklogReport> {
   const params = new URLSearchParams({ dayKey });
   if (incidentId) params.set("incidentId", incidentId);
-  const result = await fetchJson<{ report: OperationsBacklogReport }>(`/api/operations/center?${params.toString()}`);
+  const result = await fetchJson<{ report: OperationsBacklogReport }>(`/api/operations/report?${params.toString()}`);
   return result.report;
 }
 

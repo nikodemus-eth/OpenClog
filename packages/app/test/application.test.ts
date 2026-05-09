@@ -597,7 +597,10 @@ describe("OpenClog application layer", () => {
           { id: "packet-1", incidentId: "incident-1", dayKey: "2026-05-08", title: "Gateway packet", summary: "Packet", body: "Body", createdAt: "2026-05-08T12:04:30.000Z", deliveryTargets: ["slack"], provenance: { sourceWorkflow: ["manual"], sourceHash: "sha256-packet", importedAt: "2026-05-08T12:04:30.000Z", lineNumbers: [], redactionCount: 0, redactedPaths: [] } }
         ],
         listVerificationReceipts: () => [
-          { id: "verify-gateway", command: "verify:gateway", status: "passed", startedAt: "2026-05-08T12:05:00.000Z", completedAt: "2026-05-08T12:05:30.000Z", summary: "Gateway ready." }
+          { id: "verify-main", command: "verify", status: "passed", startedAt: "2026-05-08T12:04:00.000Z", completedAt: "2026-05-08T12:04:20.000Z", summary: "Repo verify passed." },
+          { id: "verify-gateway", command: "verify:gateway", status: "passed", startedAt: "2026-05-08T12:05:00.000Z", completedAt: "2026-05-08T12:05:30.000Z", summary: "Gateway ready." },
+          { id: "verify-desktop", command: "verify:desktop-native", status: "passed", startedAt: "2026-05-08T12:06:00.000Z", completedAt: "2026-05-08T12:06:10.000Z", summary: "Desktop self-check passed." },
+          { id: "verify-docs", command: "docs:check", status: "passed", startedAt: "2026-05-08T12:06:30.000Z", completedAt: "2026-05-08T12:06:40.000Z", summary: "Docs check passed.", commitSha: "abc1234" }
         ],
         listHealthTimeline: () => [
           { id: "health-1", timestamp: "2026-05-08T12:01:00.000Z", category: "stale", title: "Backend fingerprint changed", detail: "Runtime drift observed." },
@@ -632,9 +635,20 @@ describe("OpenClog application layer", () => {
     }) as {
       summaryJobHistory: { jobs: Array<{ queuedForMs: number; runningForMs: number; medianCompletionMs: number; correlationId?: string }> };
       incidentEvidenceChecklist: { ready: boolean; items: Array<{ id: string; present: boolean }> };
-      verificationCenter: { gates: Array<{ id: string; status: string }>; lastSuccessfulGatewayVerifyAt?: string };
-      deliveryLedger: { items: Array<{ id: string; sameKeyRetryRequiresConfirmation: boolean }> };
-      evidenceQualityScores: Array<{ incidentId: string; score: number; grade: string }>;
+      verificationCenter: {
+        gates: Array<{ id: string; status: string }>;
+        lastSuccessfulVerifyAt?: string;
+        lastSuccessfulGatewayVerifyAt?: string;
+        lastSuccessfulDesktopVerifyAt?: string;
+        lastSuccessfulDocsCheckAt?: string;
+        docsCheckedCommitSha?: string;
+      };
+      deliveryLedger: { items: Array<{ id: string; sameKeyRetryRequiresConfirmation: boolean; retryPolicy?: { nextAttemptUsesNewIdempotencyKey: boolean } }> };
+      evidenceQualityScores: Array<{ incidentId?: string; dayKey?: string; score: number; grade: string }>;
+      deliveryTargetHealth: Array<{ target: string; status: string }>;
+      incidentTimeline: { startDayKey: string; endDayKey: string; events: Array<{ kind: string }> };
+      guidedIncidentCommand: { stages: Array<{ id: string; complete: boolean; blocked: boolean }> };
+      escalationPlaybooks: Array<{ id: string; title: string }>;
       operationsLedger: { entries: Array<{ action: string; correlationId?: string }> };
       governedSdkManifests: Array<{ id: string; permissions: string[]; supportsDryRun: boolean }>;
       roleAwareSimulations: Array<{ id: string; liveSideEffects: false }>;
@@ -657,9 +671,36 @@ describe("OpenClog application layer", () => {
       expect.objectContaining({ id: "delivery_dry_runs", status: "blocked" }),
       expect.objectContaining({ id: "gateway_readiness", status: "passed" })
     ]));
-    expect(report.verificationCenter.lastSuccessfulGatewayVerifyAt).toBe("2026-05-08T12:05:30.000Z");
-    expect(report.deliveryLedger.items[0]).toMatchObject({ id: "receipt-slack-failed", sameKeyRetryRequiresConfirmation: true });
-    expect(report.evidenceQualityScores[0]).toMatchObject({ incidentId: "incident-1", score: expect.any(Number), grade: "good" });
+    expect(report.verificationCenter).toMatchObject({
+      lastSuccessfulVerifyAt: "2026-05-08T12:04:20.000Z",
+      lastSuccessfulGatewayVerifyAt: "2026-05-08T12:05:30.000Z",
+      lastSuccessfulDesktopVerifyAt: "2026-05-08T12:06:10.000Z",
+      lastSuccessfulDocsCheckAt: "2026-05-08T12:06:40.000Z",
+      docsCheckedCommitSha: "abc1234"
+    });
+    expect(report.deliveryLedger.items[0]).toMatchObject({
+      id: "receipt-slack-failed",
+      sameKeyRetryRequiresConfirmation: true,
+      retryPolicy: { nextAttemptUsesNewIdempotencyKey: true }
+    });
+    expect(report.evidenceQualityScores).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ incidentId: "incident-1", score: expect.any(Number), grade: "good" }),
+        expect.objectContaining({ dayKey: "2026-05-08", score: expect.any(Number) })
+      ])
+    );
+    expect(report.deliveryTargetHealth).toEqual(expect.arrayContaining([expect.objectContaining({ target: "slack", status: "blocked" })]));
+    expect(report.incidentTimeline).toMatchObject({
+      startDayKey: "2026-05-08",
+      endDayKey: "2026-05-08",
+      events: expect.arrayContaining([expect.objectContaining({ kind: "summary_job" }), expect.objectContaining({ kind: "delivery_receipt" })])
+    });
+    expect(report.guidedIncidentCommand.stages).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "detect", complete: true }), expect.objectContaining({ id: "record" })])
+    );
+    expect(report.escalationPlaybooks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "stale-summary" }), expect.objectContaining({ id: "failed-dry-run" })])
+    );
     expect(report.operationsLedger.entries.map((entry) => entry.action)).toEqual(expect.arrayContaining(["summary.completed", "delivery.failed", "incident.action.failed"]));
     expect(report.governedSdkManifests).toEqual(expect.arrayContaining([expect.objectContaining({ id: "slack", permissions: ["delivery:slack"], supportsDryRun: true })]));
     expect(report.roleAwareSimulations.every((simulation) => simulation.liveSideEffects === false)).toBe(true);

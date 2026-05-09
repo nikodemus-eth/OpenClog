@@ -611,13 +611,15 @@ export function Composer(props: {
             <AtSign size={17} />
             <Hash size={17} />
           </div>
-          <StatusChip label="Composer mode" status={props.connectivityLabel} tone={props.connectivityLabel === "Live Gateway" ? "success" : "warning"} />
+          <div title={props.connectivityDetail}>
+            <StatusChip label="Composer mode" status={props.connectivityLabel} tone={props.connectivityLabel === "Live Gateway" ? "success" : "warning"} />
+          </div>
           <button type="button" onClick={props.onSend}>
             <Send size={18} aria-hidden="true" />
             {props.theme.labels.send}
           </button>
         </div>
-        <p className="composer-mode-detail">{props.connectivityDetail}</p>
+        {props.connectivityLabel === "Live Gateway" ? <p className="composer-mode-detail">{props.connectivityDetail}</p> : null}
       </div>
       <p aria-live="polite" className={props.notice.includes("blocked") || props.notice.includes("Command") ? "notice warning" : "notice"}>
         {props.notice}
@@ -626,7 +628,7 @@ export function Composer(props: {
   );
 }
 
-export function GatewayReadinessBanner(props: { gateway: GatewayViewState; theme: Theme }) {
+export function GatewayReadinessBanner(props: { gateway: GatewayViewState; theme: Theme; onCopyMissingScopes?: () => void }) {
   const status = props.gateway.status === "ready" && !props.gateway.stale ? "success" : props.gateway.status === "blocked" ? "danger" : "warning";
   const haveScopes = props.gateway.scopeNegotiation?.have ?? props.gateway.scopes ?? [];
   const missingScopes = props.gateway.scopeNegotiation?.missing ?? props.gateway.missingScopes;
@@ -643,6 +645,11 @@ export function GatewayReadinessBanner(props: { gateway: GatewayViewState; theme
             : "OpenClaw Gateway degraded: missing required operator scopes."}
       </p>
       <p>Have scopes: {haveScopes.join(", ") || "none"}. Missing scopes: {missingScopes.join(", ") || "none"}.</p>
+      {missingScopes.length > 0 && props.onCopyMissingScopes ? (
+        <button type="button" onClick={props.onCopyMissingScopes}>
+          Copy missing scopes
+        </button>
+      ) : null}
     </section>
   );
 }

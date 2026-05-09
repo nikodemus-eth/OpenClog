@@ -159,3 +159,8 @@ Track OpenClog implementation decisions, verification passes, refactors, and clo
 - Repaired local iCloud path handling in Vite and Vitest aliases by using decoded `fileURLToPath(...)` workspace paths.
 - Ordered the root build so shared core, app, API, web, and desktop packages build in dependency order before the desktop app checks for the web bundle.
 - Raised the visual snapshot pixel-diff allowance for full-page browser captures after verification showed tiny rendering drift, not layout or content regression.
+
+## 2026-05-09 Operations Report Follow-Through
+- Kept this tranche additive over the current dirty `main` tree instead of peeling off a fresh branch, because the existing shell work and visual state were already the right base for the report implementation.
+- Moved the new report behavior through the shared seams first: contracts in `@openclog/core`, composition in `@openclog/app`, repository/api integration in `apps/api`, then browser wiring in `apps/web`.
+- Let targeted tests and the Chromium workbench spec be the first authority before attempting broader repo gates, so the UI glue, fixture contract, and retry/report affordances were correct before touching the larger verification chain.

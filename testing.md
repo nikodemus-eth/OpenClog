@@ -250,3 +250,11 @@ Record deterministic verification, live Gateway verification, coverage policy, a
 - Final `npm run verify` passed after the lockfile, build-order, alias, and visual-tolerance fixes.
 - The full gate passed typecheck, lint, ordered build, 20 Vitest files / 161 tests with 100% statements, branches, functions, and lines, 206 Playwright E2E tests, 54 visual snapshot tests, 7 red-team tests, and docs checks.
 - `/api/investigation-notes` remains the Process Swarm announcement target; verification did not expose a route/runtime mismatch requiring API code changes.
+
+## 2026-05-09 Operations Report Follow-Through
+- Added failing-first helper/app/API coverage for stale-summary interval copy, device-aware diagnostics storage keys, retry-with-new-idempotency-key messaging, richer Verification Center timestamps, delivery-target health, incident timelines, guided incident-command stages, escalation playbooks, and `/api/operations/report` alias compatibility.
+- Expanded Playwright coverage for the combined operator flow so the browser now asserts the new Verification Center header fields, the new-key retry button, and the expanded operations backlog surfaces while keeping the existing quick-win and fail-closed workbench checks intact.
+- Verification completed on this implementation slice:
+  - `npm run test -- apps/web/test/operator-workspace.test.ts packages/app/test/application.test.ts apps/api/test/advanced-features.test.ts`
+  - `npm run typecheck`
+  - `npx playwright test tests/e2e/advanced-features.spec.ts --project=chromium`

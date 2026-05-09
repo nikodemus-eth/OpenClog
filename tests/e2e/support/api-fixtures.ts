@@ -584,6 +584,7 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
     });
   });
   await page.route("**/api/integrations/receipts/*/retry", async (route) => {
+    const body = (route.request().postDataJSON() as { useNewIdempotencyKey?: boolean } | null) ?? {};
     await route.fulfill({
       json: {
         ok: true,
@@ -599,10 +600,16 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
           retryCount: 1,
           attemptNumber: 2,
           retryOfReceiptId: "receipt-1",
-          idempotencyKey: "incident-1:slack",
+          idempotencyKey: body.useNewIdempotencyKey ? "incident-1:slack:retry:1" : "incident-1:slack",
           requestFingerprint: "fingerprint-1",
           errorCategory: "missing_config",
-          deadLetterReason: "delivery target is not configured"
+          deadLetterReason: "delivery target is not configured",
+          retryPolicy: {
+            sameKeyRetryRequiresConfirmation: !body.useNewIdempotencyKey,
+            nextAttemptUsesNewIdempotencyKey: true,
+            schedule: ["immediate", "5m", "15m"],
+            terminalAttemptRule: "Stop after the last bounded local retry and keep the failure visible."
+          }
         }
       }
     });
@@ -657,7 +664,7 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
       }
     });
   });
-  await page.route("**/api/operations/center?**", async (route) => {
+  await page.route(/.*\/api\/operations\/(center|report)\?.*/, async (route) => {
     await route.fulfill({
       json: {
         report: {
@@ -742,7 +749,11 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
           recommendationRationales: [{ recommendationId: "summary-refresh-before-handoff", whyThisRecommendation: "Newer local evidence exists than the generated summary includes.", evidenceIds: ["2026-05-03-entry-1"], rulePackIds: ["default-incident-loop"] }],
           verificationCenter: {
             generatedAt: "2026-05-04T12:20:00.000Z",
+            lastSuccessfulVerifyAt: "2026-05-04T12:17:00.000Z",
             lastSuccessfulGatewayVerifyAt: "2026-05-04T12:18:00.000Z",
+            lastSuccessfulDesktopVerifyAt: "2026-05-04T12:19:00.000Z",
+            lastSuccessfulDocsCheckAt: "2026-05-04T12:19:30.000Z",
+            docsCheckedCommitSha: "abc1234",
             gates: [
               { id: "summary_freshness", label: "Summary freshness", status: "warning", detail: "Summary may exclude latest entries.", evidenceIds: [] },
               { id: "delivery_dry_runs", label: "Delivery dry-runs", status: "blocked", detail: "Failed dry-run receipt is present.", evidenceIds: ["receipt-slack-verify"] },
@@ -758,7 +769,31 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
             { id: "github", permissions: ["delivery:github-issue"], expiresAt: "2026-06-08", supportsDryRun: true, failureModes: ["missing_config"] },
             { id: "plugins", permissions: ["plugin:run"], expiresAt: "2026-06-08", supportsDryRun: true, failureModes: ["validation_blocked"] }
           ],
-          evidenceQualityScores: incidents.length > 0 ? [{ incidentId: "incident-1", score: 82, grade: "good", freshness: 70, completeness: 100, provenance: 90, actionOutcomeCoverage: 70 }] : [],
+          evidenceQualityScores: incidents.length > 0 ? [{ incidentId: "incident-1", score: 82, grade: "good", freshness: 70, completeness: 100, provenance: 90, actionOutcomeCoverage: 70 }, { dayKey: "2026-05-03", score: 88, grade: "good", freshness: 80, completeness: 90, provenance: 90, actionOutcomeCoverage: 90 }] : [],
+          deliveryTargetHealth: [
+            { target: "slack", status: "blocked", detail: "Slack dry-run verification failed." },
+            { target: "generic-webhook", status: "passed", detail: "Webhook dry-run verification passed." },
+            { target: "email", status: "blocked", detail: "Email target is missing configuration." }
+          ],
+          incidentTimeline: {
+            incidentId: incidents[0]?.id ?? "incident-1",
+            dayKeys: ["2026-05-02", "2026-05-03"],
+            events: [
+              { id: "timeline-incident-open", kind: "incident", timestamp: "2026-05-03T12:06:00.000Z", title: "Incident opened", detail: "Operational instability narrative", evidenceIds: ["incident-1"] },
+              { id: "timeline-note", kind: "note", timestamp: "2026-05-04T12:05:00.000Z", title: "Operator note saved", detail: "Initial operator note.", evidenceIds: ["note-1"] },
+              { id: "timeline-receipt", kind: "receipt", timestamp: "2026-05-04T12:12:01.000Z", title: "Slack delivery failed", detail: "Delivery target is not configured.", evidenceIds: ["receipt-1"] }
+            ]
+          },
+          guidedIncidentCommand: {
+            incidentId: incidents[0]?.id ?? "incident-1",
+            stages: [
+              { id: "detect", label: "Detect", status: "complete", detail: "Timeline evidence linked." },
+              { id: "explain", label: "Explain", status: "complete", detail: "Cause hypothesis captured." },
+              { id: "recommend", label: "Recommend", status: "complete", detail: "Runbook guidance ready." },
+              { id: "act", label: "Act", status: "blocked", detail: "Delivery target still missing config." },
+              { id: "record", label: "Record", status: "ready", detail: "Closeout note can be recorded once action completes." }
+            ]
+          },
           roleAwareSimulations: [
             { id: "stale-backend", role: "operator", title: "Stale backend fingerprint rehearsal", liveSideEffects: false, expectedValidationSteps: ["Detect fingerprint drift"] },
             { id: "missing-scopes", role: "operator", title: "Missing Gateway scopes rehearsal", liveSideEffects: false, expectedValidationSteps: ["Inspect scopes"] },
@@ -779,6 +814,10 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
           policyRecommendationPacks: [
             { id: "failed-summaries", label: "Failed summaries", recommendations: [{ recommendationId: "summary-refresh-before-handoff", whyThisRecommendation: "Derived from local evidence.", evidenceIds: ["2026-05-03-entry-1"], rulePackIds: ["default-incident-loop"] }] },
             { id: "delivery-dead-letters", label: "Delivery dead letters", recommendations: [{ recommendationId: "delivery-dead-letter-retry", whyThisRecommendation: "Failed delivery evidence exists.", evidenceIds: ["receipt-1"], rulePackIds: ["default-incident-loop"] }] }
+          ],
+          escalationPlaybooks: [
+            { id: "missing-scopes", title: "Missing scopes escalation", trigger: "Gateway scope negotiation failed.", steps: ["Copy missing scopes", "Escalate to Gateway owner", "Re-run verify:gateway"], severity: "warning" },
+            { id: "failed-dry-run", title: "Dry-run delivery escalation", trigger: "Dry-run receipt failed.", steps: ["Inspect dry-run receipt", "Fix target configuration", "Re-run delivery verification"], severity: "critical" }
           ]
         }
       }

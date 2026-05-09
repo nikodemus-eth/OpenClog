@@ -565,22 +565,29 @@ export function createApiApp(services: ApiServices): FastifyInstance {
     }
   });
 
-  app.post<{ Params: { id: string }; Body: { confirmSameIdempotencyKey?: boolean } }>("/api/integrations/receipts/:id/retry", async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { confirmSameIdempotencyKey?: boolean; useNewIdempotencyKey?: boolean } }>("/api/integrations/receipts/:id/retry", async (request, reply) => {
     try {
       const original = openclog.getDeliveryReceipt({ id: request.params.id });
-      if (original.status === "failed" && original.idempotencyKey && request.body?.confirmSameIdempotencyKey !== true) {
+      if (request.body?.useNewIdempotencyKey !== true && original.status === "failed" && original.idempotencyKey && request.body?.confirmSameIdempotencyKey !== true) {
         return reply.code(409).send({
           error: "retry_requires_same_idempotency_confirmation",
           message: "Retrying a failed delivery requires confirmation because OpenClog will reuse the same idempotency key.",
           receipt: original
         });
       }
-      return { ok: true, receipt: openclog.retryDeliveryReceipt({ id: request.params.id }) };
+      return { ok: true, receipt: openclog.retryDeliveryReceipt({ id: request.params.id, useNewIdempotencyKey: request.body?.useNewIdempotencyKey === true }) };
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("delivery_receipt_not_found:")) return reply.code(404).send({ error: "delivery_receipt_not_found" });
       throw error;
     }
   });
+
+  app.get<{ Querystring: { dayKey?: string; incidentId?: string } }>("/api/operations/report", async (request) => ({
+    report: openclog.getOperationsBacklog({
+      dayKey: request.query.dayKey ?? todayKey(),
+      incidentId: request.query.incidentId
+    })
+  }));
 
   app.get<{ Querystring: { dayKey?: string; incidentId?: string } }>("/api/operations/center", async (request) => ({
     report: openclog.getOperationsBacklog({

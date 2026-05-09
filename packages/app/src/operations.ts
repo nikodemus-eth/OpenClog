@@ -1,12 +1,16 @@
 import type {
   ChaosTestScenario,
   CorrelationGraph,
+  DeliveryTargetHealth,
   DeliveryLedger,
   DeliveryLedgerItem,
   EvidenceQualityScore,
+  EscalationPlaybook,
   GovernedSdkManifest,
+  GuidedIncidentCommand,
   IncidentEvidenceChecklist,
   IncidentEvidenceChecklistItem,
+  IncidentTimeline,
   IncidentSummary,
   InvestigationBundlePreview,
   JournalDay,
@@ -59,7 +63,7 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
   const deliveryLedger = buildDeliveryLedger(repo, {});
   const verificationCenter = buildVerificationCenter(repo, day, receipts, replay.steps.length, routeBudgets, generatedAt);
   const recommendationRationales = buildRecommendationRationales(day, receipts, incident);
-  const evidenceQualityScores = incident ? [buildEvidenceQualityScore(incident.id, checklist, day, receipts)] : [];
+  const evidenceQualityScores = buildEvidenceQualityScores(day, incident, checklist, receipts);
   return {
     dayKey: input.dayKey,
     ...(incidentId ? { incidentId } : {}),
@@ -69,17 +73,21 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
     investigationBundlePreview: buildInvestigationBundlePreview(day, incidentId, receipts, notes, handoffPackets),
     readinessHistory: buildReadinessHistory(repo),
     deliveryLedger,
+    deliveryTargetHealth: buildDeliveryTargetHealth(receipts),
+    incidentTimeline: buildIncidentTimeline(day, incident, notes, receipts, summaryJobs, repo.listVerificationReceipts?.() ?? []),
     routePerformanceBudgets: routeBudgets,
     chaosScenarios: chaosScenarios(),
     recommendationRationales,
     verificationCenter,
     governedSdkManifests: buildGovernedSdkManifests(repo),
     evidenceQualityScores,
+    guidedIncidentCommand: buildGuidedIncidentCommand(incident, checklist, day, receipts),
     roleAwareSimulations: roleAwareSimulations(),
     causalityGraph,
     operationsLedger: { entries: buildOperationsLedger(summaryJobs, receipts, repo.listIncidentActionRecords?.({ ...(incidentId ? { incidentId } : {}) }) ?? [], repo.listVerificationReceipts?.() ?? []) },
     nativeTruthMonitor: buildNativeTruthMonitor(repo, verificationCenter),
-    policyRecommendationPacks: buildPolicyRecommendationPacks(recommendationRationales)
+    policyRecommendationPacks: buildPolicyRecommendationPacks(recommendationRationales),
+    escalationPlaybooks: buildEscalationPlaybooks(day, verificationCenter, receipts)
   };
 }
 
@@ -184,6 +192,12 @@ function buildDeliveryLedger(repo: ApplicationRepository, input: DeliveryLedgerI
     })
     .map((receipt): DeliveryLedgerItem => ({
       ...receipt,
+      retryPolicy: receipt.retryPolicy ?? {
+        sameKeyRetryRequiresConfirmation: receipt.status === "failed" && Boolean(receipt.idempotencyKey),
+        nextAttemptUsesNewIdempotencyKey: true,
+        schedule: ["immediate", "5m", "15m"],
+        terminalAttemptRule: "Stop after the last bounded local retry and keep the failure visible."
+      },
       sameKeyRetryRequiresConfirmation: receipt.status === "failed" && Boolean(receipt.idempotencyKey)
     }));
   return { items };
@@ -213,8 +227,10 @@ function buildVerificationCenter(
   generatedAt: string
 ): VerificationCenterReport {
   const verificationReceipts = repo.listVerificationReceipts?.() ?? [];
+  const latestVerify = latestReceipt(verificationReceipts.filter((receipt) => /(^verify$)|npm run verify/.test(receipt.command)));
   const latestGateway = latestReceipt(verificationReceipts.filter((receipt) => /verify:gateway|npm run verify:gateway/.test(receipt.command)));
   const latestDesktop = latestReceipt(verificationReceipts.filter((receipt) => /verify:desktop-native|npm run verify:desktop-native/.test(receipt.command)));
+  const latestDocs = latestReceipt(verificationReceipts.filter((receipt) => /docs:check|npm run docs:check/.test(receipt.command)));
   const gates: VerificationCenterGate[] = [
     {
       id: "summary_freshness",
@@ -238,7 +254,11 @@ function buildVerificationCenter(
   return {
     generatedAt,
     gates,
-    ...(latestGateway?.status === "passed" && latestGateway.completedAt ? { lastSuccessfulGatewayVerifyAt: latestGateway.completedAt } : {})
+    ...(latestVerify?.status === "passed" && latestVerify.completedAt ? { lastSuccessfulVerifyAt: latestVerify.completedAt } : {}),
+    ...(latestGateway?.status === "passed" && latestGateway.completedAt ? { lastSuccessfulGatewayVerifyAt: latestGateway.completedAt } : {}),
+    ...(latestDesktop?.status === "passed" && latestDesktop.completedAt ? { lastSuccessfulDesktopVerifyAt: latestDesktop.completedAt } : {}),
+    ...(latestDocs?.status === "passed" && latestDocs.completedAt ? { lastSuccessfulDocsCheckAt: latestDocs.completedAt } : {}),
+    ...(latestDocs && "commitSha" in latestDocs && latestDocs.commitSha ? { docsCheckedCommitSha: latestDocs.commitSha } : {})
   };
 }
 
@@ -275,12 +295,89 @@ function buildEvidenceQualityScore(
   };
 }
 
+function buildEvidenceQualityScores(
+  day: JournalDay,
+  incident: IncidentSummary | undefined,
+  checklist: IncidentEvidenceChecklist,
+  receipts: Array<{ status: string; incidentId?: string }>
+): EvidenceQualityScore[] {
+  const scores: EvidenceQualityScore[] = [];
+  if (incident) scores.push(buildEvidenceQualityScore(incident.id, checklist, day, receipts));
+  const completeness = day.evidenceCompleteness ? Math.round((day.evidenceCompleteness.present / Math.max(day.evidenceCompleteness.total, 1)) * 100) : checklist.ready ? 100 : 67;
+  const freshness = generatedSummaryFresh(day) ? 100 : 70;
+  const provenance = receipts.length > 0 ? 85 : 50;
+  const actionOutcomeCoverage = receipts.some((receipt) => receipt.status === "failed") ? 60 : receipts.length > 0 ? 90 : 45;
+  const score = Math.round((freshness + completeness + provenance + actionOutcomeCoverage) / 4);
+  scores.push({
+    dayKey: day.dayKey,
+    score,
+    grade: score >= 90 ? "excellent" : score >= 70 ? "good" : score >= 45 ? "needs-work" : "blocked",
+    freshness,
+    completeness,
+    provenance,
+    actionOutcomeCoverage
+  });
+  return scores;
+}
+
 function roleAwareSimulations(): RoleAwareIncidentSimulation[] {
   return [
     { id: "stale-backend", role: "operator", title: "Stale backend fingerprint rehearsal", liveSideEffects: false, expectedValidationSteps: ["Detect fingerprint drift", "Reload diagnostics", "Record recovery action"] },
     { id: "missing-scopes", role: "operator", title: "Missing Gateway scopes rehearsal", liveSideEffects: false, expectedValidationSteps: ["Inspect missing scopes", "Block outbound actions", "Record remediation note"] },
     { id: "delivery-dead-letter", role: "incident-commander", title: "Delivery dead-letter rehearsal", liveSideEffects: false, expectedValidationSteps: ["Open failed receipt", "Confirm same idempotency key retry", "Verify ledger entry"] }
   ];
+}
+
+function buildDeliveryTargetHealth(receipts: Array<{ id: string; target: DeliveryLedgerItem["target"]; status: string; dryRun?: boolean }>): DeliveryTargetHealth[] {
+  const targets: DeliveryTargetHealth["target"][] = ["slack", "generic-webhook", "email", "github-issue"];
+  return targets.map((target) => {
+    const scoped = receipts.filter((receipt) => receipt.target === target);
+    const failedDryRun = scoped.find((receipt) => receipt.dryRun && receipt.status === "failed");
+    const latest = scoped[0];
+    return {
+      target,
+      status: failedDryRun ? "blocked" : scoped.some((receipt) => receipt.dryRun) ? "ok" : "warning",
+      detail: failedDryRun ? "Latest dry-run verification failed closed." : scoped.some((receipt) => receipt.dryRun) ? "Dry-run verification receipt is available." : "Dry-run verification receipt has not been recorded yet.",
+      dryRunStatus: failedDryRun ? "failed" : scoped.some((receipt) => receipt.dryRun) ? "passed" : "missing",
+      ...(latest ? { latestReceiptId: latest.id } : {})
+    };
+  });
+}
+
+function buildIncidentTimeline(
+  day: JournalDay,
+  incident: IncidentSummary | undefined,
+  notes: Array<{ id: string; createdAt: string }>,
+  receipts: Array<{ id: string; requestedAt: string; dayKey: string }>,
+  summaryJobs: Array<{ id: string; createdAt: string; dayKey: string }>,
+  verificationReceipts: Array<{ id: string; startedAt: string; completedAt?: string }>
+): IncidentTimeline {
+  const range = incident?.dayKeys?.length ? incident.dayKeys : [day.dayKey];
+  const events = [
+    ...(incident ? [{ id: incident.id, dayKey: incident.dayKeys[0] ?? day.dayKey, timestamp: incident.createdAt, kind: "incident" as const, label: incident.title, relatedId: incident.id }] : []),
+    ...notes.map((note) => ({ id: note.id, dayKey: day.dayKey, timestamp: note.createdAt, kind: "note" as const, label: `Note ${note.id}`, relatedId: note.id })),
+    ...receipts.map((receipt) => ({ id: receipt.id, dayKey: receipt.dayKey, timestamp: receipt.requestedAt, kind: "delivery_receipt" as const, label: `Receipt ${receipt.id}`, relatedId: receipt.id })),
+    ...summaryJobs.map((job) => ({ id: job.id, dayKey: job.dayKey, timestamp: job.createdAt, kind: "summary_job" as const, label: `Summary job ${job.id}`, relatedId: job.id })),
+    ...verificationReceipts.map((receipt) => ({ id: receipt.id, dayKey: day.dayKey, timestamp: receipt.completedAt ?? receipt.startedAt, kind: "verification_receipt" as const, label: `Verification ${receipt.id}`, relatedId: receipt.id }))
+  ].sort((left, right) => left.timestamp.localeCompare(right.timestamp));
+  return { startDayKey: range[0] ?? day.dayKey, endDayKey: range[range.length - 1] ?? day.dayKey, events };
+}
+
+function buildGuidedIncidentCommand(
+  incident: IncidentSummary | undefined,
+  checklist: IncidentEvidenceChecklist,
+  day: JournalDay,
+  receipts: Array<{ status: string; dryRun?: boolean }>
+): GuidedIncidentCommand {
+  return {
+    stages: [
+      { id: "detect", title: "Detect", complete: Boolean(incident), blocked: false, detail: incident ? "Incident snapshot is available." : "Capture incident evidence first." },
+      { id: "explain", title: "Explain", complete: checklist.items.some((item) => item.id === "timeline" && item.present), blocked: false, detail: "Timeline evidence is available for operator review." },
+      { id: "recommend", title: "Recommend", complete: !generatedSummaryFresh(day) || receipts.length > 0, blocked: false, detail: "Recommendations can be derived from summary freshness and delivery evidence." },
+      { id: "act", title: "Act", complete: receipts.some((receipt) => receipt.status === "delivered"), blocked: receipts.some((receipt) => receipt.dryRun && receipt.status === "failed"), detail: receipts.some((receipt) => receipt.dryRun && receipt.status === "failed") ? "A failed dry-run is blocking risky actions." : "Actions can proceed through bounded delivery and incident controls." },
+      { id: "record", title: "Record", complete: checklist.items.some((item) => item.id === "notes" && item.present), blocked: false, detail: "Operator notes or closeout records are required for a complete handoff." }
+    ]
+  };
 }
 
 function buildOperationsLedger(
@@ -327,6 +424,27 @@ function buildPolicyRecommendationPacks(recommendations: RecommendationRationale
       ? pack.recommendations
       : [{ recommendationId: `${pack.id}:default`, whyThisRecommendation: `Derived from local evidence and ${pack.label.toLocaleLowerCase()} policy inputs.`, evidenceIds: [], rulePackIds: ["default-incident-loop"] }]
   }));
+}
+
+function buildEscalationPlaybooks(
+  day: JournalDay,
+  verificationCenter: VerificationCenterReport,
+  receipts: Array<{ status: string; dryRun?: boolean }>
+): EscalationPlaybook[] {
+  const playbooks: EscalationPlaybook[] = [];
+  if (verificationCenter.gates.some((gate) => gate.id === "gateway_readiness" && gate.status !== "passed")) {
+    playbooks.push({ id: "missing-scopes", title: "Resolve missing Gateway scopes", steps: ["Copy the missing scopes list.", "Share it with the Gateway owner.", "Keep outbound actions blocked until scopes are granted."] });
+  }
+  if (!generatedSummaryFresh(day)) {
+    playbooks.push({ id: "stale-summary", title: "Refresh stale summary before handoff", steps: ["Review the stale interval.", "Refresh the summary.", "Re-check the handoff packet before escalation."] });
+  }
+  if (receipts.some((receipt) => receipt.dryRun && receipt.status === "failed")) {
+    playbooks.push({ id: "failed-dry-run", title: "Resolve failed dry-run before live delivery", steps: ["Open the failed delivery target.", "Verify config and retry policy.", "Run a fresh dry-run before sending live output."] });
+  }
+  if (verificationCenter.gates.some((gate) => gate.status === "blocked")) {
+    playbooks.push({ id: "readiness-blocked", title: "Clear readiness blockers", steps: ["Review blocked verification gates.", "Resolve the first blocking issue.", "Rerun the affected verification path and record the new receipt."] });
+  }
+  return playbooks;
 }
 
 function buildRecommendationRationales(

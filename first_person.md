@@ -96,3 +96,8 @@ Record first-person implementation notes from the builder/operator perspective.
 - I wrote the failing helper, red-team, and browser tests first, then wired the existing routes into the UI with preview-gated retention apply, rollback, acknowledge, snooze, replay details, and correlation details.
 - I kept the mutation path conservative: after apply, rollback, acknowledge, or snooze, the UI refetches from the backend; when a request fails, it says so and leaves the previous state alone.
 - I kept replay and correlation local and inspectable by showing concrete evidence rows and entry jump controls instead of pretending counts were enough for incident review.
+
+## 2026-05-09 Operations Report Follow-Through
+- I kept the follow-through practical: finish the already-started report and verification surfaces, wire the new-key retry path end to end, and prove the operator shell can render the richer report without moving policy into the route handlers.
+- I treated the first typecheck failure as a useful seam check, fixed the delivery-contract drift in the shared app layer, and reran the browser lane only after the shared types were honest again.
+- I kept the browser assertions focused on what an operator can actually see and act on: verification timestamps, docs-check continuity, delivery-target health, guided command state, escalation playbooks, and the explicit new-key retry control.

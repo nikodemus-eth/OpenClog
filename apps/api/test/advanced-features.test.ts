@@ -687,6 +687,11 @@ describe("advanced OpenClog features", () => {
       url: `/api/integrations/receipts/${failedDelivery.json().receipt.id}/retry`,
       payload: { confirmSameIdempotencyKey: true }
     });
+    const retryWithNewKey = await app.inject({
+      method: "POST",
+      url: `/api/integrations/receipts/${failedDelivery.json().receipt.id}/retry`,
+      payload: { useNewIdempotencyKey: true }
+    });
     const closeoutBlocked = await app.inject({
       method: "POST",
       url: "/api/closeout/complete",
@@ -700,6 +705,7 @@ describe("advanced OpenClog features", () => {
     });
     const fetchedWorkspace = await app.inject({ method: "GET", url: `/api/investigations/workspaces/${workspace.json().workspace.id}` });
     const operationsCenter = await app.inject({ method: "GET", url: "/api/operations/center?dayKey=2026-05-04&incidentId=incident-1" });
+    const operationsReport = await app.inject({ method: "GET", url: "/api/operations/report?dayKey=2026-05-04&incidentId=incident-1" });
     const deliveryLedger = await app.inject({ method: "GET", url: "/api/operations/delivery-ledger?status=failed&q=slack" });
     const simulations = await app.inject({ method: "GET", url: "/api/operations/simulations" });
 
@@ -740,6 +746,14 @@ describe("advanced OpenClog features", () => {
       }
     });
     expect(retry.json().receipt.id).not.toBe(failedDelivery.json().receipt.id);
+    expect(retryWithNewKey.json()).toMatchObject({
+      ok: true,
+      receipt: {
+        retryOfReceiptId: failedDelivery.json().receipt.id,
+        attemptNumber: 2,
+        idempotencyKey: expect.not.stringMatching(new RegExp(`^${failedDelivery.json().receipt.idempotencyKey}$`))
+      }
+    });
     expect(closeoutBlocked.statusCode).toBe(409);
     expect(closeoutBlocked.json()).toMatchObject({ error: "closeout_blocked", plan: { dayKey: "2026-05-04" } });
     expect(verificationReceipts.json()).toMatchObject({
@@ -759,6 +773,13 @@ describe("advanced OpenClog features", () => {
           checks: expect.arrayContaining([expect.objectContaining({ id: "api_health" })])
         }
       }
+    });
+    expect(operationsReport.json()).toMatchObject({
+      report: expect.objectContaining({
+        verificationCenter: expect.objectContaining({
+          gates: expect.arrayContaining([expect.objectContaining({ id: "summary_freshness" })])
+        })
+      })
     });
     expect(deliveryLedger.json()).toMatchObject({
       ledger: {

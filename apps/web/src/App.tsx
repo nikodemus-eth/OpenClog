@@ -122,12 +122,14 @@ import {
   buildGatewayScopeButtonLabel,
   buildReconnectTrendText,
   buildRetryReceiptConfirmation,
+  buildRetryWithNewKeyReceiptConfirmation,
   describeActiveOperatorView,
   describeComposerConnectivity,
   dedupeLiveActionNotice,
   describeAlertFindingState,
   describeOperatorViewSource,
   describeSummaryJobState,
+  describeStaleSummaryInterval,
   describeStaleSummaryWarning,
   diagnosticsCollapsedStorageKey,
   mergeDiagnosticsCollapsedState,
@@ -221,6 +223,7 @@ export function App() {
   const [sessionScrollTop, setSessionScrollTop] = useState(0);
   const [sessionDetail, setSessionDetail] = useState<Awaited<ReturnType<typeof fetchSessionDrilldown>> | null>(null);
   const [summaryJob, setSummaryJob] = useState<Awaited<ReturnType<typeof createSummaryJob>> | null>(null);
+  const [summaryJobPollLatencyMs, setSummaryJobPollLatencyMs] = useState<number | null>(null);
   const [integrityReport, setIntegrityReport] = useState<Awaited<ReturnType<typeof runIntegrityCheck>> | null>(null);
   const [retentionPreviewState, setRetentionPreviewState] = useState<Awaited<ReturnType<typeof previewRetention>> | null>(null);
   const [incidents, setIncidents] = useState<IncidentSummary[]>([]);
@@ -325,6 +328,7 @@ export function App() {
   const generatedSummaryStale = useMemo(() => isGeneratedSummaryStale(day.generatedSummary, day.entries), [day.entries, day.generatedSummary]);
   const generatedSummaryStateText = useMemo(() => describeSummaryJobState(summaryJob, day.generatedSummary), [day.generatedSummary, summaryJob]);
   const generatedSummaryWarning = useMemo(() => describeStaleSummaryWarning(generatedSummaryFreshness), [generatedSummaryFreshness]);
+  const generatedSummaryInterval = useMemo(() => describeStaleSummaryInterval(generatedSummaryFreshness), [generatedSummaryFreshness]);
   const summaryJobDurations = useMemo(() => (summaryJob ? formatSummaryJobDurations(summaryJob) : null), [summaryJob]);
   const summaryRefreshActive = useMemo(() => isSummaryJobActive(summaryJob), [summaryJob]);
   const lastSuccessfulSummaryJobCompletionAt = useMemo(
@@ -420,7 +424,8 @@ export function App() {
 
   useEffect(() => {
     try {
-      const stored = window.localStorage.getItem(diagnosticsCollapsedStorageKey(activeOperatorView?.id));
+      const deviceClass = window.innerWidth < 768 ? "mobile" : "desktop";
+      const stored = window.localStorage.getItem(diagnosticsCollapsedStorageKey(activeOperatorView?.id, deviceClass, activeOperatorView?.builtIn === true));
       const defaults = getInitialDiagnosticsCollapsedState(0);
       if (!stored) {
         setDiagnosticsCollapsed(defaults);
@@ -434,11 +439,12 @@ export function App() {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(diagnosticsCollapsedStorageKey(activeOperatorView?.id), JSON.stringify(diagnosticsCollapsed));
+      const deviceClass = window.innerWidth < 768 ? "mobile" : "desktop";
+      window.localStorage.setItem(diagnosticsCollapsedStorageKey(activeOperatorView?.id, deviceClass, activeOperatorView?.builtIn === true), JSON.stringify(diagnosticsCollapsed));
     } catch {
       // Ignore local preference persistence failures.
     }
-  }, [activeOperatorView?.id, diagnosticsCollapsed]);
+  }, [activeOperatorView?.builtIn, activeOperatorView?.id, diagnosticsCollapsed]);
 
   useEffect(() => {
     try {
@@ -705,6 +711,9 @@ export function App() {
         const settled = await pollSummaryJobUntilSettled(job, {
           onUpdate: (nextJob) => {
             if (active) setSummaryJob(nextJob);
+          },
+          onPollLatency: (latencyMs) => {
+            if (active) setSummaryJobPollLatencyMs(latencyMs);
           }
         });
         if (!active) return;
@@ -996,8 +1005,9 @@ export function App() {
     try {
       const job = await createSummaryJob(day.dayKey);
       setSummaryJob(job);
+      setSummaryJobPollLatencyMs(null);
       setNotice("Summary job queued for local evidence review.");
-      const settled = await pollSummaryJobUntilSettled(job, { onUpdate: setSummaryJob });
+      const settled = await pollSummaryJobUntilSettled(job, { onUpdate: setSummaryJob, onPollLatency: setSummaryJobPollLatencyMs });
       applySummaryJobResult(settled);
       if (settled.status === "completed" && settled.generatedSummary) {
         setNotice(`Generated summary refreshed by job ${settled.id}.`);
@@ -1393,16 +1403,16 @@ export function App() {
     }
   }
 
-  async function handleRetryReceipt(id: string): Promise<void> {
-    const original = deliveryReceipts.find((receipt) => receipt.id === id);
-    if (original?.status === "failed" && pendingRetryReceiptId !== id) {
-      setPendingRetryReceiptId(id);
-      setReceiptRetryStatus(buildRetryReceiptConfirmation(original));
+async function handleRetryReceipt(id: string): Promise<void> {
+  const original = deliveryReceipts.find((receipt) => receipt.id === id);
+  if (original?.status === "failed" && pendingRetryReceiptId !== id) {
+    setPendingRetryReceiptId(id);
+    setReceiptRetryStatus(buildRetryReceiptConfirmation(original));
       setNotice(`Confirm retry for ${id} before resending with the same idempotency key.`);
       return;
-    }
-    try {
-      const receipt = await retryDeliveryReceipt(id, true);
+  }
+  try {
+      const receipt = await retryDeliveryReceipt(id, { confirmSameIdempotencyKey: true });
       if (!receipt?.id) throw new Error("Delivery receipt retry returned no receipt");
       setDeliveryReceipts((current) => [receipt, ...current.filter((item) => item.id !== receipt.id)]);
       setPendingRetryReceiptId(null);
@@ -1412,6 +1422,21 @@ export function App() {
       setPendingRetryReceiptId(null);
       setReceiptRetryStatus(`${id} retry failed.`);
       setNotice(`${id} retry failed.`);
+    }
+  }
+
+  async function handleRetryReceiptNewKey(id: string): Promise<void> {
+    try {
+      const receipt = await retryDeliveryReceipt(id, { useNewIdempotencyKey: true });
+      if (!receipt?.id) throw new Error("Delivery receipt retry returned no receipt");
+      setDeliveryReceipts((current) => [receipt, ...current.filter((item) => item.id !== receipt.id)]);
+      setPendingRetryReceiptId(null);
+      setReceiptRetryStatus(buildRetryWithNewKeyReceiptConfirmation(receipt));
+      setNotice(`${id} retried with a new idempotency key.`);
+    } catch {
+      setPendingRetryReceiptId(null);
+      setReceiptRetryStatus(`${id} retry with a new idempotency key failed.`);
+      setNotice(`${id} retry with a new idempotency key failed.`);
     }
   }
 
@@ -1534,10 +1559,11 @@ export function App() {
             generatedSummary={day.generatedSummary?.summary}
             generatedSummaryCreatedAt={day.generatedSummary?.createdAt}
             generatedSummaryLastEntryIncludedAt={generatedSummaryFreshness.lastEntryIncludedAt}
-	            generatedSummaryLatestEntryObservedAt={generatedSummaryFreshness.latestEntryObservedAt}
+            generatedSummaryLatestEntryObservedAt={generatedSummaryFreshness.latestEntryObservedAt}
 	            generatedSummaryStateText={generatedSummaryStateText}
 	            generatedSummaryStale={generatedSummaryStale}
             generatedSummaryWarning={generatedSummaryWarning}
+            generatedSummaryInterval={generatedSummaryInterval}
             summaryJobDurations={summaryJobDurations}
 	            summaryRefreshActive={summaryRefreshActive}
 	            helpPopoverRef={helpPopoverRef}
@@ -1615,7 +1641,7 @@ export function App() {
         theme={resolvedTheme}
         onExport={handleExport}
       />
-      <GatewayReadinessBanner gateway={gateway} theme={resolvedTheme} />
+      <GatewayReadinessBanner gateway={gateway} theme={resolvedTheme} onCopyMissingScopes={() => void copyTextWithNotice((gateway.scopeNegotiation?.missing ?? gateway.missingScopes).join(", "), "Missing scopes copied.")} />
       {backendMismatchDetail ? <BackendMismatchBanner detail={backendMismatchDetail} onRecover={() => void handleBackendRecoveryReload()} /> : null}
       <Composer
         composer={composer}
@@ -1708,6 +1734,7 @@ export function App() {
         selectedSessionKey={selectedSessionKey}
         sessionTab={sessionTab}
         sessionLatencyMs={sessionLatencyMs}
+        summaryJobPollLatencyMs={summaryJobPollLatencyMs}
         sessionDetail={sessionDetail}
         sloSnapshot={sloSnapshot}
         summaryJob={summaryJob}
@@ -1758,6 +1785,7 @@ export function App() {
         onPreviewRetention={() => void handleRetentionPreview()}
         onRollbackRetention={() => void handleRollbackRetention()}
         onRetryReceipt={(id) => void handleRetryReceipt(id)}
+        onRetryReceiptNewKey={(id) => void handleRetryReceiptNewKey(id)}
         onRunIntegrityCheck={() => void handleRunIntegrityCheck()}
         onRunIntegrityMonitor={() => void handleRunIntegrityMonitor()}
         onRegisterPlugin={() => void handleRegisterPlugin()}
@@ -1896,6 +1924,7 @@ function PinnedContextPanel(props: {
   collapsed: boolean;
   generatedSummary?: string;
   generatedSummaryCreatedAt?: string;
+  generatedSummaryInterval?: string | null;
   generatedSummaryLastEntryIncludedAt?: string;
   generatedSummaryLatestEntryObservedAt?: string;
   generatedSummaryStateText: string;
@@ -1972,15 +2001,16 @@ function PinnedContextPanel(props: {
             {props.generatedSummaryCreatedAt ? <p className="generated-summary">Summary generated at {props.generatedSummaryCreatedAt}.</p> : null}
             {props.generatedSummaryLastEntryIncludedAt ? <p className="generated-summary">Last entry included: {props.generatedSummaryLastEntryIncludedAt}.</p> : null}
             {props.generatedSummaryLatestEntryObservedAt ? <p className="generated-summary">Latest entry observed: {props.generatedSummaryLatestEntryObservedAt}.</p> : null}
+            {props.generatedSummaryInterval ? <p className="generated-summary">Stale because: {props.generatedSummaryInterval}.</p> : null}
             {props.generatedSummaryWarning ? <p className="validation-message">{props.generatedSummaryWarning}</p> : null}
             {props.generatedSummaryStale ? (
               <div className="validation-message">
                 <p>Generated summary is stale. Regenerate after reviewing the latest entries.</p>
-	                {!props.offline ? (
-	                  <button type="button" disabled={props.summaryRefreshActive} onClick={props.onRefreshSummary}>
-	                    {props.summaryRefreshActive ? "Summary refresh in progress" : "Refresh summary now"}
-	                  </button>
-	                ) : null}
+                {!props.offline ? (
+                  <button type="button" disabled={props.summaryRefreshActive} onClick={props.onRefreshSummary}>
+                    {props.summaryRefreshActive ? "Summary refresh in progress" : "Refresh summary now"}
+                  </button>
+                ) : null}
               </div>
             ) : null}
             {!props.offline ? (
@@ -2090,9 +2120,12 @@ function SearchPanel(props: {
       {props.operatorViews.length > 0 ? (
         <div className="search-presets" aria-label="Saved operator views">
           {props.operatorViews.map((view) => (
-            <button key={view.id} type="button" onClick={() => props.onApplyOperatorView(view)}>
-              {view.label}
-            </button>
+            <span key={view.id} className="search-preset-chip">
+              <button type="button" onClick={() => props.onApplyOperatorView(view)}>
+                {view.label}
+              </button>
+              <small>{view.builtIn ? "Built-in" : "User"}</small>
+            </span>
           ))}
         </div>
       ) : null}
@@ -2192,6 +2225,7 @@ function OperationalPanels(props: {
   selectedSessionKey: string;
   sessionTab: "timeline" | "actions" | "deliveries";
   sessionLatencyMs: number | null;
+  summaryJobPollLatencyMs: number | null;
   sessionDetail: Awaited<ReturnType<typeof fetchSessionDrilldown>> | null;
   sloSnapshot: Awaited<ReturnType<typeof fetchSlo>> | null;
   summaryJob: Awaited<ReturnType<typeof createSummaryJob>> | null;
@@ -2226,6 +2260,7 @@ function OperationalPanels(props: {
   onPreviewRetention: () => void;
   onRollbackRetention: () => void;
   onRetryReceipt: (id: string) => void;
+  onRetryReceiptNewKey: (id: string) => void;
   onRunIntegrityCheck: () => void;
   onRunIntegrityMonitor: () => void;
   onRegisterPlugin: () => void;
@@ -2310,7 +2345,13 @@ function OperationalPanels(props: {
         </div>
         {operationsReport ? (
           <>
+            <p>Last successful verify {operationsReport.verificationCenter.lastSuccessfulVerifyAt ?? "unavailable"}.</p>
             <p>Last successful verify:gateway {operationsReport.verificationCenter.lastSuccessfulGatewayVerifyAt ?? "unavailable"}.</p>
+            <p>Last successful verify:desktop-native {operationsReport.verificationCenter.lastSuccessfulDesktopVerifyAt ?? "unavailable"}.</p>
+            <p>Last successful docs:check {operationsReport.verificationCenter.lastSuccessfulDocsCheckAt ?? "unavailable"}.</p>
+            {operationsReport.verificationCenter.docsCheckedCommitSha ? (
+              <p>Docs-checked commit {operationsReport.verificationCenter.docsCheckedCommitSha}.</p>
+            ) : null}
             <ul>
               {operationsReport.verificationCenter.gates.map((gate) => (
                 <li key={gate.id}>
@@ -2366,6 +2407,7 @@ function OperationalPanels(props: {
                 Summary timing: queued for {activeSummaryJobDurations.queuedFor}, running for {activeSummaryJobDurations.runningFor}, total {activeSummaryJobDurations.total}.
               </p>
             ) : null}
+            {props.summaryJobPollLatencyMs !== null ? <p>Last summary-job poll latency: {props.summaryJobPollLatencyMs} ms.</p> : null}
             {props.summaryJob.correlationId ? <CorrelationBadge correlationId={props.summaryJob.correlationId} onCopy={props.onCopyReceiptId} /> : null}
             {props.summaryJob.completedAt ? <p>Summary job completed at {props.summaryJob.completedAt}.</p> : null}
             {props.summaryJob.error ? <p className="validation-message">Summary job failed closed: {props.summaryJob.error}</p> : null}
@@ -2418,6 +2460,10 @@ function OperationalPanels(props: {
             </ul>
             <p>Investigation bundle preview: {operationsReport.investigationBundlePreview.items.length} redacted item(s) ready.</p>
             <p>Readiness history sparkline: {operationsReport.readinessHistory.points.length} point(s) over 24 hours.</p>
+            <p>
+              Delivery target health:{" "}
+              {operationsReport.deliveryTargetHealth.map((item) => `${item.target} ${item.status} (${item.detail})`).join(", ") || "unavailable"}.
+            </p>
             <p>Delivery ledger: {operationsReport.deliveryLedger.items.length} searchable receipt(s).</p>
             <ul>
               {operationsReport.deliveryLedger.items.slice(0, 3).map((receipt) => (
@@ -2429,11 +2475,30 @@ function OperationalPanels(props: {
             </ul>
             <p>Route budgets: {operationsReport.routePerformanceBudgets.map((budget) => `${budget.route} ${budget.status}`).join(", ")}.</p>
             <p>Chaos tests: {operationsReport.chaosScenarios.map((scenario) => scenario.id).join(", ")}.</p>
-            <p>Evidence quality: {operationsReport.evidenceQualityScores.map((score) => `${score.incidentId} ${score.grade} ${score.score}`).join(", ") || "unscored"}.</p>
+            <p>
+              Incident timeline: {operationsReport.incidentTimeline.events.length} event(s) from {operationsReport.incidentTimeline.startDayKey} to{" "}
+              {operationsReport.incidentTimeline.endDayKey}.
+            </p>
+            <p>
+              Guided incident command:{" "}
+              {operationsReport.guidedIncidentCommand.stages
+                .map((stage) => `${stage.title} ${stage.complete ? "complete" : stage.blocked ? "blocked" : "open"}`)
+                .join(", ")}.
+            </p>
+            <p>
+              Evidence quality:{" "}
+              {operationsReport.evidenceQualityScores
+                .map((score) => `${score.incidentId ?? score.dayKey ?? "unscoped"} ${score.grade} ${score.score}`)
+                .join(", ") || "unscored"}.
+            </p>
             <p>Operations ledger: {operationsReport.operationsLedger.entries.length} append-only event(s).</p>
             <p>Policy packs: {operationsReport.policyRecommendationPacks.map((pack) => pack.label).join(", ")}.</p>
             <p>Role-aware simulations: {operationsReport.roleAwareSimulations.map((simulation) => `${simulation.title} (${simulation.liveSideEffects ? "live" : "no live side effects"})`).join(", ")}.</p>
             <p>Governed SDK manifests: {operationsReport.governedSdkManifests.map((manifest) => `${manifest.id} ${manifest.permissions.join("/")}`).join(", ")}.</p>
+            <p>
+              Escalation playbooks:{" "}
+              {operationsReport.escalationPlaybooks.map((playbook) => `${playbook.title} (${playbook.steps.length} steps)`).join(", ") || "none"}.
+            </p>
           </>
         ) : (
           <p>Operations backlog surfaces are waiting for local evidence.</p>
@@ -2777,6 +2842,14 @@ function OperationalPanels(props: {
                 <div className="search-presets">
                   <button aria-label={`Retry receipt ${receipt.id}`} type="button" disabled={receipt.status !== "failed"} onClick={() => props.onRetryReceipt(receipt.id)}>
                     {props.pendingRetryReceiptId === receipt.id ? "Confirm retry" : "Retry"}
+                  </button>
+                  <button
+                    aria-label={`Retry receipt ${receipt.id} with new key`}
+                    type="button"
+                    disabled={receipt.status !== "failed"}
+                    onClick={() => props.onRetryReceiptNewKey(receipt.id)}
+                  >
+                    Retry with new key
                   </button>
                   <button aria-label={`Copy receipt id ${receipt.id}`} type="button" onClick={() => props.onCopyReceiptId(receipt.id)}>
                     Copy receipt id

@@ -36,8 +36,8 @@ export function buildDeliveryModule(repo: ApplicationRepository) {
       if (!receipt) throw new Error(`delivery_receipt_not_found:${id}`);
       return receipt;
     },
-    retryDeliveryReceipt({ id }: { id: string }): DeliveryReceipt {
-      return requireMethod(repo.retryDeliveryReceipt, "retryDeliveryReceipt")(id);
+    retryDeliveryReceipt({ id, useNewIdempotencyKey }: { id: string; useNewIdempotencyKey?: boolean }): DeliveryReceipt {
+      return requireMethod(repo.retryDeliveryReceipt, "retryDeliveryReceipt")(id, { useNewIdempotencyKey });
     },
     verifyIntegrationTarget({ target, dayKey }: { target: DeliveryAdapterTarget; dayKey: string }): DeliveryReceipt {
       assertCapabilityReady(repo, deliveryCapabilityId(target));
