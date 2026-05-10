@@ -13,6 +13,7 @@ for (const theme of themes) {
     await installApiFixtures(page, { settingsTheme: theme });
     await page.goto("/");
     await expect(page.getByRole("main")).toHaveAttribute("data-theme", theme);
+    await expect(page.getByText("Verification receipts: 2 published.")).toBeVisible();
     await expect(page).toHaveScreenshot(`${theme}-${viewportName}.png`, {
       fullPage: true,
       maxDiffPixels: 2500

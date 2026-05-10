@@ -258,3 +258,23 @@ Record deterministic verification, live Gateway verification, coverage policy, a
   - `npm run test -- apps/web/test/operator-workspace.test.ts packages/app/test/application.test.ts apps/api/test/advanced-features.test.ts`
   - `npm run typecheck`
   - `npx playwright test tests/e2e/advanced-features.spec.ts --project=chromium`
+
+## 2026-05-10 Verification Receipt Publishing
+- Added failing-first repository/API coverage for explicit `saveVerificationReceipt` persistence and Verification Center docs-check evidence from stored receipts.
+- Added runner coverage for passing, failing, signaled, failed-start, non-git, and empty-git command paths, proving command status is persisted and failure evidence remains visible.
+- The receipt runner now wraps `npm run verify`, `npm run verify:gateway`, `npm run verify:desktop-native`, `npm run test:visual`, and `npm run docs:check`; the raw command variants remain available for internal script composition.
+- Focused verification passed on the final implementation tree:
+  - `npm run test -- packages/app/test/application.test.ts apps/api/test/repository.test.ts apps/api/test/advanced-features.test.ts apps/web/test/operator-workspace.test.ts apps/web/test/api-summary-jobs.test.ts tests/redteam/redteam.test.ts` with 6 files / 62 tests.
+  - `npm run typecheck`
+  - `npm run lint`
+  - `npx playwright test tests/e2e/interaction-refinements.spec.ts` with 56 tests.
+  - `npm run test:visual` with 54 snapshots after adding a fixture-readiness wait for verification receipts.
+- Full closeout verification passed:
+  - `npm run test:coverage` with 20 files / 166 tests and 100 percent statements, branches, functions, and lines.
+  - `npm run test:e2e` with 208 Playwright tests.
+  - `npm run test:redteam` with 7 tests.
+  - `npm run verify:desktop-native` with 2 native cargo tests.
+  - `npm run verify:gateway` with `status: ready`, no missing scopes, and mutation testing disabled.
+  - `npm run docs:check`
+  - `npm run verify`
+- Receipt publication proof passed against the local SQLite database: `/api/verification/receipts` returned HTTP 200 with at least 10 real receipts, and `/api/operations/report` populated Verification Center timestamps, docs-check commit evidence, Gateway/native gates, and operations-ledger verification entries from those receipts.

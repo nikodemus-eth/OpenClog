@@ -101,3 +101,11 @@ Record first-person implementation notes from the builder/operator perspective.
 - I kept the follow-through practical: finish the already-started report and verification surfaces, wire the new-key retry path end to end, and prove the operator shell can render the richer report without moving policy into the route handlers.
 - I treated the first typecheck failure as a useful seam check, fixed the delivery-contract drift in the shared app layer, and reran the browser lane only after the shared types were honest again.
 - I kept the browser assertions focused on what an operator can actually see and act on: verification timestamps, docs-check continuity, delivery-target health, guided command state, escalation playbooks, and the explicit new-key retry control.
+
+## 2026-05-10 Verification Receipt Publishing
+- I finished this pass by treating verification evidence as product data: real commands now write local receipts that the Verification Center can read.
+- I kept the write path boring on purpose: a local runner executes the command, the SQLite repository persists the receipt, and the browser only reads the resulting evidence.
+- I used the old Google Doc as source material, then staged a concise repo spec that matches the actual workbench instead of reviving stale MVP language.
+- I re-read the exact Drive document through the connector before tightening the spec, then kept the review artifact repo-local as requested by the plan.
+- When the visual gate exposed a mobile height mismatch, I fixed the test readiness wait instead of refreshing snapshots blindly; the screenshot now waits for verification receipts before capture.
+- I proved the receipts through the same API paths the product uses: `/api/verification/receipts` and `/api/operations/report`.

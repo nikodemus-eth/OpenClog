@@ -25,3 +25,11 @@ Closeout notes:
 - Quick Wins that now have real product seams: exact stale-summary intervals, device-aware diagnostics persistence, retry-with-new-idempotency-key controls, Verification Center timestamp/header evidence, missing-scope copy affordances, and docs-check commit continuity.
 - Medium-Term lanes that now have concrete report contracts: `/api/operations/report`, delivery-target health, summary-job history, incident timelines, retry-policy metadata, route-budget visibility, and shared delivery-health rendering inputs.
 - High-Leverage lanes now represented in the bounded report/application seam: guided incident command, governed escalation playbooks, native-truth evidence, causality graph support, evidence-quality scoring, governed SDK manifests, and machine-local operations ledger evidence.
+
+## 2026-05-10 Spec And Verification Follow-Through
+
+- The staged spec refresh now treats OpenClog as the current operator workbench rather than an MVP journal prototype.
+- Reporting should cite persisted verification receipts as evidence for Verification Center status instead of relying on placeholder defaults.
+- Future daily reports should mention collapsed rail health, summary-job polling, dry-run delivery verification, operations backlog evidence, and local verification receipt freshness as current product seams.
+- The Google Doc comparison was connector-backed against the Drive document titled `OpenClog`, while the repo-local review artifact now names the stale source areas and the current operator workbench behavior.
+- Receipt publication can now be reported from `/api/verification/receipts` and `/api/operations/report`: the latest local run produced real docs-check, visual, verify, Gateway, and desktop-native receipts.

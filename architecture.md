@@ -176,3 +176,11 @@ Track OpenClog architecture, component ownership, and authority boundaries.
 - `/api/operations/report` is now the canonical bounded morning-briefing route, with `/api/operations/center` retained as a compatibility alias while the browser consumes the new report path.
 - The shared operations contract now carries delivery-target health, incident timelines, guided incident-command stages, escalation playbooks, day-level evidence scores, richer verification timestamps, and docs-check commit evidence without pushing policy into Fastify handlers.
 - The operator shell stays split the intended way: `apps/web/src/state/operator-workspace.ts` owns stale-summary intervals, device-aware diagnostics persistence, and retry-confirmation copy, while `App.tsx` remains orchestration and API wiring.
+
+## 2026-05-10 Verification Receipt Publishing
+- Real local verification commands now publish `VerificationReceipt` records into `journal_verification_receipts` through the SQLite repository boundary instead of relying on placeholder receipts.
+- The receipt runner is local CLI behavior: it executes the real command, records start/completion timestamps, status, summary, and commit metadata, then exits with the child command status.
+- The existing Verification Center read path remains the authority: repository receipts flow through `/api/verification/receipts` and `/api/operations/report` without adding a browser write endpoint.
+- The repo-local spec at [`docs/openclog-operator-workbench-spec.md`](/Users/m4/OpenClog/docs/openclog-operator-workbench-spec.md) replaces the stale source-doc framing with the current operator workbench behavior: incident loop, summary jobs, dry-run delivery verification, operations backlog, Verification Center, and collapsed shell rails.
+- The visual snapshot gate now waits for fixture-backed verification receipt data before full-page capture, preventing early mobile screenshots from racing the loaded workbench state.
+- The receipt proof was verified through the public read paths: `/api/verification/receipts` returned real local command receipts, and `/api/operations/report` surfaced latest verify, Gateway, desktop-native, and docs-check evidence in the Verification Center and operations ledger.

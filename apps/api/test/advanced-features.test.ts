@@ -629,6 +629,15 @@ describe("advanced OpenClog features", () => {
   test("serves roadmap backend, receipt retry, closeout, verification, and investigation workspace contracts", async () => {
     const repo = createSqliteRepository(":memory:");
     cleanup.push(() => repo.close());
+    repo.saveVerificationReceipt({
+      id: "verify-docs-real",
+      command: "npm run docs:check",
+      status: "passed",
+      startedAt: "2026-05-10T11:00:00.000Z",
+      completedAt: "2026-05-10T11:01:00.000Z",
+      summary: "docs check passed from local runner",
+      commitSha: "def5678"
+    });
     const gateway = createMemoryGateway({ ready: true });
     gateway.getState = () => ({
       canIssueControlActions: true,
@@ -757,13 +766,15 @@ describe("advanced OpenClog features", () => {
     expect(closeoutBlocked.statusCode).toBe(409);
     expect(closeoutBlocked.json()).toMatchObject({ error: "closeout_blocked", plan: { dayKey: "2026-05-04" } });
     expect(verificationReceipts.json()).toMatchObject({
-      receipts: expect.arrayContaining([expect.objectContaining({ command: "npm run verify", status: expect.any(String) })])
+      receipts: expect.arrayContaining([expect.objectContaining({ command: "npm run docs:check", status: "passed", commitSha: "def5678" })])
     });
     expect(workspace.json()).toMatchObject({ ok: true, workspace: { dayKeys: ["2026-05-04", "2026-05-05"] } });
     expect(fetchedWorkspace.json()).toMatchObject({ workspace: { id: workspace.json().workspace.id } });
     expect(operationsCenter.json()).toMatchObject({
       report: {
         verificationCenter: {
+          docsCheckedCommitSha: "def5678",
+          lastSuccessfulDocsCheckAt: "2026-05-10T11:01:00.000Z",
           gates: expect.arrayContaining([expect.objectContaining({ id: "summary_freshness" })])
         },
         operationsLedger: {
@@ -777,6 +788,8 @@ describe("advanced OpenClog features", () => {
     expect(operationsReport.json()).toMatchObject({
       report: expect.objectContaining({
         verificationCenter: expect.objectContaining({
+          docsCheckedCommitSha: "def5678",
+          lastSuccessfulDocsCheckAt: "2026-05-10T11:01:00.000Z",
           gates: expect.arrayContaining([expect.objectContaining({ id: "summary_freshness" })])
         })
       })

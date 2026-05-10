@@ -1,11 +1,13 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, test } from "vitest";
 import { createSqliteRepository } from "../src/repository.js";
 import { journalTableNames } from "../src/schema.js";
-import { sampleJournalDay, toPersistableRedactedEvent, type JournalDay } from "@openclog/core";
+import { buildVerificationReceiptId, runAndRecordVerification } from "../src/verification-receipts.js";
+import { sampleJournalDay, toPersistableRedactedEvent, type JournalDay, type VerificationReceipt } from "@openclog/core";
 
 describe("SQLite repository", () => {
   const repos: Array<{ close: () => void }> = [];
@@ -340,6 +342,162 @@ describe("SQLite repository", () => {
     expect(repo.listIncidents()).toEqual([]);
   });
 
+  test("persists explicit verification receipts instead of returning placeholders", () => {
+    const repo = createSqliteRepository(":memory:");
+    repos.push(repo);
+    const receipt: VerificationReceipt = {
+      id: "verify-real-1",
+      command: "npm run verify",
+      status: "passed",
+      startedAt: "2026-05-10T10:00:00.000Z",
+      completedAt: "2026-05-10T10:01:00.000Z",
+      summary: "real verify passed",
+      artifactPath: "output/verification/verify-real-1.json",
+      commitSha: "abc1234"
+    };
+
+    const saved = repo.saveVerificationReceipt(receipt);
+
+    expect(saved).toEqual(receipt);
+    expect(repo.listVerificationReceipts()).toEqual([receipt]);
+  });
+
+  test("records real command receipts through the local verification runner", () => {
+    const dir = mkdtempSync(join(tmpdir(), "openclog-verify-runner-"));
+    tempDirs.push(dir);
+    const filename = join(dir, "openclog.db");
+    const repo = createSqliteRepository(filename);
+    repos.push(repo);
+
+    execFileSync(
+      "npx",
+      [
+        "tsx",
+        "scripts/run-and-record-verification.ts",
+        "--label",
+        "npm run docs:check",
+        "--db",
+        filename,
+        "--",
+        process.execPath,
+        "-e",
+        "console.log('runner ok')"
+      ],
+      { cwd: process.cwd(), encoding: "utf8" }
+    );
+
+    expect(repo.listVerificationReceipts()).toEqual([
+      expect.objectContaining({
+        command: "npm run docs:check",
+        status: "passed",
+        summary: expect.stringContaining("exited 0")
+      })
+    ]);
+  });
+
+  test("records failed command receipts and preserves the failing exit code", () => {
+    const dir = mkdtempSync(join(tmpdir(), "openclog-verify-runner-fail-"));
+    tempDirs.push(dir);
+    const filename = join(dir, "openclog.db");
+    const repo = createSqliteRepository(filename);
+    repos.push(repo);
+    let status = 0;
+
+    try {
+      execFileSync(
+        "npx",
+        [
+          "tsx",
+          "scripts/run-and-record-verification.ts",
+          "--label",
+          "npm run verify:gateway",
+          "--db",
+          filename,
+          "--",
+          process.execPath,
+          "-e",
+          "process.exit(7)"
+        ],
+        { cwd: process.cwd(), encoding: "utf8" }
+      );
+    } catch (error) {
+      status = typeof (error as { status?: unknown }).status === "number" ? (error as { status: number }).status : -1;
+    }
+
+    expect(status).toBe(7);
+    expect(repo.listVerificationReceipts()).toEqual([
+      expect.objectContaining({
+        command: "npm run verify:gateway",
+        status: "failed",
+        summary: expect.stringContaining("exited 7")
+      })
+    ]);
+  });
+
+  test("records direct helper pass, failure, signal, start error, and non-git receipts", () => {
+    expect(buildVerificationReceiptId("!!!", "2026-05-10T10:02:03.004Z")).toBe("verification-verification-20260510T100203004Z");
+    const dir = mkdtempSync(join(tmpdir(), "openclog-verify-helper-"));
+    tempDirs.push(dir);
+    const filename = join(dir, "openclog.db");
+    expect(() => runAndRecordVerification({ args: [], dbPath: filename, label: "npm run verify" })).toThrow("verification_command_required");
+
+    const passed = runAndRecordVerification({
+      args: [process.execPath, "-e", "process.exit(0)"],
+      dbPath: filename,
+      label: "npm run docs:check",
+      now: dates("2026-05-10T12:00:00.000Z", "2026-05-10T12:00:01.000Z")
+    });
+    const failed = runAndRecordVerification({
+      args: [process.execPath, "-e", "process.exit(9)"],
+      dbPath: filename,
+      label: "npm run verify:gateway",
+      now: dates("2026-05-10T12:01:00.000Z", "2026-05-10T12:01:01.000Z")
+    });
+    const signaled = runAndRecordVerification({
+      args: [process.execPath, "-e", "process.kill(process.pid, 'SIGTERM')"],
+      dbPath: filename,
+      label: "npm run verify:desktop-native",
+      now: dates("2026-05-10T12:02:00.000Z", "2026-05-10T12:02:01.000Z")
+    });
+    const startError = runAndRecordVerification({
+      args: ["openclog-command-that-does-not-exist"],
+      cwd: dir,
+      dbPath: filename,
+      label: "npm run test:visual",
+      now: dates("2026-05-10T12:03:00.000Z", "2026-05-10T12:03:01.000Z")
+    });
+
+    expect(passed).toMatchObject({ exitCode: 0, receipt: { command: "npm run docs:check", status: "passed", summary: "npm run docs:check exited 0" } });
+    expect(passed.receipt.commitSha).toEqual(expect.any(String));
+    expect(failed).toMatchObject({ exitCode: 9, receipt: { command: "npm run verify:gateway", status: "failed", summary: "npm run verify:gateway exited 9" } });
+    expect(signaled).toMatchObject({ exitCode: 1, receipt: { command: "npm run verify:desktop-native", status: "failed", summary: "npm run verify:desktop-native terminated by SIGTERM" } });
+    expect(startError).toMatchObject({ exitCode: 1, receipt: { command: "npm run test:visual", status: "failed" } });
+    expect(startError.receipt.summary).toContain("failed to start");
+    expect(startError.receipt.commitSha).toBeUndefined();
+  });
+
+  test("omits commit metadata when git resolves to an empty value", () => {
+    const dir = mkdtempSync(join(tmpdir(), "openclog-verify-empty-git-"));
+    tempDirs.push(dir);
+    const fakeGit = join(dir, "git");
+    writeFileSync(fakeGit, "#!/bin/sh\nexit 0\n");
+    chmodSync(fakeGit, 0o755);
+    const filename = join(dir, "openclog.db");
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${dir}:${originalPath ?? ""}`;
+    try {
+      const result = runAndRecordVerification({
+        args: [process.execPath, "-e", "process.exit(0)"],
+        dbPath: filename,
+        label: "npm run verify"
+      });
+      expect(result.receipt).toMatchObject({ command: "npm run verify", status: "passed" });
+      expect(result.receipt.commitSha).toBeUndefined();
+    } finally {
+      process.env.PATH = originalPath;
+    }
+  });
+
   test("hydrates generated summaries, retention counts, and reconnect/tool alert branches", () => {
     const repo = createSqliteRepository(":memory:");
     repos.push(repo);
@@ -427,3 +585,8 @@ describe("SQLite repository", () => {
     expect(repo.listIncidents()).toEqual([]);
   });
 });
+
+function dates(...values: string[]): () => Date {
+  let index = 0;
+  return () => new Date(values[Math.min(index++, values.length - 1)]!);
+}

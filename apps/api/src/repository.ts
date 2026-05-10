@@ -130,6 +130,7 @@ export interface OpenClogRepository {
   saveInvestigationNote(note: InvestigationNote): InvestigationNote;
   saveRetentionClass(retentionClass: RetentionClass): RetentionClass;
   saveRetentionSnapshot(snapshot: RetentionSnapshotRecord): RetentionSnapshotRecord;
+  saveVerificationReceipt(receipt: VerificationReceipt): VerificationReceipt;
   searchEntries(query: string): JournalSearchResult[];
   setAlertState(ruleId: string, state: AlertStateRecord): AlertStateRecord;
   setPinnedDayContext(dayKey: string, context: Pick<PinnedDayContext, "note" | "summary">, now?: Date): PinnedDayContext;
@@ -1146,6 +1147,10 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       saveJsonRow(db, "journal_retention_snapshots", snapshot.id, JSON.stringify(snapshot));
       return snapshot;
     },
+    saveVerificationReceipt(receipt) {
+      saveVerificationReceiptRow(db, receipt);
+      return receipt;
+    },
     searchEntries(query) {
       const needle = query.trim().toLocaleLowerCase();
       if (!needle) return [];
@@ -1338,7 +1343,7 @@ function migrate(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS journal_incident_action_records (id TEXT PRIMARY KEY, incident_id TEXT NOT NULL, created_at TEXT NOT NULL, record_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_backend_fingerprints (id TEXT PRIMARY KEY, fingerprint_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_closeout_completions (id TEXT PRIMARY KEY, completion_json TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS journal_verification_receipts (id TEXT PRIMARY KEY, receipt_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_verification_receipts (id TEXT PRIMARY KEY, command TEXT NOT NULL DEFAULT 'unknown', status TEXT NOT NULL DEFAULT 'unknown', completed_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.000Z', receipt_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_investigation_workspaces (id TEXT PRIMARY KEY, workspace_json TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS idx_journal_entries_session ON journal_entries(session_id, timestamp);
     CREATE INDEX IF NOT EXISTS idx_journal_entries_status ON journal_entries(status, timestamp);
@@ -1348,6 +1353,7 @@ function migrate(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS idx_journal_incident_action_records_created ON journal_incident_action_records(created_at, incident_id);
     CREATE INDEX IF NOT EXISTS idx_journal_handoff_packets_day ON journal_incident_handoff_packets(day_key, created_at);
   `);
+  migrateVerificationReceipts(db);
 }
 
 function seedDefaults(db: DatabaseSync): void {
@@ -1408,6 +1414,29 @@ function saveJsonRow(db: DatabaseSync, table: string, id: string, json: string, 
   const jsonColumn = jsonColumns[table] ?? "";
   if (!jsonColumn) throw new Error(`unsupported_json_table:${table}`);
   db.prepare(`INSERT INTO ${table} (id${table === "journal_lineage" ? "" : ""}, ${jsonColumn}) VALUES (?, ?) ON CONFLICT(id${table === "journal_lineage" ? "" : ""}) DO UPDATE SET ${jsonColumn} = excluded.${jsonColumn}`).run(id, json);
+}
+
+function migrateVerificationReceipts(db: DatabaseSync): void {
+  const columns = new Set(db.prepare("PRAGMA table_info(journal_verification_receipts)").all().map((row) => String(row.name)));
+  if (!columns.has("command")) db.exec("ALTER TABLE journal_verification_receipts ADD COLUMN command TEXT NOT NULL DEFAULT 'unknown'");
+  if (!columns.has("status")) db.exec("ALTER TABLE journal_verification_receipts ADD COLUMN status TEXT NOT NULL DEFAULT 'unknown'");
+  if (!columns.has("completed_at")) db.exec("ALTER TABLE journal_verification_receipts ADD COLUMN completed_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.000Z'");
+  const receipts = db.prepare("SELECT id, receipt_json FROM journal_verification_receipts").all() as Array<{ id: string; receipt_json: string }>;
+  for (const row of receipts) {
+    const receipt = JSON.parse(String(row.receipt_json)) as VerificationReceipt;
+    db.prepare("UPDATE journal_verification_receipts SET command = ?, status = ?, completed_at = ? WHERE id = ?").run(
+      receipt.command,
+      receipt.status,
+      receipt.completedAt ?? receipt.startedAt,
+      row.id
+    );
+  }
+}
+
+function saveVerificationReceiptRow(db: DatabaseSync, receipt: VerificationReceipt): void {
+  db.prepare(
+    "INSERT INTO journal_verification_receipts (id, command, status, completed_at, receipt_json) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET command = excluded.command, status = excluded.status, completed_at = excluded.completed_at, receipt_json = excluded.receipt_json"
+  ).run(receipt.id, receipt.command, receipt.status, receipt.completedAt ?? receipt.startedAt, JSON.stringify(receipt));
 }
 
 function upsertEntry(db: DatabaseSync, entry: JournalEntry): void {

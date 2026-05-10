@@ -183,3 +183,10 @@ Track OpenClog security posture, Gateway authority boundaries, redaction, and fa
 - The new `retry with new idempotency key` path stays explicit and bounded: same-key retries still require operator confirmation, while new-key retries mint a fresh bounded idempotency key and keep the failed receipt visible instead of collapsing evidence.
 - Verification Center timestamp/header copy and docs-check commit evidence are derived from local verification receipts only; they expose command timing and commit metadata, not raw logs, secrets, or filesystem paths.
 - Delivery-target health, incident timelines, escalation playbooks, and missing-scope copy all reuse sanitized report/view data, so the new morning-briefing surfaces do not widen browser access to Gateway credentials or unsanitized receipt content.
+
+## 2026-05-10 Verification Receipt Publishing Hardening
+- Verification receipt recording is CLI-to-local-SQLite only; no browser route was added that could spoof verification evidence.
+- The runner records only command label, timing, pass/fail/unknown status, short summary, and commit metadata, while stdout/stderr logs stay outside the persisted receipt JSON.
+- Passing commands fail closed if their receipt cannot be written, and failing commands still record failed receipts when the local database is available.
+- Collapsed rail closeout remains presentation-only: icon-strip controls focus or reveal existing surfaces and do not add Gateway scopes, delivery authority, admin controls, or secret access.
+- The Verification Center proof used read-only API routes over local persisted receipts; failed visual receipts from the debugging pass remained visible in the ledger instead of being hidden by later passing receipts.
