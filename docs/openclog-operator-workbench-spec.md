@@ -60,12 +60,14 @@ The report includes:
 - Summary-job history and timings.
 - Incident evidence checklist and investigation bundle preview.
 - Readiness history and route budgets.
-- Delivery ledger and delivery-target health.
+- Delivery ledger and delivery-target health, including 24-hour trend summaries.
 - Incident timeline and guided incident-command stages.
-- Verification Center gates and latest command receipts.
-- Governed SDK manifests, role-aware simulations, evidence quality scores, causality graph, native truth monitor, policy packs, and escalation playbooks.
+- Verification Center gates, readiness score, and latest command receipts with age/freshness metadata.
+- Governed SDK manifests, role-aware simulations, evidence quality scores, causality graph, native truth monitor, policy packs, escalation playbooks, retention impact, saved-view hypotheses, and a native cutover prep artifact.
 
 Real verification commands publish local `VerificationReceipt` rows into `journal_verification_receipts`. The API reads those receipts through `/api/verification/receipts`, and the operations report uses them to populate Verification Center timestamps, docs-check commit evidence, Gateway readiness, desktop self-check, and operations ledger entries.
+
+Native cutover remains truthful prep in the current repo state. The artifact at [`docs/openclog-native-cutover.md`](/Users/m4/OpenClog/docs/openclog-native-cutover.md) defines the intended desktop-boundary move without changing current Fastify authority for operator policy.
 
 ## Verification And Safety
 

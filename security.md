@@ -190,3 +190,9 @@ Track OpenClog security posture, Gateway authority boundaries, redaction, and fa
 - Passing commands fail closed if their receipt cannot be written, and failing commands still record failed receipts when the local database is available.
 - Collapsed rail closeout remains presentation-only: icon-strip controls focus or reveal existing surfaces and do not add Gateway scopes, delivery authority, admin controls, or secret access.
 - The Verification Center proof used read-only API routes over local persisted receipts; failed visual receipts from the debugging pass remained visible in the ledger instead of being hidden by later passing receipts.
+
+## 2026-05-10 Gap-Closure Campaign Hardening
+- Verification receipt age/freshness fields are derived from persisted local timestamps only; the new Verification Center row copy does not expose raw logs, filesystem paths, or browser-computed success claims.
+- Delivery-target health trends, readiness history splits, retention-impact summaries, and saved-view hypotheses are all assembled from bounded local report data, so the richer backlog surfaces do not widen browser access to Gateway or secret-bearing state.
+- The new keyboard shortcut strip and rail shortcuts are presentation helpers only; they focus or reveal existing bounded surfaces and do not add hidden control paths or bypass blocked-action checks.
+- The native cutover artifact is documentation-only prep in this tranche and explicitly preserves the current Fastify authority boundary for report assembly, incident actions, retention, and delivery policy.

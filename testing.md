@@ -278,3 +278,11 @@ Record deterministic verification, live Gateway verification, coverage policy, a
   - `npm run docs:check`
   - `npm run verify`
 - Receipt publication proof passed against the local SQLite database: `/api/verification/receipts` returned HTTP 200 with at least 10 real receipts, and `/api/operations/report` populated Verification Center timestamps, docs-check commit evidence, Gateway/native gates, and operations-ledger verification entries from those receipts.
+
+## 2026-05-10 Gap-Closure Campaign
+- Added failing-first helper/app/API coverage for verification receipt age/freshness formatting, summary-job day totals, enriched operations-report fields, native cutover prep metadata, and richer `/api/verification/receipts` output.
+- The focused red/green loop for this tranche used:
+  - `npm test -- apps/web/test/operator-workspace.test.ts`
+  - `npm test -- packages/app/test/application.test.ts`
+  - `npm test -- apps/api/test/advanced-features.test.ts`
+- Full closeout verification for this tranche is required through the repo gate: `npm run verify`, `npm run verify:gateway`, `npm run verify:desktop-native`, `npm run smoke -w @openclog/desktop`, and `git diff --check` before commit and push.

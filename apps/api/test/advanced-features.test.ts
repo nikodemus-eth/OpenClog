@@ -766,7 +766,7 @@ describe("advanced OpenClog features", () => {
     expect(closeoutBlocked.statusCode).toBe(409);
     expect(closeoutBlocked.json()).toMatchObject({ error: "closeout_blocked", plan: { dayKey: "2026-05-04" } });
     expect(verificationReceipts.json()).toMatchObject({
-      receipts: expect.arrayContaining([expect.objectContaining({ command: "npm run docs:check", status: "passed", commitSha: "def5678" })])
+      receipts: expect.arrayContaining([expect.objectContaining({ command: "npm run docs:check", status: "passed", commitSha: "def5678", ageLabel: expect.any(String), freshness: expect.any(String) })])
     });
     expect(workspace.json()).toMatchObject({ ok: true, workspace: { dayKeys: ["2026-05-04", "2026-05-05"] } });
     expect(fetchedWorkspace.json()).toMatchObject({ workspace: { id: workspace.json().workspace.id } });
@@ -790,8 +790,13 @@ describe("advanced OpenClog features", () => {
         verificationCenter: expect.objectContaining({
           docsCheckedCommitSha: "def5678",
           lastSuccessfulDocsCheckAt: "2026-05-10T11:01:00.000Z",
+          readinessScore: expect.any(Number),
+          readinessLabel: expect.any(String),
+          receipts: expect.arrayContaining([expect.objectContaining({ id: expect.any(String), ageLabel: expect.any(String), freshness: expect.any(String) })]),
           gates: expect.arrayContaining([expect.objectContaining({ id: "summary_freshness" })])
-        })
+        }),
+        retentionImpact: expect.objectContaining({ removedEntryCount: expect.any(Number) }),
+        nativeCutoverPlan: expect.objectContaining({ status: "prep", artifactPath: "docs/openclog-native-cutover.md" })
       })
     });
     expect(deliveryLedger.json()).toMatchObject({

@@ -4,6 +4,7 @@ import {
   addSearchPreset,
   buildNamedOperatorViews,
   buildReconnectTrendText,
+  buildShellShortcutHints,
   classifyGatewayErrorCategory,
   classifyGatewayUrl,
   capabilityGateAllows,
@@ -15,6 +16,7 @@ import {
   describeActiveOperatorView,
   describeAlertFindingState,
   describeComposerConnectivity,
+  describeIncidentActionRecordingStatus,
   describeOperatorViewSource,
   describeSummaryJobState,
   describeStaleSummaryInterval,
@@ -34,6 +36,8 @@ import {
   formatMissionReplayStep,
   formatReceiptDetails,
   formatSummaryJobDurations,
+  formatVerificationReceiptAge,
+  formatVerificationReceiptStatus,
   getLastSuccessfulSummaryJobCompletionAt,
   formatReplayBundleDiff,
   formatRetentionPreview,
@@ -398,6 +402,89 @@ describe("operator workspace helpers", () => {
     expect(describeStaleSummaryInterval({ lastEntryIncludedAt: "2026-05-08T12:05:00.000Z", latestEntryObservedAt: "2026-05-08T12:00:00.000Z" })).toBeNull();
     expect(buildDryRunFailureJumpNotice({ ...receipt, status: "delivered" })).toBeNull();
     expect(buildDryRunFailureJumpNotice({ ...receipt, dryRun: false })).toBeNull();
+  });
+
+  test("formats verification receipt age and action-record visibility for the workbench", () => {
+    expect(
+      formatVerificationReceiptAge({
+        id: "verify-1",
+        command: "npm run verify",
+        status: "passed",
+        startedAt: "2026-05-08T12:00:00.000Z",
+        completedAt: "2026-05-08T12:05:00.000Z",
+        summary: "passed",
+        ageLabel: "5m old",
+        freshness: "fresh"
+      })
+    ).toBe("5m old");
+    expect(
+      formatVerificationReceiptAge({
+        id: "verify-2",
+        command: "npm run verify:gateway",
+        status: "failed",
+        startedAt: "2026-05-08T12:00:00.000Z",
+        completedAt: "2026-05-08T12:45:00.000Z",
+        summary: "failed",
+        freshness: "stale"
+      })
+    ).toBe("age unavailable");
+    expect(
+      formatVerificationReceiptStatus({
+        id: "verify-0",
+        command: "npm run verify",
+        status: "passed",
+        startedAt: "2026-05-08T12:00:00.000Z",
+        completedAt: "2026-05-08T12:01:00.000Z",
+        summary: "passed",
+        freshness: "fresh"
+      })
+    ).toBe("Fresh evidence");
+    expect(
+      formatVerificationReceiptStatus({
+        id: "verify-3",
+        command: "npm run verify:desktop-native",
+        status: "passed",
+        startedAt: "2026-05-08T12:00:00.000Z",
+        completedAt: "2026-05-08T12:10:00.000Z",
+        summary: "passed",
+        freshness: "aging"
+      })
+    ).toBe("Aging evidence");
+    expect(
+      formatVerificationReceiptStatus({
+        id: "verify-4",
+        command: "npm run docs:check",
+        status: "failed",
+        startedAt: "2026-05-08T12:00:00.000Z",
+        completedAt: "2026-05-08T12:50:00.000Z",
+        summary: "failed",
+        freshness: "stale"
+      })
+    ).toBe("Stale evidence");
+    expect(
+      formatVerificationReceiptStatus({
+        id: "verify-5",
+        command: "npm run docs:check",
+        status: "unknown",
+        startedAt: "2026-05-08T12:00:00.000Z",
+        summary: "unknown"
+      })
+    ).toBe("Evidence age unknown");
+    expect(
+      describeIncidentActionRecordingStatus("deliver_slack", [
+        {
+          id: "action-1",
+          incidentId: "incident-1",
+          kind: "deliver_slack",
+          title: "Deliver to slack",
+          status: "failed",
+          summary: "failed",
+          createdAt: "2026-05-08T12:03:00.000Z"
+        }
+      ])
+    ).toBe("Recorded at 2026-05-08T12:03:00.000Z.");
+    expect(describeIncidentActionRecordingStatus("deliver_email", [])).toBe("Not yet recorded.");
+    expect(buildShellShortcutHints()).toEqual(["[: left rail", "Alt+S: search", "Alt+C: composer", "]: diagnostics"]);
   });
 
   test("describes active operator views, connectivity, summary job state, and per-view storage", () => {

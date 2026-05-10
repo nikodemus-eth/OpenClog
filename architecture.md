@@ -184,3 +184,9 @@ Track OpenClog architecture, component ownership, and authority boundaries.
 - The repo-local spec at [`docs/openclog-operator-workbench-spec.md`](/Users/m4/OpenClog/docs/openclog-operator-workbench-spec.md) replaces the stale source-doc framing with the current operator workbench behavior: incident loop, summary jobs, dry-run delivery verification, operations backlog, Verification Center, and collapsed shell rails.
 - The visual snapshot gate now waits for fixture-backed verification receipt data before full-page capture, preventing early mobile screenshots from racing the loaded workbench state.
 - The receipt proof was verified through the public read paths: `/api/verification/receipts` returned real local command receipts, and `/api/operations/report` surfaced latest verify, Gateway, desktop-native, and docs-check evidence in the Verification Center and operations ledger.
+
+## 2026-05-10 Gap-Closure Campaign Follow-Through
+- Verification receipts now carry UI-ready age and freshness metadata, and the Verification Center report adds a bounded readiness score plus receipt rows assembled in the shared operations seam rather than ad hoc in React.
+- The operations report now carries richer day-level summary job counts, 24-hour delivery-target health trends, backend-versus-Gateway readiness points, retention-impact reporting, active saved-view hypotheses, and a native cutover prep artifact reference.
+- The operator shell now renders receipt-age evidence, richer operations backlog detail, incident-action recorded/not-yet-recorded status, a collapsed-left-rail summary completion hint, and a small keyboard shortcut strip while preserving the existing collapsed-rail layout.
+- Native cutover stays truthful prep only in this tranche: the new [`docs/openclog-native-cutover.md`](/Users/m4/OpenClog/docs/openclog-native-cutover.md) artifact makes the future desktop-boundary move explicit without migrating Fastify-owned authority today.

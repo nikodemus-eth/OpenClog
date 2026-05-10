@@ -124,6 +124,7 @@ import {
   buildRetryReceiptConfirmation,
   buildRetryWithNewKeyReceiptConfirmation,
   describeActiveOperatorView,
+  describeIncidentActionRecordingStatus,
   describeComposerConnectivity,
   dedupeLiveActionNotice,
   describeAlertFindingState,
@@ -146,6 +147,8 @@ import {
   formatMissionReplayStep,
   formatReplayBundleDiff,
   formatRetentionSnapshotImpact,
+  formatVerificationReceiptAge,
+  formatVerificationReceiptStatus,
   findDayByCalendarValue,
   getInitialDiagnosticsCollapsedState,
   hasRetentionImpact,
@@ -197,6 +200,7 @@ export function App() {
     nodeVersion: "unknown"
   });
   const [healthRuntimeFingerprint, setHealthRuntimeFingerprint] = useState("unknown");
+  const [healthBackendBootedAt, setHealthBackendBootedAt] = useState<string | null>(null);
   const [healthPollLatencyMs, setHealthPollLatencyMs] = useState<number | null>(null);
   const [lastSuccessfulHealthPollAt, setLastSuccessfulHealthPollAt] = useState<string | null>(null);
   const [composer, setComposer] = useState("");
@@ -376,11 +380,14 @@ export function App() {
     if (fingerprintsDiffer) {
       return "Web and API runtime fingerprints diverged. Refresh the operator shell or stop the stale backend before investigating OpenClaw.";
     }
+    if (healthBackendBootedAt && version.bootedAt !== healthBackendBootedAt) {
+      return `Backend restarted since page load: shell boot ${version.bootedAt}, current backend boot ${healthBackendBootedAt}. Refresh the operator shell before trusting live investigations.`;
+    }
     if (gateway.stale && gateway.targetReachable) {
       return "Gateway target is reachable, but /api/health is stale or blocked. Check the local API process before escalating OpenClaw downtime.";
     }
     return "";
-  }, [gateway.stale, gateway.targetReachable, healthRuntimeFingerprint, version.runtimeFingerprint]);
+  }, [gateway.stale, gateway.targetReachable, healthBackendBootedAt, healthRuntimeFingerprint, version.bootedAt, version.runtimeFingerprint]);
   const archiveView = useMemo(() => buildArchiveView(days, route.selectedDayKey), [days, route.selectedDayKey]);
   const composerConnectivity = useMemo(
     () => describeComposerConnectivity(profiles.find((profile) => profile.id === selectedProfileId)?.gatewayUrl, gateway.status === "ready" && !gateway.stale),
@@ -508,6 +515,7 @@ export function App() {
       setLastSuccessfulHealthPollAt(new Date().toISOString());
       setGateway(health.gateway);
       setHealthRuntimeFingerprint(health.backend?.runtimeFingerprint ?? "unknown");
+      setHealthBackendBootedAt(health.backend?.bootedAt ?? null);
       setDays(fetchedDays);
       if (targetDayKey !== route.selectedDayKey) route.setSelectedDayKey(targetDayKey);
       setDay(fetchedDay);
@@ -872,6 +880,7 @@ export function App() {
       ]);
       setGateway(health.gateway);
       setHealthRuntimeFingerprint(health.backend?.runtimeFingerprint ?? "unknown");
+      setHealthBackendBootedAt(health.backend?.bootedAt ?? null);
       setDay(fetchedDay);
       setPinnedNote(fetchedDay.pinnedContext?.note ?? "");
       setPinnedSummary(fetchedDay.pinnedContext?.summary ?? "");
@@ -1598,6 +1607,7 @@ async function handleRetryReceipt(id: string): Promise<void> {
       }
       shortcutsOpen={shortcutsOpen}
       shellActionStatus={shellActionStatus}
+      lastSuccessfulSummaryJobCompletionAt={lastSuccessfulSummaryJobCompletionAt}
       theme={resolvedTheme}
       themeId={themeId}
       themeIds={selectableThemeIds}
@@ -2345,12 +2355,24 @@ function OperationalPanels(props: {
         </div>
         {operationsReport ? (
           <>
+            <p>
+              Readiness score: {operationsReport.verificationCenter.readinessScore} ({operationsReport.verificationCenter.readinessLabel}).
+            </p>
             <p>Last successful verify {operationsReport.verificationCenter.lastSuccessfulVerifyAt ?? "unavailable"}.</p>
             <p>Last successful verify:gateway {operationsReport.verificationCenter.lastSuccessfulGatewayVerifyAt ?? "unavailable"}.</p>
             <p>Last successful verify:desktop-native {operationsReport.verificationCenter.lastSuccessfulDesktopVerifyAt ?? "unavailable"}.</p>
             <p>Last successful docs:check {operationsReport.verificationCenter.lastSuccessfulDocsCheckAt ?? "unavailable"}.</p>
             {operationsReport.verificationCenter.docsCheckedCommitSha ? (
               <p>Docs-checked commit {operationsReport.verificationCenter.docsCheckedCommitSha}.</p>
+            ) : null}
+            {operationsReport.verificationCenter.receipts.length > 0 ? (
+              <ul>
+                {operationsReport.verificationCenter.receipts.map((receipt) => (
+                  <li key={receipt.id}>
+                    <strong>{receipt.command}</strong>: {receipt.status}. {formatVerificationReceiptStatus(receipt)}. {formatVerificationReceiptAge(receipt)}.
+                  </li>
+                ))}
+              </ul>
             ) : null}
             <ul>
               {operationsReport.verificationCenter.gates.map((gate) => (
@@ -2459,11 +2481,33 @@ function OperationalPanels(props: {
               ))}
             </ul>
             <p>Investigation bundle preview: {operationsReport.investigationBundlePreview.items.length} redacted item(s) ready.</p>
+            <p>Summary-job history: {operationsReport.summaryJobHistory.jobs.length} job(s) tracked.</p>
+            <ul>
+              {operationsReport.summaryJobHistory.days.map((dayHistory) => (
+                <li key={dayHistory.dayKey}>
+                  {dayHistory.dayKey}: completed {dayHistory.completedCount}, failed {dayHistory.failedCount}, queued {dayHistory.queuedCount}, running {dayHistory.runningCount}.
+                </li>
+              ))}
+            </ul>
             <p>Readiness history sparkline: {operationsReport.readinessHistory.points.length} point(s) over 24 hours.</p>
+            <ul>
+              {operationsReport.readinessHistory.points.slice(0, 3).map((point) => (
+                <li key={point.timestamp}>
+                  {point.timestamp}: backend {point.backendHealthy ? "healthy" : "degraded"}, gateway {point.gatewayStatus}, reconnects {point.reconnectCount}, restart count {point.backendRestartCount}.
+                </li>
+              ))}
+            </ul>
             <p>
               Delivery target health:{" "}
               {operationsReport.deliveryTargetHealth.map((item) => `${item.target} ${item.status} (${item.detail})`).join(", ") || "unavailable"}.
             </p>
+            <ul>
+              {operationsReport.deliveryTargetHealth.map((item) => (
+                <li key={item.target}>
+                  {item.target}: receipts {item.receiptCount24h}, failed {item.failedCount24h}, dry-run failures {item.dryRunFailures24h}, trend {item.trend}.
+                </li>
+              ))}
+            </ul>
             <p>Delivery ledger: {operationsReport.deliveryLedger.items.length} searchable receipt(s).</p>
             <ul>
               {operationsReport.deliveryLedger.items.slice(0, 3).map((receipt) => (
@@ -2474,17 +2518,38 @@ function OperationalPanels(props: {
               ))}
             </ul>
             <p>Route budgets: {operationsReport.routePerformanceBudgets.map((budget) => `${budget.route} ${budget.status}`).join(", ")}.</p>
+            <ul>
+              {operationsReport.routePerformanceBudgets.map((budget) => (
+                <li key={budget.route}>
+                  {budget.route}: observed {budget.observedMs} ms against {budget.budgetMs} ms budget.
+                </li>
+              ))}
+            </ul>
             <p>Chaos tests: {operationsReport.chaosScenarios.map((scenario) => scenario.id).join(", ")}.</p>
             <p>
               Incident timeline: {operationsReport.incidentTimeline.events.length} event(s) from {operationsReport.incidentTimeline.startDayKey} to{" "}
               {operationsReport.incidentTimeline.endDayKey}.
             </p>
+            <ul>
+              {operationsReport.incidentTimeline.events.slice(0, 5).map((event) => (
+                <li key={event.id}>
+                  {event.timestamp}: {event.kind} {event.label}
+                </li>
+              ))}
+            </ul>
             <p>
               Guided incident command:{" "}
               {operationsReport.guidedIncidentCommand.stages
                 .map((stage) => `${stage.title} ${stage.complete ? "complete" : stage.blocked ? "blocked" : "open"}`)
                 .join(", ")}.
             </p>
+            <ul>
+              {operationsReport.guidedIncidentCommand.stages.map((stage) => (
+                <li key={stage.id}>
+                  {stage.title}: {stage.detail}
+                </li>
+              ))}
+            </ul>
             <p>
               Evidence quality:{" "}
               {operationsReport.evidenceQualityScores
@@ -2492,6 +2557,13 @@ function OperationalPanels(props: {
                 .join(", ") || "unscored"}.
             </p>
             <p>Operations ledger: {operationsReport.operationsLedger.entries.length} append-only event(s).</p>
+            <ul>
+              {operationsReport.operationsLedger.entries.slice(0, 4).map((entry) => (
+                <li key={entry.id}>
+                  {entry.timestamp}: {entry.action} {entry.status}
+                </li>
+              ))}
+            </ul>
             <p>Policy packs: {operationsReport.policyRecommendationPacks.map((pack) => pack.label).join(", ")}.</p>
             <p>Role-aware simulations: {operationsReport.roleAwareSimulations.map((simulation) => `${simulation.title} (${simulation.liveSideEffects ? "live" : "no live side effects"})`).join(", ")}.</p>
             <p>Governed SDK manifests: {operationsReport.governedSdkManifests.map((manifest) => `${manifest.id} ${manifest.permissions.join("/")}`).join(", ")}.</p>
@@ -2499,6 +2571,22 @@ function OperationalPanels(props: {
               Escalation playbooks:{" "}
               {operationsReport.escalationPlaybooks.map((playbook) => `${playbook.title} (${playbook.steps.length} steps)`).join(", ") || "none"}.
             </p>
+            {operationsReport.retentionImpact ? (
+              <p>
+                Retention impact: {operationsReport.retentionImpact.removedDayKeys.length} day(s), entry count delta {operationsReport.retentionImpact.removedEntryCount}, summary count delta {operationsReport.retentionImpact.removedSummaryCount}.
+              </p>
+            ) : null}
+            {operationsReport.activeHypotheses.length > 0 ? (
+              <ul>
+                {operationsReport.activeHypotheses.map((hypothesis) => (
+                  <li key={hypothesis.id}>
+                    <strong>{hypothesis.label}</strong>: {hypothesis.hypothesis} Validation: {hypothesis.validationSteps.join(", ") || "none"}.
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <p>{operationsReport.nativeCutoverPlan.summary}</p>
+            <p>Native cutover artifact: {operationsReport.nativeCutoverPlan.artifactPath}.</p>
           </>
         ) : (
           <p>Operations backlog surfaces are waiting for local evidence.</p>
@@ -2622,7 +2710,7 @@ function OperationalPanels(props: {
                     <h4>Act</h4>
                     <div className="search-presets">
                       {props.incidentWorkspace.loop.act.map((action) => (
-                        <button
+                      <button
                           key={action.id}
                           type="button"
                           disabled={action.availability === "blocked"}
@@ -2637,6 +2725,11 @@ function OperationalPanels(props: {
                         </button>
                       ))}
                     </div>
+                    <ul>
+                      {props.incidentWorkspace.loop.act.map((action) => (
+                        <li key={`${action.id}-status`}>{action.label}: {describeIncidentActionRecordingStatus(action.id, props.incidentWorkspace!.loop.record.actionRecords)}</li>
+                      ))}
+                    </ul>
                   </section>
                   <section className="incident-loop-section">
                     <h4>Record</h4>

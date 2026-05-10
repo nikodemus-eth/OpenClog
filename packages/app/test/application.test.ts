@@ -633,10 +633,16 @@ describe("OpenClog application layer", () => {
       dayKey: "2026-05-08",
       incidentId: "incident-1"
     }) as {
-      summaryJobHistory: { jobs: Array<{ queuedForMs: number; runningForMs: number; medianCompletionMs: number; correlationId?: string }> };
+      summaryJobHistory: {
+        jobs: Array<{ queuedForMs: number; runningForMs: number; medianCompletionMs: number; correlationId?: string }>;
+        days: Array<{ dayKey: string; completedCount: number; failedCount: number; queuedCount: number; runningCount: number }>;
+      };
       incidentEvidenceChecklist: { ready: boolean; items: Array<{ id: string; present: boolean }> };
       verificationCenter: {
         gates: Array<{ id: string; status: string }>;
+        receipts: Array<{ id: string; ageLabel?: string; freshness?: string }>;
+        readinessScore: number;
+        readinessLabel: string;
         lastSuccessfulVerifyAt?: string;
         lastSuccessfulGatewayVerifyAt?: string;
         lastSuccessfulDesktopVerifyAt?: string;
@@ -645,8 +651,9 @@ describe("OpenClog application layer", () => {
       };
       deliveryLedger: { items: Array<{ id: string; sameKeyRetryRequiresConfirmation: boolean; retryPolicy?: { nextAttemptUsesNewIdempotencyKey: boolean } }> };
       evidenceQualityScores: Array<{ incidentId?: string; dayKey?: string; score: number; grade: string }>;
-      deliveryTargetHealth: Array<{ target: string; status: string }>;
+      deliveryTargetHealth: Array<{ target: string; status: string; receiptCount24h: number; failedCount24h: number; trend: string }>;
       incidentTimeline: { startDayKey: string; endDayKey: string; events: Array<{ kind: string }> };
+      readinessHistory: { points: Array<{ backendHealthy: boolean; gatewayStatus: string }> };
       guidedIncidentCommand: { stages: Array<{ id: string; complete: boolean; blocked: boolean }> };
       escalationPlaybooks: Array<{ id: string; title: string }>;
       operationsLedger: { entries: Array<{ action: string; correlationId?: string }> };
@@ -654,9 +661,17 @@ describe("OpenClog application layer", () => {
       roleAwareSimulations: Array<{ id: string; liveSideEffects: false }>;
       policyRecommendationPacks: Array<{ id: string; recommendations: Array<{ whyThisRecommendation: string }> }>;
       nativeTruthMonitor: { status: string; checks: Array<{ id: string; status: string }> };
+      retentionImpact: { removedEntryCount: number; removedDayKeys: string[] };
+      activeHypotheses: Array<{ label: string; hypothesis: string; validationSteps: string[] }>;
+      nativeCutoverPlan: { status: string; artifactPath: string; nextSteps: string[] };
     };
 
     expect(report.summaryJobHistory.jobs[0]).toMatchObject({ queuedForMs: 2000, runningForMs: 5000, medianCompletionMs: 7000, correlationId: "corr-summary-1" });
+    expect(report.summaryJobHistory.days).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ dayKey: "2026-05-08", completedCount: 1, failedCount: 0, queuedCount: 0, runningCount: 0 })
+      ])
+    );
     expect(report.incidentEvidenceChecklist.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "timeline", present: true }),
       expect.objectContaining({ id: "receipts", present: true }),
@@ -672,6 +687,9 @@ describe("OpenClog application layer", () => {
       expect.objectContaining({ id: "gateway_readiness", status: "passed" })
     ]));
     expect(report.verificationCenter).toMatchObject({
+      receipts: expect.arrayContaining([expect.objectContaining({ id: "verify-main", ageLabel: expect.any(String), freshness: expect.any(String) })]),
+      readinessScore: expect.any(Number),
+      readinessLabel: expect.stringMatching(/ready|warning|blocked/),
       lastSuccessfulVerifyAt: "2026-05-08T12:04:20.000Z",
       lastSuccessfulGatewayVerifyAt: "2026-05-08T12:05:30.000Z",
       lastSuccessfulDesktopVerifyAt: "2026-05-08T12:06:10.000Z",
@@ -689,12 +707,15 @@ describe("OpenClog application layer", () => {
         expect.objectContaining({ dayKey: "2026-05-08", score: expect.any(Number) })
       ])
     );
-    expect(report.deliveryTargetHealth).toEqual(expect.arrayContaining([expect.objectContaining({ target: "slack", status: "blocked" })]));
+    expect(report.deliveryTargetHealth).toEqual(
+      expect.arrayContaining([expect.objectContaining({ target: "slack", status: "blocked", receiptCount24h: 1, failedCount24h: 1, trend: "degraded" })])
+    );
     expect(report.incidentTimeline).toMatchObject({
       startDayKey: "2026-05-08",
       endDayKey: "2026-05-08",
       events: expect.arrayContaining([expect.objectContaining({ kind: "summary_job" }), expect.objectContaining({ kind: "delivery_receipt" })])
     });
+    expect(report.readinessHistory.points).toEqual(expect.arrayContaining([expect.objectContaining({ backendHealthy: true, gatewayStatus: expect.any(String) })]));
     expect(report.guidedIncidentCommand.stages).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: "detect", complete: true }), expect.objectContaining({ id: "record" })])
     );
@@ -706,6 +727,13 @@ describe("OpenClog application layer", () => {
     expect(report.roleAwareSimulations.every((simulation) => simulation.liveSideEffects === false)).toBe(true);
     expect(report.policyRecommendationPacks.find((pack) => pack.id === "failed-summaries")?.recommendations[0].whyThisRecommendation).toContain("evidence");
     expect(report.nativeTruthMonitor.checks).toEqual(expect.arrayContaining([expect.objectContaining({ id: "backend_fingerprint", status: "passed" })]));
+    expect(report.retentionImpact).toMatchObject({ removedEntryCount: 0, removedDayKeys: [] });
+    expect(report.activeHypotheses).toEqual([]);
+    expect(report.nativeCutoverPlan).toMatchObject({
+      status: "prep",
+      artifactPath: "docs/openclog-native-cutover.md",
+      nextSteps: expect.arrayContaining(["Move scheduled self-check ownership into the desktop boundary without duplicating Fastify policy."])
+    });
   });
 
   test("imports newsletter monitoring decisions as redacted notes and incident handoff packets", () => {

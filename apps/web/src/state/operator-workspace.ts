@@ -3,6 +3,8 @@ import {
   browserVisibleEntryText,
   describeGeneratedSummaryFreshness as describeGeneratedSummaryFreshnessFromCore,
   type AlertFinding,
+  type IncidentActionKind,
+  type IncidentActionRecord,
   type CapabilityView,
   type CloseoutPlan,
   type CorrelationEdge,
@@ -17,7 +19,8 @@ import {
   type ReplayBundleDiff,
   type ReplayStep,
   type RetentionPreview,
-  type SummaryJob
+  type SummaryJob,
+  type VerificationReceipt
 } from "@openclog/core";
 import type { JournalRouteState } from "../hooks/useJournalRouting.js";
 
@@ -33,6 +36,10 @@ export const DEFAULT_SEARCH_PRESETS: SearchPreset[] = [
   { id: "delivery-receipts", label: "Delivery receipts", query: "delivery receipt" },
   { id: "plugin-runs", label: "Plugin runs", query: "plugin run" }
 ];
+
+export function buildShellShortcutHints(): string[] {
+  return ["[: left rail", "Alt+S: search", "Alt+C: composer", "]: diagnostics"];
+}
 
 export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): OperatorViewPreset[] {
   return [
@@ -273,6 +280,22 @@ export function buildDryRunFailureJumpNotice(receipt: DeliveryReceipt): { href: 
     label: `Open ${targetLabel} delivery target`,
     message: `Dry-run verification failed for ${targetLabel}; jump to the delivery target card.`
   };
+}
+
+export function formatVerificationReceiptAge(receipt: VerificationReceipt): string {
+  return receipt.ageLabel ?? "age unavailable";
+}
+
+export function formatVerificationReceiptStatus(receipt: VerificationReceipt): string {
+  if (receipt.freshness === "fresh") return "Fresh evidence";
+  if (receipt.freshness === "aging") return "Aging evidence";
+  if (receipt.freshness === "stale") return "Stale evidence";
+  return "Evidence age unknown";
+}
+
+export function describeIncidentActionRecordingStatus(actionId: IncidentActionKind, records: IncidentActionRecord[]): string {
+  const matching = records.find((record) => record.kind === actionId);
+  return matching ? `Recorded at ${safeWorkbenchCopy(matching.createdAt)}.` : "Not yet recorded.";
 }
 
 export function applyOperatorViewTimelinePreference(view: OperatorViewPreset, grouped: boolean): OperatorViewPreset {

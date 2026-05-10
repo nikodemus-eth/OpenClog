@@ -918,6 +918,9 @@ export interface VerificationReceipt {
   summary: string;
   artifactPath?: string;
   commitSha?: string;
+  ageMs?: number;
+  ageLabel?: string;
+  freshness?: "fresh" | "aging" | "stale" | "unknown";
 }
 
 export interface InvestigationWorkspace {
@@ -951,6 +954,10 @@ export interface SummaryJobDayHistory {
   retries: number;
   failureReasons: string[];
   medianCompletionMs: number;
+  queuedCount: number;
+  runningCount: number;
+  completedCount: number;
+  failedCount: number;
 }
 
 export interface SummaryJobHistoryPanel {
@@ -988,7 +995,9 @@ export interface InvestigationBundlePreview {
 
 export interface ReadinessHistorySparklinePoint {
   timestamp: string;
+  backendHealthy: boolean;
   gatewayReady: boolean;
+  gatewayStatus: "ready" | "blocked" | "degraded";
   missingScopeCount: number;
   reconnectCount: number;
   backendRestartCount: number;
@@ -1045,6 +1054,9 @@ export interface VerificationCenterGate {
 export interface VerificationCenterReport {
   generatedAt: string;
   gates: VerificationCenterGate[];
+  receipts: VerificationReceipt[];
+  readinessScore: number;
+  readinessLabel: "ready" | "warning" | "blocked";
   lastSuccessfulVerifyAt?: string;
   lastSuccessfulGatewayVerifyAt?: string;
   lastSuccessfulDesktopVerifyAt?: string;
@@ -1077,6 +1089,24 @@ export interface DeliveryTargetHealth {
   detail: string;
   dryRunStatus: "passed" | "failed" | "missing";
   latestReceiptId?: string;
+  receiptCount24h: number;
+  failedCount24h: number;
+  dryRunFailures24h: number;
+  trend: "steady" | "degraded" | "improving";
+}
+
+export interface ActiveHypothesis {
+  id: string;
+  label: string;
+  hypothesis: string;
+  validationSteps: string[];
+}
+
+export interface NativeCutoverPlan {
+  status: "prep";
+  artifactPath: string;
+  summary: string;
+  nextSteps: string[];
 }
 
 export interface IncidentTimelineEvent {
@@ -1170,4 +1200,7 @@ export interface OperationsBacklogReport {
   nativeTruthMonitor: NativeTruthMonitorReport;
   policyRecommendationPacks: PolicyRecommendationPack[];
   escalationPlaybooks: EscalationPlaybook[];
+  retentionImpact: RetentionPreview;
+  activeHypotheses: ActiveHypothesis[];
+  nativeCutoverPlan: NativeCutoverPlan;
 }

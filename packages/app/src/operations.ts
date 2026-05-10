@@ -1,4 +1,5 @@
 import type {
+  ActiveHypothesis,
   ChaosTestScenario,
   CorrelationGraph,
   DeliveryTargetHealth,
@@ -14,6 +15,7 @@ import type {
   IncidentSummary,
   InvestigationBundlePreview,
   JournalDay,
+  NativeCutoverPlan,
   NativeTruthMonitorReport,
   OperationsBacklogReport,
   OperationsGateStatus,
@@ -28,7 +30,8 @@ import type {
   SummaryJobHistoryItem,
   SummaryJobHistoryPanel,
   VerificationCenterGate,
-  VerificationCenterReport
+  VerificationCenterReport,
+  VerificationReceipt
 } from "@openclog/core";
 import type { ApplicationRepository, DeliveryLedgerInput, OperationsBacklogInput } from "./contracts.js";
 import { buildCapabilityViews } from "./capabilities.js";
@@ -64,6 +67,7 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
   const verificationCenter = buildVerificationCenter(repo, day, receipts, replay.steps.length, routeBudgets, generatedAt);
   const recommendationRationales = buildRecommendationRationales(day, receipts, incident);
   const evidenceQualityScores = buildEvidenceQualityScores(day, incident, checklist, receipts);
+  const verificationReceipts = enrichVerificationReceipts(repo.listVerificationReceipts?.() ?? [], generatedAt);
   return {
     dayKey: input.dayKey,
     ...(incidentId ? { incidentId } : {}),
@@ -74,7 +78,7 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
     readinessHistory: buildReadinessHistory(repo),
     deliveryLedger,
     deliveryTargetHealth: buildDeliveryTargetHealth(receipts),
-    incidentTimeline: buildIncidentTimeline(day, incident, notes, receipts, summaryJobs, repo.listVerificationReceipts?.() ?? []),
+    incidentTimeline: buildIncidentTimeline(day, incident, notes, receipts, summaryJobs, verificationReceipts),
     routePerformanceBudgets: routeBudgets,
     chaosScenarios: chaosScenarios(),
     recommendationRationales,
@@ -84,10 +88,13 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
     guidedIncidentCommand: buildGuidedIncidentCommand(incident, checklist, day, receipts),
     roleAwareSimulations: roleAwareSimulations(),
     causalityGraph,
-    operationsLedger: { entries: buildOperationsLedger(summaryJobs, receipts, repo.listIncidentActionRecords?.({ ...(incidentId ? { incidentId } : {}) }) ?? [], repo.listVerificationReceipts?.() ?? []) },
+    operationsLedger: { entries: buildOperationsLedger(summaryJobs, receipts, repo.listIncidentActionRecords?.({ ...(incidentId ? { incidentId } : {}) }) ?? [], verificationReceipts) },
     nativeTruthMonitor: buildNativeTruthMonitor(repo, verificationCenter),
     policyRecommendationPacks: buildPolicyRecommendationPacks(recommendationRationales),
-    escalationPlaybooks: buildEscalationPlaybooks(day, verificationCenter, receipts)
+    escalationPlaybooks: buildEscalationPlaybooks(day, verificationCenter, receipts),
+    retentionImpact: buildRetentionImpact(repo),
+    activeHypotheses: buildActiveHypotheses(repo),
+    nativeCutoverPlan: buildNativeCutoverPlan()
   };
 }
 
@@ -113,7 +120,11 @@ function buildSummaryJobHistory(jobs: SummaryJob[]): SummaryJobHistoryPanel {
     dayKey,
     retries: Math.max(0, dayJobs.length - 1),
     failureReasons: dayJobs.map((job) => job.failureReason).filter((reason): reason is string => Boolean(reason)),
-    medianCompletionMs: median(dayJobs.filter((job) => job.completedAt).map((job) => job.totalMs))
+    medianCompletionMs: median(dayJobs.filter((job) => job.completedAt).map((job) => job.totalMs)),
+    queuedCount: dayJobs.filter((job) => job.status === "queued").length,
+    runningCount: dayJobs.filter((job) => job.status === "running").length,
+    completedCount: dayJobs.filter((job) => job.status === "completed").length,
+    failedCount: dayJobs.filter((job) => job.status === "failed").length
   }));
   return { jobs: withMedian, days };
 }
@@ -170,7 +181,9 @@ function buildReadinessHistory(repo: ApplicationRepository): ReadinessHistorySpa
     windowHours: 24,
     points: timeline.slice(0, 24).map((entry, index) => ({
       timestamp: entry.timestamp,
+      backendHealthy: entry.category !== "stale",
       gatewayReady: entry.category === "recovery" || entry.category === "reconnect",
+      gatewayStatus: /scope/i.test(entry.detail) || /scope/i.test(entry.title) ? "blocked" : entry.category === "recovery" || entry.category === "reconnect" ? "ready" : "degraded",
       missingScopeCount: /scope/i.test(entry.detail) || /scope/i.test(entry.title) ? 1 : 0,
       reconnectCount: entry.category === "reconnect" ? index + 1 : (aggregate?.reconnectCount ?? 0),
       backendRestartCount: entry.category === "restart" ? 1 : 0
@@ -226,7 +239,7 @@ function buildVerificationCenter(
   budgets: RoutePerformanceBudget[],
   generatedAt: string
 ): VerificationCenterReport {
-  const verificationReceipts = repo.listVerificationReceipts?.() ?? [];
+  const verificationReceipts = enrichVerificationReceipts(repo.listVerificationReceipts?.() ?? [], generatedAt);
   const latestVerify = latestReceipt(verificationReceipts.filter((receipt) => /(^verify$)|npm run verify/.test(receipt.command)));
   const latestGateway = latestReceipt(verificationReceipts.filter((receipt) => /verify:gateway|npm run verify:gateway/.test(receipt.command)));
   const latestDesktop = latestReceipt(verificationReceipts.filter((receipt) => /verify:desktop-native|npm run verify:desktop-native/.test(receipt.command)));
@@ -251,9 +264,20 @@ function buildVerificationCenter(
     { id: "desktop_self_check", label: "Desktop self-check", status: latestDesktop?.status === "passed" ? "passed" : latestDesktop?.status === "failed" ? "blocked" : "unknown", detail: latestDesktop?.summary ?? "No desktop self-check receipt.", evidenceIds: latestDesktop ? [latestDesktop.id] : [] },
     { id: "route_budgets", label: "Route budgets", status: budgets.some((budget) => budget.status === "breach") ? "blocked" : "passed", detail: "Route performance budgets evaluated for summary jobs, incidents, and health.", evidenceIds: budgets.map((budget) => budget.route) }
   ];
+  const readinessScore = Math.max(
+    0,
+    Math.round(
+      (gates.reduce((total, gate) => total + (gate.status === "passed" ? 100 : gate.status === "warning" ? 60 : gate.status === "unknown" ? 40 : 0), 0) /
+        Math.max(gates.length, 1))
+    )
+  );
+  const readinessLabel = readinessScore >= 85 ? "ready" : readinessScore >= 50 ? "warning" : "blocked";
   return {
     generatedAt,
     gates,
+    receipts: verificationReceipts,
+    readinessScore,
+    readinessLabel,
     ...(latestVerify?.status === "passed" && latestVerify.completedAt ? { lastSuccessfulVerifyAt: latestVerify.completedAt } : {}),
     ...(latestGateway?.status === "passed" && latestGateway.completedAt ? { lastSuccessfulGatewayVerifyAt: latestGateway.completedAt } : {}),
     ...(latestDesktop?.status === "passed" && latestDesktop.completedAt ? { lastSuccessfulDesktopVerifyAt: latestDesktop.completedAt } : {}),
@@ -334,12 +358,18 @@ function buildDeliveryTargetHealth(receipts: Array<{ id: string; target: Deliver
     const scoped = receipts.filter((receipt) => receipt.target === target);
     const failedDryRun = scoped.find((receipt) => receipt.dryRun && receipt.status === "failed");
     const latest = scoped[0];
+    const failedCount24h = scoped.filter((receipt) => receipt.status === "failed").length;
+    const dryRunFailures24h = scoped.filter((receipt) => receipt.dryRun && receipt.status === "failed").length;
     return {
       target,
       status: failedDryRun ? "blocked" : scoped.some((receipt) => receipt.dryRun) ? "ok" : "warning",
       detail: failedDryRun ? "Latest dry-run verification failed closed." : scoped.some((receipt) => receipt.dryRun) ? "Dry-run verification receipt is available." : "Dry-run verification receipt has not been recorded yet.",
       dryRunStatus: failedDryRun ? "failed" : scoped.some((receipt) => receipt.dryRun) ? "passed" : "missing",
-      ...(latest ? { latestReceiptId: latest.id } : {})
+      ...(latest ? { latestReceiptId: latest.id } : {}),
+      receiptCount24h: scoped.length,
+      failedCount24h,
+      dryRunFailures24h,
+      trend: failedCount24h > 0 ? "degraded" : scoped.length > 0 ? "improving" : "steady"
     };
   });
 }
@@ -409,6 +439,38 @@ function buildNativeTruthMonitor(repo: ApplicationRepository, verificationCenter
     { id: "desktop_self_check" as const, status: desktopGate?.status ?? "unknown", detail: desktopGate?.detail ?? "Desktop self-check receipt unavailable." }
   ];
   return { status: worstStatus(checks.map((check) => check.status)), checks };
+}
+
+function buildRetentionImpact(repo: ApplicationRepository) {
+  return repo.previewRetention
+    ? repo.previewRetention({ keepDays: 1, includeAudit: true, includeRedactedEvents: true, includeSummaries: true })
+    : { keepDays: 1, removedDayKeys: [], removedEntryCount: 0, removedSummaryCount: 0, removedAuditCount: 0 };
+}
+
+function buildActiveHypotheses(repo: ApplicationRepository): ActiveHypothesis[] {
+  const settings = repo.getSetting?.("settings.v2", { operatorViews: [] as Array<{ id: string; label: string; hypothesis?: string; validationSteps?: string[] }> });
+  const operatorViews = Array.isArray(settings?.operatorViews) ? settings.operatorViews : [];
+  return operatorViews
+    .filter((view): view is { id: string; label: string; hypothesis: string; validationSteps?: string[] } => typeof view?.hypothesis === "string" && view.hypothesis.trim().length > 0)
+    .map((view) => ({
+      id: view.id,
+      label: view.label,
+      hypothesis: view.hypothesis,
+      validationSteps: Array.isArray(view.validationSteps) ? view.validationSteps : []
+    }));
+}
+
+function buildNativeCutoverPlan(): NativeCutoverPlan {
+  return {
+    status: "prep",
+    artifactPath: "docs/openclog-native-cutover.md",
+    summary: "Truthful prep only: document the desktop-boundary cutover without moving Fastify-owned authority in this campaign.",
+    nextSteps: [
+      "Move scheduled self-check ownership into the desktop boundary without duplicating Fastify policy.",
+      "Keep secure-secret handling native-only and fail closed when the desktop boundary is unavailable.",
+      "Promote launch-health evidence into the machine-local operations ledger before any larger cutover."
+    ]
+  };
 }
 
 function buildPolicyRecommendationPacks(recommendations: RecommendationRationale[]): PolicyRecommendationPack[] {
@@ -550,6 +612,32 @@ function latestEntryMs(day: JournalDay): number {
 
 function latestReceipt<T extends { completedAt?: string; startedAt: string }>(receipts: T[]): T | undefined {
   return receipts.sort((left, right) => (right.completedAt ?? right.startedAt).localeCompare(left.completedAt ?? left.startedAt))[0];
+}
+
+function enrichVerificationReceipts<T extends VerificationReceipt>(receipts: T[], generatedAt: string): T[] {
+  return receipts.map((receipt) => {
+    const completedAt = receipt.completedAt ?? receipt.startedAt;
+    const ageMs = durationMs(completedAt, generatedAt);
+    const freshness = ageMs <= 15 * 60 * 1000 ? "fresh" : ageMs <= 60 * 60 * 1000 ? "aging" : "stale";
+    return {
+      ...receipt,
+      ageMs,
+      ageLabel: ageMs > 0 ? formatDuration(ageMs) : undefined,
+      freshness
+    };
+  });
+}
+
+function formatDuration(durationMsValue: number): string {
+  if (durationMsValue < 1000) return `${durationMsValue}ms old`;
+  const totalSeconds = Math.round(durationMsValue / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s old`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) return seconds > 0 ? `${minutes}m ${seconds}s old` : `${minutes}m old`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m old` : `${hours}h old`;
 }
 
 function statusFromJob(status: SummaryJob["status"]): OperationsLedgerEntry["status"] {

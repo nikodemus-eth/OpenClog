@@ -394,6 +394,22 @@ button {
   justify-self: center;
 }
 
+.shell-shortcut-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--stitch-line);
+  background: color-mix(in srgb, var(--card-bg) 84%, var(--bg-alt) 16%);
+  color: var(--muted);
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+}
+
+.shell-shortcut-strip span {
+  font-weight: 700;
+}
+
 .brand-row {
   display: flex;
   gap: 12px;

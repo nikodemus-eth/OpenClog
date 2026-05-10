@@ -115,7 +115,17 @@ export function buildGovernanceModule(repo: ApplicationRepository) {
       return requireMethod(repo.completeCloseout, "completeCloseout")(dayKey, exportTargets);
     },
     listVerificationReceipts() {
-      return requireMethod(repo.listVerificationReceipts, "listVerificationReceipts")();
+      const generatedAt = new Date().toISOString();
+      return requireMethod(repo.listVerificationReceipts, "listVerificationReceipts")().map((receipt) => {
+        const completedAt = receipt.completedAt ?? receipt.startedAt;
+        const ageMs = verificationDurationMs(completedAt, generatedAt);
+        return {
+          ...receipt,
+          ageMs,
+          ageLabel: ageMs > 0 ? formatVerificationAge(ageMs) : undefined,
+          freshness: ageMs <= 15 * 60 * 1000 ? "fresh" : ageMs <= 60 * 60 * 1000 ? "aging" : "stale"
+        };
+      });
     },
     createInvestigationWorkspace(input: { dayKeys: string[]; title?: string }) {
       return requireMethod(repo.createInvestigationWorkspace, "createInvestigationWorkspace")(input);
@@ -129,4 +139,24 @@ export function buildGovernanceModule(repo: ApplicationRepository) {
       return requireMethod(repo.getRemoteOpsPolicy, "getRemoteOpsPolicy")();
     }
   };
+}
+
+function verificationDurationMs(start: string | undefined, end: string | undefined): number {
+  if (!start || !end) return 0;
+  const startMs = Date.parse(start);
+  const endMs = Date.parse(end);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return 0;
+  return Math.max(0, endMs - startMs);
+}
+
+function formatVerificationAge(durationMsValue: number): string {
+  if (durationMsValue < 1000) return `${durationMsValue}ms old`;
+  const totalSeconds = Math.round(durationMsValue / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s old`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) return seconds > 0 ? `${minutes}m ${seconds}s old` : `${minutes}m old`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m old` : `${hours}h old`;
 }

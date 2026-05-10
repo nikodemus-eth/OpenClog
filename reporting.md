@@ -33,3 +33,9 @@ Closeout notes:
 - Future daily reports should mention collapsed rail health, summary-job polling, dry-run delivery verification, operations backlog evidence, and local verification receipt freshness as current product seams.
 - The Google Doc comparison was connector-backed against the Drive document titled `OpenClog`, while the repo-local review artifact now names the stale source areas and the current operator workbench behavior.
 - Receipt publication can now be reported from `/api/verification/receipts` and `/api/operations/report`: the latest local run produced real docs-check, visual, verify, Gateway, and desktop-native receipts.
+
+## 2026-05-10 Gap-Closure Campaign Follow-Through
+
+- Verification Center rows can now report receipt age/freshness alongside the existing timestamps, which makes “fresh vs aging vs stale evidence” part of the morning briefing instead of an implicit operator inference.
+- `/api/operations/report` now carries richer summary-job day totals, 24-hour delivery-target health trends, backend/Gateway readiness splits, retention-impact output, saved-view hypotheses, and a native cutover prep artifact reference.
+- Future daily reports should call out readiness score, receipt-age evidence, active investigation hypotheses, and the native cutover prep status as current product seams rather than backlog-only concepts.

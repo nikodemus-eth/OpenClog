@@ -124,6 +124,7 @@ interface AppShellProps {
   selectedOlderDay: Omit<JournalDay, "entries"> | null;
   shortcutsOpen: boolean;
   shellActionStatus: string;
+  lastSuccessfulSummaryJobCompletionAt?: string;
   theme: Theme;
   themeId: ThemeId;
   themeIds: ThemeId[];
@@ -169,6 +170,25 @@ export function AppShell(props: AppShellProps) {
     setRightRailCollapsed(false);
     if (callback) runAfterRender(callback);
   }
+
+  useEffect(() => {
+    function handleShellShortcut(event: KeyboardEvent): void {
+      const target = event.target as HTMLElement | null;
+      const tagName = target?.tagName;
+      if (target?.isContentEditable || tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT") return;
+      if (event.key === "[") {
+        event.preventDefault();
+        setLeftRailCollapsed(!leftRailCollapsed);
+      }
+      if (event.key === "]") {
+        event.preventDefault();
+        expandRightRail(props.onGatewayFocus);
+      }
+    }
+
+    window.addEventListener("keydown", handleShellShortcut);
+    return () => window.removeEventListener("keydown", handleShellShortcut);
+  }, [leftRailCollapsed, props.onGatewayFocus]);
 
   return (
     <div
@@ -217,6 +237,7 @@ export function AppShell(props: AppShellProps) {
         recentDays={props.recentDays}
         selectedDayKey={props.day.dayKey}
         selectedOlderDay={props.selectedOlderDay}
+        lastSuccessfulSummaryJobCompletionAt={props.lastSuccessfulSummaryJobCompletionAt}
         theme={props.theme}
         themeId={props.themeId}
         themeIds={props.themeIds}
@@ -235,6 +256,12 @@ export function AppShell(props: AppShellProps) {
       />
       <main id="main-content" className="journal-page" aria-label="Daily page" data-theme={props.themeId} ref={props.mainRef} tabIndex={-1}>
         {props.children}
+        <footer className="shell-shortcut-strip" aria-label="Keyboard shortcut hints">
+          <span>[ left rail</span>
+          <span>Alt+S search</span>
+          <span>Alt+C composer</span>
+          <span>] diagnostics</span>
+        </footer>
       </main>
       {rightRailCollapsed ? (
         <CollapsedRightRail
@@ -365,6 +392,7 @@ export function Sidebar(props: {
   collapsed: boolean;
   days: Array<Omit<JournalDay, "entries">>;
   leftRailContent?: ReactNode;
+  lastSuccessfulSummaryJobCompletionAt?: string;
   recentDays: Array<Omit<JournalDay, "entries">>;
   selectedDayKey: string;
   selectedOlderDay: Omit<JournalDay, "entries"> | null;
@@ -384,11 +412,14 @@ export function Sidebar(props: {
   onThemeChange: (themeId: ThemeId) => void;
 }) {
   if (props.collapsed) {
+    const recentLogsLabel = props.lastSuccessfulSummaryJobCompletionAt
+      ? `Recent logs. Last summary completion ${props.lastSuccessfulSummaryJobCompletionAt}`
+      : "Recent logs";
     const items: CollapsedRailItem[] = [
       { label: "Home", iconName: "home", Icon: Home, onClick: props.onHomeClick },
       { label: "New entry", iconName: "square-pen", Icon: SquarePen, onClick: props.onNewEntry },
       { label: "Journal search", iconName: "file-search", Icon: FileSearch, onClick: props.onSearchFocus },
-      { label: "Recent logs", iconName: "calendar-days", Icon: CalendarDays, onClick: props.onExpand },
+      { label: recentLogsLabel, iconName: "calendar-days", Icon: CalendarDays, onClick: props.onExpand },
       { label: "Theme picker", iconName: "palette", Icon: Palette, onClick: props.onExpand },
       { label: "Network diagnostics", iconName: "radio-tower", Icon: RadioTower, onClick: props.onGatewayFocus },
       { label: "Agent monitors", iconName: "activity", Icon: Activity, onClick: props.onAgentActivityFocus },
@@ -1153,7 +1184,7 @@ export function AgentActivityCard(props: { agents: AgentActivity[]; collapsed: b
         <DiagnosticsCardHeader title="Agent Activity" collapsed={props.collapsed} onToggle={props.onToggleCollapsed} />
         {!props.collapsed ? (
           <>
-            {agents.length === 0 ? <p>No agent activity for this day.</p> : null}
+            {agents.length === 0 ? <p>No active agents recorded for this day.</p> : null}
             <ul className="agent-list">
               {agents.map((agent) => (
                 <li key={agent.id}>
