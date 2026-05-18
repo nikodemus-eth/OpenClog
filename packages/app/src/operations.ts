@@ -325,11 +325,15 @@ function buildVerificationCenter(
   );
   const readinessLabel = readinessScore >= 85 ? "ready" : readinessScore >= 50 ? "warning" : "blocked";
   const firstBlockedGate = gates.find((gate) => gate.status === "blocked");
+  const latestFailedReceipt = latestReceipt(verificationReceipts.filter((receipt) => receipt.status === "failed"));
+  const latestPassingReceipt = latestReceipt(verificationReceipts.filter((receipt) => receipt.status === "passed"));
   return {
     generatedAt,
     gates,
     ...(firstBlockedGate ? { firstBlockedGateId: firstBlockedGate.id } : {}),
     receipts: verificationReceipts,
+    ...(latestFailedReceipt ? { latestFailedReceipt } : {}),
+    ...(latestPassingReceipt ? { latestPassingReceipt } : {}),
     readinessScore,
     readinessLabel,
     ...(latestVerify?.status === "passed" && latestVerify.completedAt ? { lastSuccessfulVerifyAt: latestVerify.completedAt } : {}),
@@ -721,20 +725,30 @@ function roleAwareSimulations(): RoleAwareIncidentSimulation[] {
   ];
 }
 
-function buildDeliveryTargetHealth(receipts: Array<{ id: string; target: DeliveryLedgerItem["target"]; status: string; dryRun?: boolean }>): DeliveryTargetHealth[] {
+function buildDeliveryTargetHealth(
+  receipts: Array<{ id: string; target: DeliveryLedgerItem["target"]; status: string; dryRun?: boolean; completedAt?: string }>
+): DeliveryTargetHealth[] {
   const targets: DeliveryTargetHealth["target"][] = ["slack", "generic-webhook", "email", "github-issue"];
   return targets.map((target) => {
     const scoped = receipts.filter((receipt) => receipt.target === target);
-    const failedDryRun = scoped.find((receipt) => receipt.dryRun && receipt.status === "failed");
+    const dryRuns = scoped.filter((receipt) => receipt.dryRun);
+    const failedDryRun = dryRuns.find((receipt) => receipt.status === "failed");
     const latest = scoped[0];
+    const latestDryRun = dryRuns[0];
     const failedCount24h = scoped.filter((receipt) => receipt.status === "failed").length;
     const dryRunFailures24h = scoped.filter((receipt) => receipt.dryRun && receipt.status === "failed").length;
+    const lastVerifiedAt = latestDryRun?.completedAt;
+    const lastVerifiedAgeMs = durationMs(lastVerifiedAt, new Date().toISOString());
     return {
       target,
       status: failedDryRun ? "blocked" : scoped.some((receipt) => receipt.dryRun) ? "ok" : "warning",
       detail: failedDryRun ? "Latest dry-run verification failed closed." : scoped.some((receipt) => receipt.dryRun) ? "Dry-run verification receipt is available." : "Dry-run verification receipt has not been recorded yet.",
       dryRunStatus: failedDryRun ? "failed" : scoped.some((receipt) => receipt.dryRun) ? "passed" : "missing",
       ...(latest ? { latestReceiptId: latest.id } : {}),
+      ...(latestDryRun ? { latestDryRunReceiptId: latestDryRun.id } : {}),
+      ...(lastVerifiedAt ? { lastVerifiedAt } : {}),
+      ...(lastVerifiedAt ? { lastVerifiedAgeLabel: formatDuration(lastVerifiedAgeMs) } : {}),
+      ...(lastVerifiedAt ? { lastVerifiedFreshness: classifyFreshness(lastVerifiedAgeMs) } : {}),
       receiptCount24h: scoped.length,
       failedCount24h,
       dryRunFailures24h,
@@ -749,17 +763,29 @@ function buildIncidentTimeline(
   notes: Array<{ id: string; createdAt: string }>,
   receipts: Array<{ id: string; requestedAt: string; dayKey: string }>,
   summaryJobs: Array<{ id: string; createdAt: string; dayKey: string }>,
-  verificationReceipts: Array<{ id: string; startedAt: string; completedAt?: string }>
+  verificationReceipts: Array<{ id: string; startedAt: string; completedAt?: string; command: string }>
 ): IncidentTimeline {
   const range = incident?.dayKeys?.length ? incident.dayKeys : [day.dayKey];
   const events = [
     ...(incident ? [{ id: incident.id, dayKey: incident.dayKeys[0] ?? day.dayKey, timestamp: incident.createdAt, kind: "incident" as const, label: incident.title, relatedId: incident.id }] : []),
-    ...notes.map((note) => ({ id: note.id, dayKey: day.dayKey, timestamp: note.createdAt, kind: "note" as const, label: `Note ${note.id}`, relatedId: note.id })),
-    ...receipts.map((receipt) => ({ id: receipt.id, dayKey: receipt.dayKey, timestamp: receipt.requestedAt, kind: "delivery_receipt" as const, label: `Receipt ${receipt.id}`, relatedId: receipt.id })),
-    ...summaryJobs.map((job) => ({ id: job.id, dayKey: job.dayKey, timestamp: job.createdAt, kind: "summary_job" as const, label: `Summary job ${job.id}`, relatedId: job.id })),
-    ...verificationReceipts.map((receipt) => ({ id: receipt.id, dayKey: day.dayKey, timestamp: receipt.completedAt ?? receipt.startedAt, kind: "verification_receipt" as const, label: `Verification ${receipt.id}`, relatedId: receipt.id }))
+    ...notes.map((note) => ({ id: note.id, dayKey: day.dayKey, timestamp: note.createdAt, kind: "note" as const, source: "human" as const, sourceLabel: "Human", label: `Note ${note.id}`, relatedId: note.id })),
+    ...receipts.map((receipt) => ({ id: receipt.id, dayKey: receipt.dayKey, timestamp: receipt.requestedAt, kind: "delivery_receipt" as const, source: "delivery" as const, sourceLabel: "Delivery", label: `Receipt ${receipt.id}`, relatedId: receipt.id })),
+    ...summaryJobs.map((job) => ({ id: job.id, dayKey: job.dayKey, timestamp: job.createdAt, kind: "summary_job" as const, source: "summary_job" as const, sourceLabel: "Summary job", label: `Summary job ${job.id}`, relatedId: job.id })),
+    ...verificationReceipts.map((receipt) => ({ id: receipt.id, dayKey: day.dayKey, timestamp: receipt.completedAt ?? receipt.startedAt, kind: "verification_receipt" as const, source: "gateway" as const, sourceLabel: /gateway/i.test(receipt.command) ? "Gateway verification" : "Verification", label: `Verification ${receipt.id}`, relatedId: receipt.id }))
   ].sort((left, right) => left.timestamp.localeCompare(right.timestamp));
-  return { startDayKey: range[0] ?? day.dayKey, endDayKey: range[range.length - 1] ?? day.dayKey, events };
+  return {
+    startDayKey: range[0] ?? day.dayKey,
+    endDayKey: range[range.length - 1] ?? day.dayKey,
+    events: events.map((event) =>
+      "source" in event
+        ? event
+        : {
+            ...event,
+            source: "gateway" as const,
+            sourceLabel: "Gateway"
+          }
+    )
+  };
 }
 
 function buildGuidedIncidentCommand(

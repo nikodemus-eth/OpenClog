@@ -3,6 +3,11 @@
 ## Purpose
 Track network behavior, local Gateway assumptions, and remote deployment boundaries.
 
+## 2026-05-18 Quick Wins Trust Tranche
+- No browser-to-Gateway boundary changed in this tranche: the browser still talks only to the OpenClog HTTP/SSE API, and all new trust cues come from backend/shared report assembly.
+- The new delivery-target `last verified` indicators, verification receipt comparisons, incident badge state, and route-budget regression row metadata are all backend-authored view data over existing local routes.
+- Keyboard additions for blocked actions and failed receipts only move local focus; they do not add new network calls or any browser-visible credential path.
+
 ## 2026-05-02 Bootstrap Intent
 - Default Gateway URL is `ws://127.0.0.1:18789`.
 - `gateway-client` backend mode is allowed only for direct loopback use with shared token/password auth.

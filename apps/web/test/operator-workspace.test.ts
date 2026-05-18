@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { CapabilityView, DeliveryReceipt, GeneratedSummary, JournalEntry, MonitoringImportResult, OperationsBacklogReport } from "@openclog/core";
 import {
   addSearchPreset,
+  buildActiveIncidentBadgeText,
   buildNamedOperatorViews,
   buildReconnectTrendText,
   buildShellShortcutHints,
@@ -35,13 +36,16 @@ import {
   formatCloseoutPlan,
   formatCapabilitySummary,
   formatCloseoutReadiness,
+  formatDeliveryTargetHealthSummary,
   formatExportableOperatorView,
   formatMonitoringImportSummary,
   formatMissionReplayStep,
   formatReceiptDetails,
   formatWhyBlocked,
   formatSummaryJobDurations,
+  formatTimelineEventSummary,
   formatVerificationReceiptAge,
+  formatVerificationReceiptComparison,
   formatVerificationReceiptStatus,
   getLastSuccessfulSummaryJobCompletionAt,
   formatReplayBundleDiff,
@@ -261,6 +265,7 @@ describe("operator workspace helpers", () => {
       expect.objectContaining({ id: "stale-summaries", builtIn: true, searchQuery: "summary stale" }),
       expect.objectContaining({ id: "failed-receipts", builtIn: true, searchQuery: "delivery receipt failed" }),
       expect.objectContaining({ id: "stale-backend-fingerprint", builtIn: true, searchQuery: "stale backend fingerprint" }),
+      expect.objectContaining({ id: "needs-operator-action-now", builtIn: true, hypothesis: "Needs operator action now highlights blocked, stale, and failed work that should be handled before handoff." }),
       expect.objectContaining({ id: "only-unresolved-incidents", builtIn: true, hypothesis: "Unresolved incidents combine open alerts, failed actions, and stale summaries." }),
       expect.objectContaining({ id: "scope-missing", builtIn: true, searchQuery: "scope missing" })
     ]);
@@ -311,6 +316,7 @@ describe("operator workspace helpers", () => {
       expect.objectContaining({ id: "stale-summaries", builtIn: true }),
       expect.objectContaining({ id: "failed-receipts", builtIn: true }),
       expect.objectContaining({ id: "stale-backend-fingerprint", builtIn: true }),
+      expect.objectContaining({ id: "needs-operator-action-now", builtIn: true }),
       expect.objectContaining({ id: "only-unresolved-incidents", builtIn: true }),
       expect.objectContaining({ id: "scope-missing", builtIn: true }),
       expect.objectContaining({ id: "saved-hypothesis", grouped: false, hypothesis: "Gateway scopes are missing." })
@@ -325,6 +331,7 @@ describe("operator workspace helpers", () => {
       expect.objectContaining({ id: "stale-summaries", drilldown: { sessionKey: undefined, tab: "timeline", scrollTop: 0 } }),
       expect.objectContaining({ id: "failed-receipts", drilldown: { sessionKey: undefined, tab: "deliveries", scrollTop: 0 } }),
       expect.objectContaining({ id: "stale-backend-fingerprint", drilldown: { sessionKey: undefined, tab: "timeline", scrollTop: 0 } }),
+      expect.objectContaining({ id: "needs-operator-action-now", drilldown: { sessionKey: undefined, tab: "actions", scrollTop: 0 } }),
       expect.objectContaining({ id: "only-unresolved-incidents", drilldown: { sessionKey: undefined, tab: "actions", scrollTop: 0 } }),
       expect.objectContaining({ id: "scope-missing", drilldown: { sessionKey: undefined, tab: "actions", scrollTop: 0 } })
     ]);
@@ -541,7 +548,7 @@ describe("operator workspace helpers", () => {
       ])
     ).toBe("Recorded at 2026-05-08T12:03:00.000Z.");
     expect(describeIncidentActionRecordingStatus("deliver_email", [])).toBe("Not yet recorded.");
-    expect(buildShellShortcutHints()).toEqual(["[: left rail", "Alt+S: search", "Alt+C: composer", "Alt+R: failed receipts", "Alt+M: stale summaries", "]: diagnostics"]);
+    expect(buildShellShortcutHints()).toEqual(["[: left rail", "Alt+S: search", "Alt+B: blocked action", "Alt+R: failed receipts", "Alt+M: stale summaries", "]: diagnostics"]);
   });
 
   test("describes active operator views, connectivity, summary job state, and per-view storage", () => {
@@ -1096,6 +1103,160 @@ describe("operator workspace helpers", () => {
         newerEvidenceReason: "A newer receipt landed after the saved view summary was generated."
       })
     ).toContain("Warning: newer evidence exists. A newer receipt landed after the saved view summary was generated.");
+  });
+
+  test("formats active incident badges, delivery target freshness, timeline sources, and verification comparisons", () => {
+    expect(
+      buildActiveIncidentBadgeText({
+        id: "incident-1",
+        title: "Gateway instability",
+        summary: "summary",
+        dayKeys: ["2026-05-04"],
+        entryIds: ["entry-1"],
+        createdAt: "2026-05-04T12:00:00.000Z",
+        runbookSuggestions: [{ id: "runbook-1", title: "Check readiness", summary: "Check it", reason: "risk" }],
+        loopProgress: { detect: true, explain: true, recommend: false, act: false, record: false },
+        investigationNoteCount: 2
+      })
+    ).toBe("Active incident Gateway instability: 2/5 complete, next Recommend, 2 linked notes.");
+
+    expect(
+      buildActiveIncidentBadgeText({
+        id: "incident-2",
+        title: "Recovered incident",
+        summary: "summary",
+        dayKeys: ["2026-05-04"],
+        entryIds: ["entry-1"],
+        createdAt: "2026-05-04T12:00:00.000Z",
+        runbookSuggestions: [{ id: "runbook-2", title: "Keep attached", summary: "summary", reason: "done" }],
+        loopProgress: { detect: true, explain: true, recommend: true, act: true, record: true }
+      })
+    ).toBe("Active incident Recovered incident: 5/5 complete, next Complete, 0 linked notes.");
+
+    expect(
+      buildActiveIncidentBadgeText({
+        id: "incident-3",
+        title: "Suggested followup",
+        summary: "summary",
+        dayKeys: ["2026-05-04"],
+        entryIds: ["entry-1"],
+        createdAt: "2026-05-04T12:00:00.000Z",
+        runbookSuggestions: []
+      })
+    ).toBe("Active incident Suggested followup: 2/5 complete, next Recommend, 0 linked notes.");
+
+    expect(
+      formatDeliveryTargetHealthSummary({
+        target: "slack",
+        status: "blocked",
+        detail: "Latest dry-run verification failed closed.",
+        dryRunStatus: "failed",
+        latestReceiptId: "receipt-1",
+        latestDryRunReceiptId: "receipt-verify-1",
+        lastVerifiedAt: "2026-05-04T12:00:00.000Z",
+        lastVerifiedAgeLabel: "5m",
+        lastVerifiedFreshness: "fresh",
+        receiptCount24h: 2,
+        failedCount24h: 1,
+        dryRunFailures24h: 1,
+        trend: "degraded"
+      })
+    ).toBe("slack blocked: Latest dry-run verification failed closed. Last verified 5m ago (fresh). Latest dry-run receipt receipt-verify-1.");
+
+    expect(
+      formatTimelineEventSummary({
+        id: "timeline-1",
+        dayKey: "2026-05-04",
+        timestamp: "2026-05-04T12:00:00.000Z",
+        kind: "delivery_receipt",
+        source: "delivery",
+        sourceLabel: "Delivery",
+        label: "Slack delivery failed",
+        relatedId: "receipt-1"
+      })
+    ).toBe("2026-05-04T12:00:00.000Z: Delivery delivery receipt Slack delivery failed.");
+
+    expect(
+      formatVerificationReceiptComparison({
+        latestFailedReceipt: {
+          id: "verify-failed-1",
+          command: "npm run verify",
+          status: "failed",
+          startedAt: "2026-05-04T12:00:00.000Z",
+          completedAt: "2026-05-04T12:02:00.000Z",
+          summary: "verify failed",
+          ageLabel: "15m",
+          freshness: "aging"
+        },
+        latestPassingReceipt: {
+          id: "verify-pass-1",
+          command: "npm run verify",
+          status: "passed",
+          startedAt: "2026-05-04T12:10:00.000Z",
+          completedAt: "2026-05-04T12:12:00.000Z",
+          summary: "verify passed",
+          ageLabel: "3m",
+          freshness: "fresh"
+        }
+      })
+    ).toBe("Latest failed verify-failed-1: failed, 15m, aging. Latest passing verify-pass-1: passed, 3m, fresh.");
+
+    expect(
+      formatVerificationReceiptComparison({
+        latestFailedReceipt: undefined,
+        latestPassingReceipt: undefined
+      })
+    ).toBe("Latest failed unavailable. Latest passing unavailable.");
+
+    expect(
+      formatVerificationReceiptComparison({
+        latestFailedReceipt: {
+          id: "verify-failed-2",
+          command: "npm run verify",
+          status: "failed",
+          startedAt: "2026-05-04T12:20:00.000Z",
+          completedAt: "2026-05-04T12:21:00.000Z",
+          summary: "verify failed again"
+        },
+        latestPassingReceipt: {
+          id: "verify-pass-2",
+          command: "npm run verify",
+          status: "passed",
+          startedAt: "2026-05-04T12:22:00.000Z",
+          completedAt: "2026-05-04T12:23:00.000Z",
+          summary: "verify passed again"
+        }
+      })
+    ).toBe("Latest failed verify-failed-2: failed, age unavailable, unknown. Latest passing verify-pass-2: passed, age unavailable, unknown.");
+
+    expect(
+      formatDeliveryTargetHealthSummary({
+        target: "email",
+        status: "warning",
+        detail: "Dry-run verification receipt has not been recorded yet.",
+        dryRunStatus: "missing",
+        receiptCount24h: 0,
+        failedCount24h: 0,
+        dryRunFailures24h: 0,
+        trend: "steady"
+      })
+    ).toBe("email warning: Dry-run verification receipt has not been recorded yet. Last verified unavailable.");
+
+    expect(
+      formatDeliveryTargetHealthSummary({
+        target: "github-issue",
+        status: "ok",
+        detail: "Dry-run verification receipt is available.",
+        dryRunStatus: "passed",
+        latestDryRunReceiptId: "receipt-verify-2",
+        lastVerifiedAt: "2026-05-04T12:30:00.000Z",
+        lastVerifiedAgeLabel: "9m",
+        receiptCount24h: 1,
+        failedCount24h: 0,
+        dryRunFailures24h: 0,
+        trend: "improving"
+      })
+    ).toBe("github-issue ok: Dry-run verification receipt is available. Last verified 9m ago (unknown). Latest dry-run receipt receipt-verify-2.");
   });
 });
 

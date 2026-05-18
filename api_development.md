@@ -3,6 +3,12 @@
 ## Purpose
 Track public API contracts and Gateway RPC usage.
 
+## 2026-05-18 Quick Wins Trust Tranche
+- No new public route names were introduced in this tranche.
+- `GET /api/days` now carries additive day-level route-budget regression metadata so archive rows can render explicit delta callouts from backend-authored data.
+- `GET /api/incidents` now carries additive `investigationNoteCount` metadata for incident cards.
+- `/api/operations/report` and `/api/operations/center` now carry additive Verification Center failed/passing receipt highlights, delivery-target last-verified freshness metadata, and incident timeline source/source-label metadata.
+
 ## 2026-05-02 Bootstrap Intent
 - Public API: `/api/health`, `/api/days`, `/api/days/:dayKey`, `/api/stream`, `/api/composer`, `/api/approvals`, `/api/approvals/:id/resolve`, `/api/sessions/:key/abort`, `/api/days/:dayKey/export`, and `/api/settings`.
 - Gateway RPC methods must use dotted names such as `sessions.create`, `sessions.send`, `sessions.abort`, and `exec.approval.resolve`.

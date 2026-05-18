@@ -117,6 +117,7 @@ import { useJournalRouting } from "./hooks/useJournalRouting.js";
 import {
   addSearchPreset,
   applyEntryFilters,
+  buildActiveIncidentBadgeText,
   buildArchiveView,
   buildDryRunFailureJumpNotice,
   buildGatewayScopeButtonLabel,
@@ -143,13 +144,16 @@ import {
   formatCorrelationNode,
   formatBundleManifestPreview,
   formatCloseoutPlan,
+  formatDeliveryTargetHealthSummary,
   formatIntegrationVerificationReceipt,
   formatReceiptDetails,
   getLastSuccessfulSummaryJobCompletionAt,
   formatMissionReplayStep,
   formatReplayBundleDiff,
   formatRetentionSnapshotImpact,
+  formatTimelineEventSummary,
   formatVerificationReceiptAge,
+  formatVerificationReceiptComparison,
   formatVerificationReceiptStatus,
   findDayByCalendarValue,
   getInitialDiagnosticsCollapsedState,
@@ -390,8 +394,20 @@ export function App() {
   const operatorViewSource = useMemo(() => describeOperatorViewSource(activeOperatorView), [activeOperatorView]);
   const pinnedSummaryRemaining = useMemo(() => remainingPinnedSummaryCharacters(pinnedSummary), [pinnedSummary]);
   const routeBudgetRegressionDayKeys = useMemo(
-    () => (operationsReport && operationsReport.routeBudgetRegressions.length > 0 ? [operationsReport.dayKey] : []),
-    [operationsReport]
+    () => days.filter((item) => (item.routeBudgetRegressions?.length ?? 0) > 0).map((item) => item.dayKey),
+    [days]
+  );
+  const activeIncidentForBadge = useMemo(() => {
+    if (incidents.length === 0) return null;
+    const incomplete = incidents.find((incident) => {
+      const progress = incident.loopProgress ?? { detect: true, explain: true, recommend: incident.runbookSuggestions.length > 0, act: false, record: false };
+      return Object.values(progress).some((done) => done === false);
+    });
+    return incomplete ?? incidents[0];
+  }, [incidents]);
+  const activeIncidentBadgeText = useMemo(
+    () => (activeIncidentForBadge ? buildActiveIncidentBadgeText(activeIncidentForBadge) : null),
+    [activeIncidentForBadge]
   );
   const collapsedRightRailSummary = useMemo(() => {
     const center = operationsReport?.verificationCenter;
@@ -887,8 +903,17 @@ export function App() {
         event.preventDefault();
         const blockedGate = document.querySelector<HTMLElement>('[data-verification-gate-status="blocked"]');
         focusShellTarget(blockedGate, "Verification failure focused.");
+      } else if (event.altKey && event.key.toLowerCase() === "b") {
+        event.preventDefault();
+        const blockedAction = document.querySelector<HTMLElement>('[data-blocked-action="true"]');
+        focusShellTarget(blockedAction, "Blocked action focused.");
       } else if (event.altKey && event.key.toLowerCase() === "r") {
         event.preventDefault();
+        const failedReceipt = document.querySelector<HTMLElement>('[data-failed-receipt="true"]');
+        if (failedReceipt) {
+          focusShellTarget(failedReceipt, "Failed receipt focused.");
+          return;
+        }
         void handleApplyOperatorViewById("failed-receipts");
       } else if (event.altKey && event.key.toLowerCase() === "m") {
         event.preventDefault();
@@ -1750,6 +1775,7 @@ async function handleRetryReceipt(id: string): Promise<void> {
       healthPollAgeLabel={healthPollAgeLabel}
       healthPollLatencyMs={healthPollLatencyMs}
       verificationTrustSummary={verificationTrustSummary}
+      activeIncidentBadgeText={activeIncidentBadgeText ?? undefined}
       collapsedRightRailSummary={collapsedRightRailSummary}
       version={version}
       recentDays={archiveView.recentDays}
@@ -1782,6 +1808,7 @@ async function handleRetryReceipt(id: string): Promise<void> {
         void handleToastClick(toast);
       }}
       onToolFilterFocus={() => focusShellTarget(toolFilterRef.current, "Tool filter focused.")}
+      onActiveIncidentFocus={() => focusShellTarget(incidentsPanelRef.current, "Active incident focused.")}
       onVerificationFailureFocus={() => {
         const blockedGate = document.querySelector<HTMLElement>('[data-verification-gate-status="blocked"]');
         focusShellTarget(blockedGate, "Verification failure focused.");
@@ -2562,6 +2589,7 @@ function OperationalPanels(props: {
             <p>Last successful verify:gateway {operationsReport.verificationCenter.lastSuccessfulGatewayVerifyAt ?? "unavailable"}.</p>
             <p>Last successful verify:desktop-native {operationsReport.verificationCenter.lastSuccessfulDesktopVerifyAt ?? "unavailable"}.</p>
             <p>Last successful docs:check {operationsReport.verificationCenter.lastSuccessfulDocsCheckAt ?? "unavailable"}.</p>
+            <p>{formatVerificationReceiptComparison(operationsReport.verificationCenter)}</p>
             {operationsReport.verificationCenter.docsCheckedCommitSha ? (
               <p>Docs-checked commit {operationsReport.verificationCenter.docsCheckedCommitSha}.</p>
             ) : null}
@@ -2729,7 +2757,7 @@ function OperationalPanels(props: {
             <ul>
               {operationsReport.deliveryTargetHealth.map((item) => (
                 <li key={item.target}>
-                  {item.target}: receipts {item.receiptCount24h}, failed {item.failedCount24h}, dry-run failures {item.dryRunFailures24h}, trend {item.trend}.
+                  {formatDeliveryTargetHealthSummary(item)} Receipts {item.receiptCount24h}, failed {item.failedCount24h}, dry-run failures {item.dryRunFailures24h}, trend {item.trend}.
                 </li>
               ))}
             </ul>
@@ -2787,7 +2815,7 @@ function OperationalPanels(props: {
             <ul>
               {operationsReport.incidentTimeline.events.slice(0, 5).map((event) => (
                 <li key={event.id}>
-                  {event.timestamp}: {event.kind} {event.label}
+                  <span className="timeline-chip">{event.sourceLabel}</span> {formatTimelineEventSummary(event)}
                 </li>
               ))}
             </ul>
@@ -2890,6 +2918,7 @@ function OperationalPanels(props: {
             {props.incidents.slice(0, 4).map((incident) => (
               <li key={incident.id}>
                 <strong>{incident.title}</strong>
+                <p>{buildActiveIncidentBadgeText(incident)}</p>
                 <div className="search-presets" aria-label="Incident loop progress">
                   {incidentLoopSteps(incident).map((step) => (
                     <span key={step.label} className="timeline-chip">
@@ -2897,6 +2926,7 @@ function OperationalPanels(props: {
                     </span>
                   ))}
                 </div>
+                <p>Linked investigation notes: {incident.investigationNoteCount ?? 0}</p>
                 <button aria-label={`Copy incident id ${incident.id}`} type="button" onClick={() => props.onCopyIncidentId(incident.id)}>
                   Copy incident id
                 </button>
@@ -2994,6 +3024,7 @@ function OperationalPanels(props: {
                         <span key={action.id}>
                           <button
                             type="button"
+                            data-blocked-action={action.availability === "blocked" ? "true" : undefined}
                             disabled={action.availability === "blocked"}
                             title={action.reason ?? action.description}
                             onClick={() =>
@@ -3212,13 +3243,18 @@ function OperationalPanels(props: {
               <div className="delivery-target-card" id={`delivery-target-${item.target}`} key={item.target}>
                 <h4>{item.label}</h4>
                 <div className="search-presets">
-                  <button type="button" onClick={() => props.onVerifyIntegration(item.target)}>
-                    Verify {item.label} dry run
-                  </button>
-                  <button type="button" disabled={!capabilityGateAllows(capabilities, `delivery:${item.target}`)} onClick={() => props.onDeliverIntegration(item.target)}>
-                    {capabilityGateAllows(capabilities, `delivery:${item.target}`)
-                      ? `Deliver to ${item.label.toLocaleLowerCase()}`
-                      : buildGatewayScopeButtonLabel(`Deliver to ${item.label.toLocaleLowerCase()}`, props.gatewayMissingScopes)}
+                      <button type="button" onClick={() => props.onVerifyIntegration(item.target)}>
+                        Verify {item.label} dry run
+                      </button>
+                      <button
+                        type="button"
+                        data-blocked-action={!capabilityGateAllows(capabilities, `delivery:${item.target}`) ? "true" : undefined}
+                        disabled={!capabilityGateAllows(capabilities, `delivery:${item.target}`)}
+                        onClick={() => props.onDeliverIntegration(item.target)}
+                      >
+                        {capabilityGateAllows(capabilities, `delivery:${item.target}`)
+                          ? `Deliver to ${item.label.toLocaleLowerCase()}`
+                          : buildGatewayScopeButtonLabel(`Deliver to ${item.label.toLocaleLowerCase()}`, props.gatewayMissingScopes)}
                   </button>
                   {!capabilityGateAllows(capabilities, `delivery:${item.target}`) ? (
                     <details>
@@ -3234,9 +3270,28 @@ function OperationalPanels(props: {
                           evidenceIds: [item.target, `delivery:${item.target}`]
                         })}
                       </p>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          props.onCopyWhyBlocked(
+                            formatWhyBlocked({
+                              label: `Deliver to ${item.label.toLocaleLowerCase()}`,
+                              blockingReasons: props.gatewayMissingScopes.length > 0 ? props.gatewayMissingScopes.map((scope) => `missing ${scope}`) : ["capability gate unavailable for live delivery"],
+                              nextSafeActions: [
+                                props.gatewayMissingScopes.length > 0 ? `Copy missing scopes: ${props.gatewayMissingScopes.join(", ")}` : "Inspect delivery capability manifest",
+                                "Run dry-run verification after configuration changes"
+                              ],
+                              evidenceIds: [item.target, `delivery:${item.target}`]
+                            })
+                          )
+                        }
+                      >
+                        Copy why blocked summary
+                      </button>
                     </details>
                   ) : null}
                 </div>
+                {operationsReport ? <p>{formatDeliveryTargetHealthSummary(operationsReport.deliveryTargetHealth.find((health) => health.target === item.target) ?? { target: item.target, status: "warning", detail: "Delivery target health unavailable.", dryRunStatus: "missing", receiptCount24h: 0, failedCount24h: 0, dryRunFailures24h: 0, trend: "steady" })}</p> : null}
                 {verificationReceipt ? (
                   <>
                     <p>{formatIntegrationVerificationReceipt(verificationReceipt)}</p>
@@ -3253,7 +3308,7 @@ function OperationalPanels(props: {
         {deliveryReceipts.length > 0 ? (
           <ul>
             {deliveryReceipts.slice(0, 3).map((receipt) => (
-              <li key={receipt.id}>
+              <li key={receipt.id} data-failed-receipt={receipt.status === "failed" ? "true" : undefined} tabIndex={receipt.status === "failed" ? -1 : undefined}>
                 <p>
                   {receipt.target}: {receipt.status} ({receipt.correlationId})
                   {receipt.deadLetterReason ? ` - ${receipt.deadLetterReason}` : ""} · retries {receipt.retryCount}

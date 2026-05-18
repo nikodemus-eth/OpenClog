@@ -3,6 +3,13 @@
 ## Purpose
 Track OpenClog implementation decisions, verification passes, refactors, and closeout evidence.
 
+## 2026-05-18 Quick Wins Trust Tranche
+- Implemented the approved Quick Wins tranche on local `main` by extending shared trust/report contracts first, then wiring the web shell to those bounded fields.
+- Kept the refactor narrow: the new operator-facing trust strings live in [`apps/web/src/state/operator-workspace.ts`](/Users/m4/OpenClog/apps/web/src/state/operator-workspace.ts), while `App.tsx` now consumes helpers for the shell badge, delivery-target status, verification comparisons, and timeline-source summaries.
+- Added the built-in `Needs operator action now` view, a header-level active-incident badge, blocked-action copy affordances on delivery controls, and `Alt+B` / enhanced `Alt+R` keyboard focus paths for blocked actions and failed receipts.
+- Repo-wide unit coverage now closes at 100% statements, 100% branches, 100% functions, and 100% lines without adding new exclusions.
+- Tightened the desktop-native verifier contract so `npm run verify:desktop-native` builds the web dist before running Tauri cargo tests instead of assuming a stale bundle is already present.
+
 ## 2026-05-02 Bootstrap Intent
 - Initialize this folder as the local OpenClog repo on `main`.
 - Build the local-first OpenClog Journal MVP from `Instructions.md`.

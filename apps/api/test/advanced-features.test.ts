@@ -638,6 +638,15 @@ describe("advanced OpenClog features", () => {
       summary: "docs check passed from local runner",
       commitSha: "def5678"
     });
+    repo.saveVerificationReceipt({
+      id: "verify-gateway-failed",
+      command: "npm run verify:gateway",
+      status: "failed",
+      startedAt: "2026-05-10T10:55:00.000Z",
+      completedAt: "2026-05-10T10:56:00.000Z",
+      summary: "gateway verification failed from local runner",
+      commitSha: "abc1234"
+    });
     const gateway = createMemoryGateway({ ready: true });
     gateway.getState = () => ({
       canIssueControlActions: true,
@@ -776,6 +785,8 @@ describe("advanced OpenClog features", () => {
         verificationCenter: {
           docsCheckedCommitSha: "def5678",
           lastSuccessfulDocsCheckAt: "2026-05-10T11:01:00.000Z",
+          latestFailedReceipt: expect.objectContaining({ id: expect.any(String), status: "failed" }),
+          latestPassingReceipt: expect.objectContaining({ id: "verify-docs-real", status: "passed" }),
           gates: expect.arrayContaining([expect.objectContaining({ id: "summary_freshness" })])
         },
         operationsLedger: {
@@ -794,9 +805,26 @@ describe("advanced OpenClog features", () => {
         closeoutReadiness: expect.objectContaining({ score: expect.any(Number), label: expect.any(String), requiredEvidenceFresh: expect.any(Boolean) }),
         releaseReadinessGate: expect.objectContaining({ requiredCommands: expect.arrayContaining(["verify", "verify:gateway", "docs:check", "verify:desktop-native"]) }),
         deliveryContractPreviews: expect.arrayContaining([expect.objectContaining({ target: "slack", dryRunSchema: expect.any(Array), liveSchema: expect.any(Array) })]),
+        deliveryTargetHealth: expect.arrayContaining([
+          expect.objectContaining({
+            target: "slack",
+            latestDryRunReceiptId: dryRun.json().receipt.id,
+            lastVerifiedAt: dryRun.json().receipt.completedAt,
+            lastVerifiedAgeLabel: expect.any(String),
+            lastVerifiedFreshness: expect.any(String)
+          })
+        ]),
+        incidentTimeline: expect.objectContaining({
+          events: expect.arrayContaining([
+            expect.objectContaining({ kind: "delivery_receipt", source: "delivery", sourceLabel: "Delivery" }),
+            expect.objectContaining({ kind: "verification_receipt", source: "gateway", sourceLabel: "Gateway verification" })
+          ])
+        }),
         verificationCenter: expect.objectContaining({
           docsCheckedCommitSha: "def5678",
           lastSuccessfulDocsCheckAt: "2026-05-10T11:01:00.000Z",
+          latestFailedReceipt: expect.objectContaining({ id: expect.any(String), status: "failed" }),
+          latestPassingReceipt: expect.objectContaining({ id: "verify-docs-real", status: "passed" }),
           readinessScore: expect.any(Number),
           readinessLabel: expect.any(String),
           receipts: expect.arrayContaining([expect.objectContaining({ id: expect.any(String), ageLabel: expect.any(String), freshness: expect.any(String) })]),

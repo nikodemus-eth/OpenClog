@@ -127,6 +127,7 @@ export interface JournalDay {
   retention?: RetentionMetadata;
   incidentIds?: string[];
   evidenceCompleteness?: EvidenceCompleteness;
+  routeBudgetRegressions?: RouteBudgetRegression[];
   entries: JournalEntry[];
   metrics: JournalDayMetrics;
 }
@@ -261,6 +262,7 @@ export interface IncidentSummary {
   loopStageNotes?: Partial<Record<keyof IncidentLoopProgress, string>>;
   selectedTemplateId?: string;
   handoffPacketIds?: string[];
+  investigationNoteCount?: number;
 }
 
 export interface InvestigationNote {
@@ -1082,6 +1084,8 @@ export interface VerificationCenterReport {
   gates: VerificationCenterGate[];
   firstBlockedGateId?: VerificationCenterGate["id"];
   receipts: VerificationReceipt[];
+  latestFailedReceipt?: VerificationReceipt;
+  latestPassingReceipt?: VerificationReceipt;
   readinessScore: number;
   readinessLabel: "ready" | "warning" | "blocked";
   lastSuccessfulVerifyAt?: string;
@@ -1207,6 +1211,10 @@ export interface DeliveryTargetHealth {
   detail: string;
   dryRunStatus: "passed" | "failed" | "missing";
   latestReceiptId?: string;
+  latestDryRunReceiptId?: string;
+  lastVerifiedAt?: string;
+  lastVerifiedAgeLabel?: string;
+  lastVerifiedFreshness?: VerificationReceipt["freshness"];
   receiptCount24h: number;
   failedCount24h: number;
   dryRunFailures24h: number;
@@ -1232,6 +1240,8 @@ export interface IncidentTimelineEvent {
   dayKey: string;
   timestamp: string;
   kind: "incident" | "note" | "delivery_receipt" | "summary_job" | "verification_receipt";
+  source: "human" | "gateway" | "summary_job" | "delivery";
+  sourceLabel: string;
   label: string;
   relatedId?: string;
 }

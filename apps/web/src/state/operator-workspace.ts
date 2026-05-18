@@ -12,8 +12,11 @@ import {
   type CorrelationEdge,
   type CorrelationNode,
   type DeliveryReceipt,
+  type DeliveryTargetHealth,
   type ExportableOperatorView,
   type GeneratedSummary,
+  type IncidentSummary,
+  type IncidentTimelineEvent,
   type JournalDay,
   type JournalEntry,
   type JournalFilterKey,
@@ -24,6 +27,7 @@ import {
   type ReplayStep,
   type RetentionPreview,
   type SummaryJob,
+  type VerificationCenterReport,
   type VerificationReceipt
 } from "@openclog/core";
 import type { JournalRouteState } from "../hooks/useJournalRouting.js";
@@ -42,7 +46,7 @@ export const DEFAULT_SEARCH_PRESETS: SearchPreset[] = [
 ];
 
 export function buildShellShortcutHints(): string[] {
-  return ["[: left rail", "Alt+S: search", "Alt+C: composer", "Alt+R: failed receipts", "Alt+M: stale summaries", "]: diagnostics"];
+  return ["[: left rail", "Alt+S: search", "Alt+B: blocked action", "Alt+R: failed receipts", "Alt+M: stale summaries", "]: diagnostics"];
 }
 
 export function buildVerificationTrustSummary(report: OperationsBacklogReport | null): string {
@@ -121,6 +125,18 @@ export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): Op
       grouped: true,
       builtIn: true,
       drilldown: { sessionKey, tab: "timeline", scrollTop: 0 }
+    },
+    {
+      id: "needs-operator-action-now",
+      label: "Needs operator action now",
+      dayKey,
+      searchQuery: "blocked stale failed dry-run approval reconnect",
+      activeFilters: ["errors", "approvals"],
+      grouped: true,
+      builtIn: true,
+      hypothesis: "Needs operator action now highlights blocked, stale, and failed work that should be handled before handoff.",
+      validationSteps: ["Review blocked actions.", "Resolve failed receipts or dry-runs.", "Refresh stale evidence before handoff."],
+      drilldown: { sessionKey, tab: "actions", scrollTop: 0 }
     },
     {
       id: "only-unresolved-incidents",
@@ -221,6 +237,17 @@ export function describeOperatorViewSource(view: OperatorViewPreset | null): str
   return view.builtIn ? `Built-in view: ${view.label} (${view.searchQuery})` : `Saved view: ${view.label} (${view.searchQuery})`;
 }
 
+export function buildActiveIncidentBadgeText(incident: Pick<IncidentSummary, "title" | "loopProgress" | "runbookSuggestions" | "investigationNoteCount">): string {
+  const progress = incident.loopProgress ?? { detect: true, explain: true, recommend: incident.runbookSuggestions.length > 0, act: false, record: false };
+  const orderedStages: Array<keyof typeof progress> = ["detect", "explain", "recommend", "act", "record"];
+  const completeCount = orderedStages.filter((stage) => progress[stage]).length;
+  const nextIncomplete = orderedStages.find((stage) => !progress[stage]);
+  const nextLabel = nextIncomplete ? capitalizeStage(nextIncomplete) : "Complete";
+  return `Active incident ${safeWorkbenchCopy(incident.title)}: ${String(completeCount)}/5 complete, next ${nextLabel}, ${String(
+    incident.investigationNoteCount ?? 0
+  )} linked notes.`;
+}
+
 export function describeComposerConnectivity(profileUrl: string | undefined, gatewayReady: boolean): { label: "Local only" | "Live Gateway"; detail: string } {
   const safety = classifyGatewayUrl(profileUrl);
   if (gatewayReady && (safety.kind === "loopback" || safety.kind === "lan" || safety.kind === "remote")) {
@@ -310,6 +337,20 @@ export function formatVerificationReceiptStatus(receipt: VerificationReceipt): s
   if (receipt.freshness === "aging") return "Aging evidence";
   if (receipt.freshness === "stale") return "Stale evidence";
   return "Evidence age unknown";
+}
+
+export function formatVerificationReceiptComparison(input: Pick<VerificationCenterReport, "latestFailedReceipt" | "latestPassingReceipt">): string {
+  const failed = input.latestFailedReceipt
+    ? `Latest failed ${safeWorkbenchCopy(input.latestFailedReceipt.id)}: ${safeWorkbenchCopy(input.latestFailedReceipt.status)}, ${safeWorkbenchCopy(
+        input.latestFailedReceipt.ageLabel ?? "age unavailable"
+      )}, ${safeWorkbenchCopy(input.latestFailedReceipt.freshness ?? "unknown")}.`
+    : "Latest failed unavailable.";
+  const passing = input.latestPassingReceipt
+    ? `Latest passing ${safeWorkbenchCopy(input.latestPassingReceipt.id)}: ${safeWorkbenchCopy(input.latestPassingReceipt.status)}, ${safeWorkbenchCopy(
+        input.latestPassingReceipt.ageLabel ?? "age unavailable"
+      )}, ${safeWorkbenchCopy(input.latestPassingReceipt.freshness ?? "unknown")}.`
+    : "Latest passing unavailable.";
+  return `${failed} ${passing}`;
 }
 
 export function describeIncidentActionRecordingStatus(actionId: IncidentActionKind, records: IncidentActionRecord[]): string {
@@ -513,6 +554,18 @@ export function formatIntegrationVerificationReceipt(receipt: DeliveryReceipt): 
   ]
     .filter(Boolean)
     .join(" ");
+}
+
+export function formatDeliveryTargetHealthSummary(item: DeliveryTargetHealth): string {
+  const verification = item.lastVerifiedAgeLabel
+    ? `Last verified ${safeWorkbenchCopy(item.lastVerifiedAgeLabel)} ago (${safeWorkbenchCopy(item.lastVerifiedFreshness ?? "unknown")}).`
+    : "Last verified unavailable.";
+  const latestDryRunReceipt = item.latestDryRunReceiptId ? ` Latest dry-run receipt ${safeWorkbenchCopy(item.latestDryRunReceiptId)}.` : "";
+  return `${safeWorkbenchCopy(item.target)} ${safeWorkbenchCopy(item.status)}: ${safeWorkbenchCopy(item.detail)} ${verification}${latestDryRunReceipt}`.trim();
+}
+
+export function formatTimelineEventSummary(event: IncidentTimelineEvent): string {
+  return `${safeWorkbenchCopy(event.timestamp)}: ${safeWorkbenchCopy(event.sourceLabel)} ${safeWorkbenchCopy(event.kind.replaceAll("_", " "))} ${safeWorkbenchCopy(event.label)}.`;
 }
 
 export function formatReplayBundleDiff(diff: ReplayBundleDiff | null): string | null {
@@ -751,4 +804,8 @@ function safeWorkbenchCopy(value: string): string {
 
 function stripTrailingSentencePunctuation(value: string): string {
   return value.replace(/[.!?]+$/u, "");
+}
+
+function capitalizeStage(stage: "detect" | "explain" | "recommend" | "act" | "record"): string {
+  return stage.charAt(0).toUpperCase() + stage.slice(1);
 }

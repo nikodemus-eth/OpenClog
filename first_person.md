@@ -3,6 +3,12 @@
 ## Purpose
 Record first-person implementation notes from the builder/operator perspective.
 
+## 2026-05-18 Quick Wins Trust Tranche
+- I kept this pass honest to the plan: I finished the operator-trust Quick Wins instead of pretending a larger native cutover was part of the same change.
+- I let the backend/shared seam speak first and made the browser thinner: the new badge, comparison row, delivery verification age, route-budget row copy, and note counts all come from bounded report data or shared helpers.
+- I kept the blocked-copy path consistent across delivery, verification, and incident actions because handoff text is part of the product, not just a convenience button.
+- I treated the repo-wide 100% coverage gate as real work rather than a config fight and closed the missing branches with targeted tests.
+
 ## 2026-05-02 Bootstrap Intent
 - I am building OpenClog as a local operational memory for OpenClaw, not as a replacement for the existing Control UI.
 - I will keep Gateway credentials server-side and show degraded or blocked state instead of pretending live state exists.

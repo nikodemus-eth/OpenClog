@@ -1,5 +1,10 @@
 # OpenClog Reporting Seed
 
+## 2026-05-18 Quick Wins Trust Tranche
+- Quick Wins now have stronger morning-trust surfaces in the shipped product: active-incident loop badge, delivery-target `last verified` evidence, explicit failed-vs-passing verification comparison, route-budget deltas on archive rows, and linked-note counts on incident cards.
+- Daily reports should now call out the built-in `Needs operator action now` view and the new keyboard focus paths for blocked actions and failed receipts as current operator-speed features rather than future ideas.
+- Verification reporting should distinguish the header trust chip from the new Verification Center comparison row: latest failed receipt and latest passing receipt are now separate, explicit evidence items.
+
 ## 2026-05-08 Daily Report Themes
 
 Current backlog lanes:

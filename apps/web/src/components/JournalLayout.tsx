@@ -132,6 +132,7 @@ interface AppShellProps {
   healthPollAgeLabel: string;
   healthPollLatencyMs: number | null;
   verificationTrustSummary: string;
+  activeIncidentBadgeText?: string;
   collapsedRightRailSummary?: string;
   version: VersionResponse;
   mainRef: RefObject<HTMLElement | null>;
@@ -153,6 +154,7 @@ interface AppShellProps {
   onTodayAtGlanceFocus: () => void;
   onTimelineFocus: () => void;
   onToolFilterFocus: () => void;
+  onActiveIncidentFocus?: () => void;
   onVerificationFailureFocus?: () => void;
   onToastClick: (toast: LiveEventToast) => void;
 }
@@ -230,9 +232,11 @@ export function AppShell(props: AppShellProps) {
           healthPollAgeLabel={props.healthPollAgeLabel}
           healthPollLatencyMs={props.healthPollLatencyMs}
           verificationTrustSummary={props.verificationTrustSummary}
+          activeIncidentBadgeText={props.activeIncidentBadgeText}
           onVerificationFailureFocus={props.onVerificationFailureFocus}
           shellActionStatus={props.shellActionStatus}
           version={props.version}
+          onActiveIncidentFocus={props.onActiveIncidentFocus}
         />
       </header>
       <Sidebar
@@ -266,7 +270,7 @@ export function AppShell(props: AppShellProps) {
         <footer className="shell-shortcut-strip" aria-label="Keyboard shortcut hints">
           <span>[ left rail</span>
           <span>Alt+S search</span>
-          <span>Alt+C composer</span>
+          <span>Alt+B blocked action</span>
           <span>Alt+R failed receipts</span>
           <span>Alt+M stale summaries</span>
           <span>] diagnostics</span>
@@ -339,9 +343,11 @@ function TopAppBar(props: {
   healthPollAgeLabel: string;
   healthPollLatencyMs: number | null;
   verificationTrustSummary: string;
+  activeIncidentBadgeText?: string;
   onVerificationFailureFocus?: () => void;
   shellActionStatus: string;
   version: VersionResponse;
+  onActiveIncidentFocus?: () => void;
 }) {
   const navItems = [
     { label: "Journal", onClick: props.onMainFocus },
@@ -379,6 +385,11 @@ function TopAppBar(props: {
         <p className="backend-meta" aria-label="Verification trust chip">
           {props.verificationTrustSummary}
         </p>
+        {props.activeIncidentBadgeText && props.onActiveIncidentFocus ? (
+          <button type="button" className="backend-meta" aria-label="Active incident badge" onClick={props.onActiveIncidentFocus}>
+            {props.activeIncidentBadgeText}
+          </button>
+        ) : null}
         {props.shellActionStatus ? (
           <p className="shell-action-status" aria-live="polite">
             {props.shellActionStatus}
@@ -554,10 +565,11 @@ export function DayArchive(props: {
         const completeness = item.evidenceCompleteness;
         const completenessLabel = completeness?.label ?? "Evidence completeness unavailable";
         const hasRouteBudgetRegression = routeBudgetRegressionDayKeys.has(item.dayKey);
+        const routeBudgetSummary = item.routeBudgetRegressions?.[0];
         return (
         <button
           aria-current={selected ? "date" : undefined}
-          aria-label={`${item.dateLabel}. ${title}. ${selected ? props.theme.labels.selectedDayStatus : "Archived day"}. ${item.metrics.errorCount > 0 ? "Status: degraded" : "Status: active"}. ${completenessLabel}${hasRouteBudgetRegression ? ". Route budget regression present." : ""}`}
+          aria-label={`${item.dateLabel}. ${title}. ${selected ? props.theme.labels.selectedDayStatus : "Archived day"}. ${item.metrics.errorCount > 0 ? "Status: degraded" : "Status: active"}. ${completenessLabel}${hasRouteBudgetRegression ? `. Route budget regression present${routeBudgetSummary ? `: ${routeBudgetSummary.route} +${String(routeBudgetSummary.deltaMs)} ms` : ""}.` : ""}`}
           className={selected ? "day-row selected" : "day-row"}
           key={item.dayKey}
           onClick={() => props.onDaySelect(item.dayKey)}
@@ -569,7 +581,7 @@ export function DayArchive(props: {
             {selected ? props.theme.labels.selectedDayStatus : "Archived day"} · {item.metrics.errorCount > 0 ? "Status: degraded" : "Status: active"}
           </small>
           {completeness ? <small className="evidence-badge">{completeness.label}</small> : null}
-          {hasRouteBudgetRegression ? <small className="evidence-badge">Route budget regression</small> : null}
+          {hasRouteBudgetRegression ? <small className="evidence-badge">Route budget regression{routeBudgetSummary ? ` +${String(routeBudgetSummary.deltaMs)} ms` : ""}</small> : null}
         </button>
         );
       })}
@@ -1478,8 +1490,10 @@ export function ShortcutsHelp(props: { open: boolean; onClose: () => void }) {
         <dd>Focus Verification Center</dd>
         <dt>Alt+F</dt>
         <dd>Jump to next Verification Center failure</dd>
+        <dt>Alt+B</dt>
+        <dd>Focus the next blocked action</dd>
         <dt>Alt+R</dt>
-        <dd>Open the Failed receipts operator view</dd>
+        <dd>Focus the next failed receipt, or open the Failed receipts operator view</dd>
         <dt>Alt+M</dt>
         <dd>Open the Stale summaries operator view</dd>
         <dt>Escape</dt>

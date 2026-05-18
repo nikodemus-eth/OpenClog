@@ -3,6 +3,11 @@
 ## Purpose
 Track OpenClog security posture, Gateway authority boundaries, redaction, and fail-closed behavior.
 
+## 2026-05-18 Quick Wins Trust Tranche
+- Blocked-action copy affordances now reuse the existing redaction-aware formatter across incident, delivery, and verification surfaces so handoff text stays bounded and sanitized.
+- Delivery-target freshness summaries and verification receipt comparisons expose receipt ids, age, and freshness metadata only; they do not expose delivery secrets, Gateway auth material, or raw credential-bearing payloads.
+- The new active-incident badge and timeline source chips are operator-trust presentation over existing redacted evidence and do not widen authority or disclosure scope.
+
 ## 2026-05-02 Bootstrap Intent
 - Gateway tokens, auth headers, cookies, env values, and secret-looking payloads must never reach the browser.
 - Persist only redacted Gateway payloads plus stable hashes and redaction reports.

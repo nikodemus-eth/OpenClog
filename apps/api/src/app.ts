@@ -82,7 +82,10 @@ export function createApiApp(services: ApiServices): FastifyInstance {
   app.get("/api/backend/fingerprint", async () => ({ ok: true, backend: backendFingerprint, fingerprint: backendFingerprint }));
 
   app.get("/api/days", async () => ({
-    days: services.repo.listDays()
+    days: services.repo.listDays().map((day) => ({
+      ...day,
+      routeBudgetRegressions: openclog.getOperationsBacklog({ dayKey: day.dayKey }).routeBudgetRegressions
+    }))
   }));
 
   app.get<{ Params: { dayKey: string } }>("/api/days/:dayKey", async (request, reply) => {
@@ -305,7 +308,10 @@ export function createApiApp(services: ApiServices): FastifyInstance {
   }));
 
   app.get("/api/incidents", async () => ({
-    incidents: services.repo.listIncidents()
+    incidents: services.repo.listIncidents().map((incident) => ({
+      ...incident,
+      investigationNoteCount: services.repo.listInvestigationNotes({ incidentId: incident.id }).length
+    }))
   }));
 
   app.get<{ Params: { id: string } }>("/api/incidents/:id/workspace", async (request, reply) => {

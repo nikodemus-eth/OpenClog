@@ -3,6 +3,12 @@
 ## Purpose
 Track OpenClog architecture, component ownership, and authority boundaries.
 
+## 2026-05-18 Quick Wins Trust Tranche
+- Fastify and `@openclog/app` remain the authority path for operator trust surfaces; the browser now renders additive report fields instead of deriving them ad hoc.
+- `@openclog/core` now models incident note counts, day-level route-budget regression metadata, delivery-target verification freshness fields, Verification Center failed/passing receipt highlights, and timeline source/source-label metadata.
+- `@openclog/app` extends the operations report with latest failed/passing verification receipts, delivery-target last-verified evidence, and timeline-source annotations, while the API enriches day and incident list responses with route-budget and investigation-note metadata.
+- The web shell now exposes a persistent active-incident badge, explicit failed-vs-passing verification comparison copy, delivery-target last-verified status, route-budget regression deltas on archive rows, note counts on incident cards, and keyboard focus paths for blocked actions and failed receipts.
+
 ## 2026-05-02 Bootstrap Intent
 - `packages/core` owns shared types, protocol constants, redaction, normalization, exports, theme tokens, and UI-safe policy helpers.
 - `apps/api` owns Gateway credentials, Gateway connection state, SQLite persistence, audit logging, and public HTTP/SSE routes.

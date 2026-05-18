@@ -3,6 +3,13 @@
 ## Purpose
 Record deterministic verification, live Gateway verification, coverage policy, and closeout results.
 
+## 2026-05-18 Quick Wins Trust Tranche
+- Added unit/API coverage for the new Quick Wins trust fields and helpers: built-in `Needs operator action now` view, active-incident badge formatting, delivery-target last-verified summaries, verification failed/passing comparison copy, timeline source summaries, and enriched operations-report contracts.
+- `npm run test:workbench` passed after the tranche changes.
+- `npm run typecheck` and `npm run lint` passed after the tranche changes.
+- `npm run test:coverage` passed with repo-wide 100% statements, 100% branches, 100% functions, and 100% lines.
+- Refined `npm run verify:desktop-native` so it builds the web bundle before running the Tauri cargo tests; the verifier no longer depends on a pre-existing `apps/web/dist/index.html`.
+
 ## 2026-05-02 Bootstrap Intent
 - `npm run verify` is deterministic and offline.
 - `npm run verify:gateway` is environment-dependent and must report pass or fail-closed.
