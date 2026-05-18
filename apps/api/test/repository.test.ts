@@ -276,15 +276,18 @@ describe("SQLite repository", () => {
     repo.addEntry({
       id: "session-tool",
       dayKey: "2026-05-08",
-      source: "tool",
-      kind: "tool_result",
-      title: "Tool finished",
-      body: "done",
+      source: "openclaw",
+      sourceLabel: "Backfilled from OpenClaw",
+      kind: "assistant_message",
+      title: "OpenClaw response",
+      body: "Recovered summary",
       timestamp: "2026-05-08T10:00:00.000Z",
-      status: "success",
+      status: "info",
       severity: "info",
       sessionId: "agent:hugin:main",
       approvalId: "approval-8",
+      backfilled: true,
+      importedAt: "2026-05-17T16:00:00.000Z",
       redacted: true
     });
     repo.addEntry({
@@ -332,6 +335,11 @@ describe("SQLite repository", () => {
     expect(drilldown.entries.map((entry) => entry.id)).toEqual(["session-tool", "approval-requested", "approval-resolved", "session-reconnect"]);
     expect(drilldown.approvalCount).toBe(1);
     expect(drilldown.reconnectCount).toBe(1);
+    expect(drilldown.provenance).toEqual({
+      backfilled: true,
+      sourceLabel: "Backfilled from OpenClaw",
+      importedAt: "2026-05-17T16:00:00.000Z"
+    });
   });
 
   test("returns empty incidents and profiles when none exist", () => {

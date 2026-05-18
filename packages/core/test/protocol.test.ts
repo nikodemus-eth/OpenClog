@@ -37,8 +37,8 @@ describe("Gateway protocol contract", () => {
       id: "connect-1",
       method: "connect",
       params: {
-        minProtocol: 3,
-        maxProtocol: 3,
+        minProtocol: 4,
+        maxProtocol: 4,
         role: "operator",
         scopes: requiredOperatorScopes,
         client: {

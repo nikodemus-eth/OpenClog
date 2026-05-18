@@ -120,6 +120,7 @@ interface AppShellProps {
   leftRailContent?: ReactNode;
   liveEventToasts: LiveEventToast[];
   recentDays: Array<Omit<JournalDay, "entries">>;
+  routeBudgetRegressionDayKeys?: string[];
   rightRailContent?: ReactNode;
   selectedOlderDay: Omit<JournalDay, "entries"> | null;
   shortcutsOpen: boolean;
@@ -130,6 +131,8 @@ interface AppShellProps {
   themeIds: ThemeId[];
   healthPollAgeLabel: string;
   healthPollLatencyMs: number | null;
+  verificationTrustSummary: string;
+  collapsedRightRailSummary?: string;
   version: VersionResponse;
   mainRef: RefObject<HTMLElement | null>;
   onAgentActivityFocus: () => void;
@@ -150,6 +153,7 @@ interface AppShellProps {
   onTodayAtGlanceFocus: () => void;
   onTimelineFocus: () => void;
   onToolFilterFocus: () => void;
+  onVerificationFailureFocus?: () => void;
   onToastClick: (toast: LiveEventToast) => void;
 }
 
@@ -225,6 +229,8 @@ export function AppShell(props: AppShellProps) {
           onToolFilterFocus={() => expandRightRail(props.onToolFilterFocus)}
           healthPollAgeLabel={props.healthPollAgeLabel}
           healthPollLatencyMs={props.healthPollLatencyMs}
+          verificationTrustSummary={props.verificationTrustSummary}
+          onVerificationFailureFocus={props.onVerificationFailureFocus}
           shellActionStatus={props.shellActionStatus}
           version={props.version}
         />
@@ -235,6 +241,7 @@ export function AppShell(props: AppShellProps) {
         archiveCalendarMessage={props.archiveCalendarMessage}
         archiveCalendarValue={props.archiveCalendarValue}
         recentDays={props.recentDays}
+        routeBudgetRegressionDayKeys={props.routeBudgetRegressionDayKeys}
         selectedDayKey={props.day.dayKey}
         selectedOlderDay={props.selectedOlderDay}
         lastSuccessfulSummaryJobCompletionAt={props.lastSuccessfulSummaryJobCompletionAt}
@@ -260,6 +267,8 @@ export function AppShell(props: AppShellProps) {
           <span>[ left rail</span>
           <span>Alt+S search</span>
           <span>Alt+C composer</span>
+          <span>Alt+R failed receipts</span>
+          <span>Alt+M stale summaries</span>
           <span>] diagnostics</span>
         </footer>
       </main>
@@ -274,6 +283,7 @@ export function AppShell(props: AppShellProps) {
           onTimelineFiltersFocus={() => expandRightRail(props.onTimelineFiltersFocus)}
           onTodayAtGlanceFocus={() => expandRightRail(props.onTodayAtGlanceFocus)}
           onToolFilterFocus={() => expandRightRail(props.onToolFilterFocus)}
+          verificationSummary={props.collapsedRightRailSummary}
         />
       ) : (
         <DiagnosticsPanel
@@ -328,6 +338,8 @@ function TopAppBar(props: {
   onToolFilterFocus: () => void;
   healthPollAgeLabel: string;
   healthPollLatencyMs: number | null;
+  verificationTrustSummary: string;
+  onVerificationFailureFocus?: () => void;
   shellActionStatus: string;
   version: VersionResponse;
 }) {
@@ -338,6 +350,7 @@ function TopAppBar(props: {
     { label: "Logs", onClick: props.onTimelineFocus }
   ];
   const utilityItems = [
+    ...(props.onVerificationFailureFocus ? [{ label: "First failing verification gate", icon: ShieldCheck, onClick: props.onVerificationFailureFocus }] : []),
     { label: "Tool filter settings", icon: SlidersHorizontal, onClick: props.onToolFilterFocus },
     { label: "Keyboard shortcuts", icon: HelpCircle, onClick: props.onShortcutsToggle }
   ];
@@ -362,6 +375,9 @@ function TopAppBar(props: {
         </p>
         <p className="backend-meta" aria-label="API health poll telemetry">
           Health poll {props.healthPollLatencyMs !== null ? `${String(props.healthPollLatencyMs)} ms` : "pending"} · last success {props.healthPollAgeLabel}
+        </p>
+        <p className="backend-meta" aria-label="Verification trust chip">
+          {props.verificationTrustSummary}
         </p>
         {props.shellActionStatus ? (
           <p className="shell-action-status" aria-live="polite">
@@ -394,6 +410,7 @@ export function Sidebar(props: {
   leftRailContent?: ReactNode;
   lastSuccessfulSummaryJobCompletionAt?: string;
   recentDays: Array<Omit<JournalDay, "entries">>;
+  routeBudgetRegressionDayKeys?: string[];
   selectedDayKey: string;
   selectedOlderDay: Omit<JournalDay, "entries"> | null;
   theme: Theme;
@@ -448,6 +465,7 @@ export function Sidebar(props: {
         archiveCalendarValue={props.archiveCalendarValue}
         days={props.days}
         recentDays={props.recentDays}
+        routeBudgetRegressionDayKeys={props.routeBudgetRegressionDayKeys}
         selectedDayKey={props.selectedDayKey}
         selectedOlderDay={props.selectedOlderDay}
         theme={props.theme}
@@ -510,6 +528,7 @@ export function DayArchive(props: {
   archiveCalendarValue: string;
   days: Array<Omit<JournalDay, "entries">>;
   recentDays: Array<Omit<JournalDay, "entries">>;
+  routeBudgetRegressionDayKeys?: string[];
   selectedDayKey: string;
   selectedOlderDay: Omit<JournalDay, "entries"> | null;
   theme: Theme;
@@ -518,6 +537,7 @@ export function DayArchive(props: {
 }) {
   const items = props.recentDays.length > 0 ? props.recentDays : props.days.length > 0 ? props.days.slice(0, 7) : [sampleJournalDay];
   const todayItem = items[0];
+  const routeBudgetRegressionDayKeys = new Set(props.routeBudgetRegressionDayKeys ?? []);
   return (
     <div className="day-list" aria-label={props.theme.labels.archiveTitle}>
       <div className="archive-block">
@@ -533,10 +553,11 @@ export function DayArchive(props: {
         const title = displayProductCopy(item.title);
         const completeness = item.evidenceCompleteness;
         const completenessLabel = completeness?.label ?? "Evidence completeness unavailable";
+        const hasRouteBudgetRegression = routeBudgetRegressionDayKeys.has(item.dayKey);
         return (
         <button
           aria-current={selected ? "date" : undefined}
-          aria-label={`${item.dateLabel}. ${title}. ${selected ? props.theme.labels.selectedDayStatus : "Archived day"}. ${item.metrics.errorCount > 0 ? "Status: degraded" : "Status: active"}. ${completenessLabel}`}
+          aria-label={`${item.dateLabel}. ${title}. ${selected ? props.theme.labels.selectedDayStatus : "Archived day"}. ${item.metrics.errorCount > 0 ? "Status: degraded" : "Status: active"}. ${completenessLabel}${hasRouteBudgetRegression ? ". Route budget regression present." : ""}`}
           className={selected ? "day-row selected" : "day-row"}
           key={item.dayKey}
           onClick={() => props.onDaySelect(item.dayKey)}
@@ -548,6 +569,7 @@ export function DayArchive(props: {
             {selected ? props.theme.labels.selectedDayStatus : "Archived day"} · {item.metrics.errorCount > 0 ? "Status: degraded" : "Status: active"}
           </small>
           {completeness ? <small className="evidence-badge">{completeness.label}</small> : null}
+          {hasRouteBudgetRegression ? <small className="evidence-badge">Route budget regression</small> : null}
         </button>
         );
       })}
@@ -616,6 +638,7 @@ export function Composer(props: {
   connectivityLabel: "Local only" | "Live Gateway";
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
   notice: string;
+  showConnectivityDetail?: boolean;
   theme: Theme;
   onComposerChange: (value: string) => void;
   onSend: () => void;
@@ -650,7 +673,7 @@ export function Composer(props: {
             {props.theme.labels.send}
           </button>
         </div>
-        {props.connectivityLabel === "Live Gateway" ? <p className="composer-mode-detail">{props.connectivityDetail}</p> : null}
+        {props.showConnectivityDetail ? <p className="composer-mode-detail">{props.connectivityDetail}</p> : null}
       </div>
       <p aria-live="polite" className={props.notice.includes("blocked") || props.notice.includes("Command") ? "notice warning" : "notice"}>
         {props.notice}
@@ -1086,6 +1109,7 @@ function CollapsedRightRail(props: {
   onTimelineFiltersFocus: () => void;
   onTodayAtGlanceFocus: () => void;
   onToolFilterFocus: () => void;
+  verificationSummary?: string;
 }) {
   const items: CollapsedRailItem[] = [
     { label: "Pending approvals", iconName: "clipboard-list", Icon: ClipboardList, onClick: props.onApprovalsFocus },
@@ -1104,6 +1128,7 @@ function CollapsedRightRail(props: {
       expandIconName="panel-right-open"
       expandLabel="Expand right rail"
       items={items}
+      summary={props.verificationSummary}
       side="right"
       onExpand={props.onExpand}
     />
@@ -1124,6 +1149,7 @@ function CollapsedRail(props: {
   expandIconName: string;
   expandLabel: string;
   items: CollapsedRailItem[];
+  summary?: string;
   side: "left" | "right";
   onExpand: () => void;
 }) {
@@ -1155,6 +1181,7 @@ function CollapsedRail(props: {
           </button>
         ))}
       </nav>
+      {props.summary ? <p className="collapsed-rail-summary">{props.summary}</p> : null}
     </aside>
   );
 }
@@ -1447,6 +1474,14 @@ export function ShortcutsHelp(props: { open: boolean; onClose: () => void }) {
         <dd>Return focus to the composer</dd>
         <dt>Alt+S</dt>
         <dd>Focus journal search</dd>
+        <dt>Alt+V</dt>
+        <dd>Focus Verification Center</dd>
+        <dt>Alt+F</dt>
+        <dd>Jump to next Verification Center failure</dd>
+        <dt>Alt+R</dt>
+        <dd>Open the Failed receipts operator view</dd>
+        <dt>Alt+M</dt>
+        <dd>Open the Stale summaries operator view</dd>
         <dt>Escape</dt>
         <dd>Close this panel</dd>
       </dl>

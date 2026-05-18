@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import { themeGroups, themeIds } from "@openclog/core";
-import { installApiFixtures, setFixtureTheme } from "./support/api-fixtures.js";
+import { installApiFixtures } from "./support/api-fixtures.js";
 
 const themes = themeIds;
 const accessibilityThemes = ["accessibility", "accessibility-dark", "low-stimulus", "large-print", "dyslexia-friendly", "keyboard-first"] as const;
@@ -35,6 +35,7 @@ test.describe("theme surfaces", () => {
 });
 
 test("browser-visible event text hides credentials and raw Gateway-looking payloads in every theme", async ({ page }) => {
+  test.setTimeout(60_000);
   await installApiFixtures(page, {
     gatewayStatus: "ready",
     streamEntry: {
@@ -60,7 +61,7 @@ test("browser-visible event text hides credentials and raw Gateway-looking paylo
   await page.goto("/");
 
   for (const theme of themes) {
-    await setFixtureTheme(page, theme);
+    await page.getByLabel("Theme", { exact: true }).selectOption(theme);
     await expect(page.getByRole("main")).toHaveAttribute("data-theme", theme);
     await expect(page.getByText("Operator-facing summary remains.")).toBeVisible();
     await expect(page.locator("body")).not.toContainText(/live-secret-token|oc_token_123456|raw-cookie|token-file|authorization":"Bearer/i);

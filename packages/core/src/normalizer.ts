@@ -1,11 +1,15 @@
 import { redactGatewayPayload, stableHash } from "./redaction.js";
 import type { GatewayEventLike, JournalEntry } from "./types.js";
 
-export function normalizeGatewayEvent(event: GatewayEventLike): JournalEntry {
+export interface NormalizeGatewayEventOptions {
+  timeZone?: string;
+}
+
+export function normalizeGatewayEvent(event: GatewayEventLike, options: NormalizeGatewayEventOptions = {}): JournalEntry {
   const payload = asRecord(event.payload);
   const message = asRecord(payload.message);
   const timestamp = toTimestamp(payload.ts ?? payload.createdAtMs ?? message.timestamp);
-  const dayKey = timestamp.slice(0, 10);
+  const dayKey = operatorDayKeyFromTimestamp(timestamp, options.timeZone);
   const base = { id: normalizedEventId(event), dayKey, timestamp, rawEventHash: stableHash(event), redacted: true };
   if (event.event === "session.message") return normalizeSessionMessage(payload, base);
   if (event.event === "chat") return normalizeSessionMessage(payload, base);
@@ -24,13 +28,36 @@ export function normalizeGatewayEvent(event: GatewayEventLike): JournalEntry {
   };
 }
 
+export function operatorDayKeyFromTimestamp(value: string | number | Date, timeZone = defaultOperatorTimeZone()): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.valueOf())) return new Date("2026-05-02T12:00:00.000Z").toISOString().slice(0, 10);
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(date);
+    const year = parts.find((part) => part.type === "year")?.value;
+    const month = parts.find((part) => part.type === "month")?.value;
+    const day = parts.find((part) => part.type === "day")?.value;
+    if (year && month && day) return `${year}-${month}-${day}`;
+  } catch {
+    if (timeZone !== "UTC") return operatorDayKeyFromTimestamp(date, "UTC");
+  }
+  return date.toISOString().slice(0, 10);
+}
+
 function normalizeSessionMessage(payload: Record<string, unknown>, base: BaseEntry): JournalEntry {
   const message = asRecord(payload.message);
   const role = stringValue(payload.role) || stringValue(message.role);
   const source = role === "user" ? "user" : "openclaw";
+  const backfilled = stringValue(payload.source) === "openclaw-session-jsonl";
+  const importedAt = stringValue(payload.importedAt);
   return {
     ...base,
     source,
+    ...(backfilled ? { backfilled: true, importedAt: importedAt || undefined, sourceLabel: "Backfilled from OpenClaw" } : {}),
     kind: role === "user" ? "user_message" : "assistant_message",
     title: role === "user" ? "User message" : "OpenClaw response",
     body: redactedText(stringValue(payload.text) || stringValue(message.text) || contentText(message.content)),
@@ -142,6 +169,10 @@ function redactedText(value: string): string {
 
 function statusValue(value: unknown): JournalEntry["status"] {
   return value === "success" || value === "failed" || value === "running" ? value : "info";
+}
+
+function defaultOperatorTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
 
 function toTimestamp(value: unknown): string {

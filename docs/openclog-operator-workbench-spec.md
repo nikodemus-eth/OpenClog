@@ -63,9 +63,29 @@ The report includes:
 - Delivery ledger and delivery-target health, including 24-hour trend summaries.
 - Incident timeline and guided incident-command stages.
 - Verification Center gates, readiness score, and latest command receipts with age/freshness metadata.
+- A `Needs attention now` rollup for stale summaries, approval backlog, repeated receipt failures, reconnect events, route-budget breaches, and failed dry-run deliveries.
+- Readiness aggregates over short and seven-day windows, route-budget regression records, closeout readiness scores, and verification receipt diffs that compare failing command receipts with the next passing run.
+- Exportable saved-view payloads with redaction metadata and inline evidence counts so local handoff artifacts stay bounded.
+- Incident templates for missing scopes, reconnect storms, delivery dead letters, stale summaries, and route-budget regressions.
+- Delivery contract previews for Slack, email, webhook, and GitHub issue targets, including dry-run/live payload parity and idempotency checks.
+- A release-readiness gate that blocks green claims when required verification evidence is stale or failed.
 - Governed SDK manifests, role-aware simulations, evidence quality scores, causality graph, native truth monitor, policy packs, escalation playbooks, retention impact, saved-view hypotheses, and a native cutover prep artifact.
 
 Real verification commands publish local `VerificationReceipt` rows into `journal_verification_receipts`. The API reads those receipts through `/api/verification/receipts`, and the operations report uses them to populate Verification Center timestamps, docs-check commit evidence, Gateway readiness, desktop self-check, and operations ledger entries.
+
+Verification Center gates now include explicit `fresh`, `aging`, `stale`, or `unknown` stale-age badges, operator-facing blocker reasons, and next-safe-action copy. The collapsed rail and shell header can summarize the latest successful local verify bundle without granting browser-side authority to write verification receipts.
+
+The browser shell also persists the selected center-lane tab and incident panel state per day key in local storage, exposes keyboard jumps for search, incidents, Verification Center, rails, and the next failed Verification Center gate, and keeps blocked delivery/plugin/incident actions explainable through one-click `why blocked` drawers sourced from the operations report and capability gates.
+
+Release 2 also adds explicit trust and triage affordances to those existing lanes:
+
+- Recovered OpenClaw session entries and session drilldowns show `Backfilled from OpenClaw` provenance plus import timestamp when the evidence came from local session recovery rather than the live Gateway flow.
+- The shell header can jump directly to the first blocked Verification Center gate using report-authored `firstBlockedGateId`.
+- The collapsed diagnostics rail can summarize the latest successful local verify bundle age/freshness even while the full rail is closed.
+- Day/archive rows can flag route-budget regressions, and saved operator views can show stale-summary counts separately from newer-evidence warnings.
+- Delivery contract previews include dry-run/live payload parity, and blocked incident or verification actions can expose copyable plain-text blocker summaries for handoff.
+
+SQLite has prep tables for readiness snapshots, incident templates, settings history, signed bundle manifests, and native runner history. These tables support the roadmap's durable-local direction, but Fastify remains the current authority for Gateway readiness, receipts, operations reporting, incident actions, retention, delivery policy, and verification read paths until a native cutover proof replaces it.
 
 Native cutover remains truthful prep in the current repo state. The artifact at [`docs/openclog-native-cutover.md`](/Users/m4/OpenClog/docs/openclog-native-cutover.md) defines the intended desktop-boundary move without changing current Fastify authority for operator policy.
 

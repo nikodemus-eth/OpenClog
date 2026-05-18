@@ -1,6 +1,7 @@
 import type { GatewayCallPlan } from "./types.js";
 
 export const requiredOperatorScopes = ["operator.read", "operator.write", "operator.approvals"] as const;
+export const gatewayProtocolVersion = 4;
 
 export type RequiredOperatorScope = (typeof requiredOperatorScopes)[number];
 
@@ -107,8 +108,8 @@ export function buildConnectRequest(input: ConnectRequestInput): GatewayRequestF
     id: input.id,
     method: "connect",
     params: {
-      minProtocol: 3,
-      maxProtocol: 3,
+      minProtocol: gatewayProtocolVersion,
+      maxProtocol: gatewayProtocolVersion,
       client: {
         id: "gateway-client",
         displayName: "OpenClog Journal Backend",

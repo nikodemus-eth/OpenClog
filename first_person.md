@@ -109,3 +109,9 @@ Record first-person implementation notes from the builder/operator perspective.
 - I re-read the exact Drive document through the connector before tightening the spec, then kept the review artifact repo-local as requested by the plan.
 - When the visual gate exposed a mobile height mismatch, I fixed the test readiness wait instead of refreshing snapshots blindly; the screenshot now waits for verification receipts before capture.
 - I proved the receipts through the same API paths the product uses: `/api/verification/receipts` and `/api/operations/report`.
+
+## 2026-05-17 Release 2 Trust Surfaces
+- I treated this pass as operator trust work, not as another speculative platform jump.
+- I made recovered OpenClaw evidence visibly different from live evidence because the user was right to push on truthfulness there.
+- I closed the coverage gate with targeted fallback tests instead of carving new exclusions into the config, then refreshed the full visual baseline only after the intentional shell and workbench changes were stable.
+- I kept the authority boundary intact: Fastify and the shared app layer still own reporting, verification evidence, delivery policy, and backfill behavior, while the browser only renders the new trust and triage cues.

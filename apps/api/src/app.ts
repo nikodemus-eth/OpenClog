@@ -9,6 +9,7 @@ import {
   exportDayAsMarkdown,
   getThemes,
   normalizeGatewayEvent,
+  operatorDayKeyFromTimestamp,
   redactGatewayPayload,
   sampleJournalDay,
   type AgentActivity,
@@ -58,7 +59,7 @@ export function createApiApp(services: ApiServices): FastifyInstance {
 
   const removeGatewayListener = services.gateway.onEvent((event) => {
     if (!shouldJournalGatewayEvent(event)) return;
-    const entry = services.repo.addEntry(normalizeGatewayEvent(event), event);
+    const entry = services.repo.addEntry(normalizeGatewayEvent(event, { timeZone: process.env.OPENCLOG_OPERATOR_TIME_ZONE }), event);
     publishJournalEvent(streamClients, entry, services.repo.getDay(entry.dayKey));
   });
 
@@ -951,7 +952,7 @@ function stringValue(value: unknown): string {
 }
 
 function todayKey(now = new Date()): string {
-  return now.toISOString().slice(0, 10);
+  return operatorDayKeyFromTimestamp(now, process.env.OPENCLOG_OPERATOR_TIME_ZONE);
 }
 
 function sendCapabilityError(reply: FastifyReply, error: unknown): FastifyReply | null {

@@ -100,6 +100,8 @@ test("journal quick wins and advanced workbench stay usable together", async ({ 
   await expect(page.getByLabel("Operational workbench").getByText(/Summary job completed: Summary generated from current journal evidence/i)).toBeVisible();
   await expect(page.getByText(/Generated summary refreshed by job summary-job-fixture/i)).toBeVisible();
   await expect(page.getByText(/Last summary completion 2026-05-04T12:02:02.000Z/i)).toBeVisible();
+  await expect(page.getByLabel("Operational workbench")).toContainText("Backfilled from OpenClaw");
+  await expect(page.getByLabel("Operational workbench")).toContainText("Queue depth 1");
 
   await page.getByRole("button", { name: "Capture incident", exact: true }).click();
   await expect(page.getByText(/Incident snapshot captured/i)).toBeVisible();
@@ -176,6 +178,14 @@ test("journal quick wins and advanced workbench stay usable together", async ({ 
   await expect(page.getByLabel("Verification Center")).toContainText("Last successful verify 2026-05-04T12:17:00.000Z");
   await expect(page.getByLabel("Verification Center")).toContainText("Last successful verify:desktop-native 2026-05-04T12:19:00.000Z");
   await expect(page.getByLabel("Verification Center")).toContainText("Docs-checked commit abc1234");
+  await expect(page.getByLabel("Verification Center")).toContainText("Freshness");
+  await expect(page.getByLabel("Verification Center")).toContainText("Why blocked");
+  await expect(page.getByLabel("Operational workbench")).toContainText("Needs attention now");
+  await expect(page.getByLabel("Operations backlog surfaces")).toContainText("Closeout readiness");
+  await expect(page.getByLabel("Operations backlog surfaces")).toContainText("Readiness aggregates");
+  await expect(page.getByLabel("Operations backlog surfaces")).toContainText("Exportable saved views");
+  await expect(page.getByLabel("Operations backlog surfaces")).toContainText("stale summary day");
+  await expect(page.getByLabel("Operations backlog surfaces")).toContainText("missing in dry-run");
   await expect(page.getByLabel("Operations backlog surfaces")).toContainText("Evidence checklist");
   await expect(page.getByLabel("Operations backlog surfaces")).toContainText("same-key retry requires confirmation");
   await expect(page.getByLabel("Operations backlog surfaces")).toContainText("Delivery target health");

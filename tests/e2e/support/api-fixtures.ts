@@ -121,6 +121,56 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
       }
     });
   });
+  await page.route("**/api/health/aggregate?**", async (route) => {
+    await route.fulfill({
+      json: {
+        aggregate: {
+          createdAt: "2026-05-04T12:05:00.000Z",
+          reconnectCount: gatewayStatus === "ready" ? 2 : 0,
+          staleCount: gatewayStatus === "ready" ? 0 : 1,
+          recoveryCount: 0,
+          adapterFailureCount: 0
+        }
+      }
+    });
+  });
+  await page.route("**/api/slo", async (route) => {
+    await route.fulfill({
+      json: {
+        slo: {
+          createdAt: "2026-05-04T12:05:00.000Z",
+          gatewayFreshnessOk: gatewayStatus === "ready",
+          staleSummaryCount: 1,
+          failedDeliveryCount: options.emptyAdvancedState ? 0 : 1,
+          retryBacklogCount: 1,
+          reconnectHeavyDayCount: gatewayStatus === "ready" ? 1 : 0
+        }
+      }
+    });
+  });
+  await page.route("**/api/runbook", async (route) => {
+    await route.fulfill({
+      json: {
+        runbook: {
+          generatedAt: "2026-05-04T12:05:00.000Z",
+          sections: [{ title: "Triage", items: ["Review readiness", "Confirm dry-run receipts"] }]
+        }
+      }
+    });
+  });
+  await page.route("**/api/incident-rule-packs", async (route) => {
+    await route.fulfill({
+      json: {
+        rulePacks: [
+          {
+            id: "fixture-rules",
+            label: "Fixture incident rules",
+            rules: [{ id: "reconnect", category: "reconnect_storm", title: "Reconnect storm", rationale: "Fixture reconnect evidence.", priority: "high" }]
+          }
+        ]
+      }
+    });
+  });
   await page.route("**/api/version", async (route) => {
     await route.fulfill({ json: { version: "0.1.0", ...backend } });
   });
@@ -316,7 +366,8 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
         toolCount: 1,
         approvalCount,
         reconnectCount: gatewayStatus === "ready" ? 1 : 0,
-        sanitizedSummary: "Session agent:hugin:main, 3 entries, 1 tools, 1 approvals, 1 reconnects, latest event 2026-05-03T12:04:00.000Z"
+        sanitizedSummary: "Session agent:hugin:main, 3 entries, 1 tools, 1 approvals, 1 reconnects, latest event 2026-05-03T12:04:00.000Z",
+        provenance: { backfilled: true, sourceLabel: "Backfilled from OpenClaw", importedAt: "2026-05-04T12:16:00.000Z" }
       }
     });
   });
@@ -370,7 +421,7 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
   await page.route("**/api/retention/preview-by-class", async (route) => {
     await route.fulfill({ json: { ok: true, previews: [{ classId: "entries", label: "Journal entries", impact: { beforeCount: 4, afterCount: 2, removedCount: 2, affectedIds: ["a", "b"] } }] } });
   });
-  await page.route("**/api/incidents", async (route) => {
+  await page.route((url) => url.pathname === "/api/incidents", async (route) => {
     await route.fulfill({
       json: { incidents }
     });
@@ -423,6 +474,14 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
             }
           }
         }
+      }
+    });
+  });
+  await page.route((url) => /^\/api\/incidents\/[^/]+\/actions$/.test(url.pathname), async (route) => {
+    await route.fulfill({
+      json: {
+        records: [],
+        nextCursor: undefined
       }
     });
   });
@@ -671,6 +730,11 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
           dayKey: "2026-05-03",
           incidentId: incidents[0]?.id,
           generatedAt: "2026-05-04T12:20:00.000Z",
+          attentionNow: [
+            { id: "stale_summary", severity: "warning", label: "Stale summary", detail: "Generated summary may exclude newer local evidence.", evidenceIds: ["2026-05-03-entry-1"], action: "Refresh the generated summary before handoff." },
+            { id: "failed_dry_run_delivery", severity: "critical", label: "Failed dry-run delivery", detail: "A failed dry-run receipt blocks safe live delivery.", evidenceIds: ["receipt-1"], action: "Open why blocked and rerun the dry-run after remediation." }
+          ],
+          staleSummaryDayKeys: ["2026-05-03"],
           summaryJobHistory: {
             jobs: [
               {
@@ -688,7 +752,9 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
                 medianCompletionMs: 2000
               }
             ],
-            days: [{ dayKey: "2026-05-03", retries: 0, failureReasons: [], medianCompletionMs: 2000, queuedCount: 1, runningCount: 0, completedCount: 1, failedCount: 0 }]
+            days: [{ dayKey: "2026-05-03", retries: 0, failureReasons: [], medianCompletionMs: 2000, queuedCount: 1, runningCount: 0, completedCount: 1, failedCount: 0 }],
+            queueDepth: 1,
+            oldestWaitingAgeLabel: "2m old"
           },
           incidentEvidenceChecklist: {
             incidentId: incidents[0]?.id ?? "unscoped",
@@ -725,6 +791,10 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
               }
             ]
           },
+          readinessAggregates: [
+            { windowHours: 24, reconnectCount: 2, staleCount: 1, recoveryCount: 1, failedDeliveryCount: 2, summaryMedianCompletionMs: 2000, routeBudgetBreachCount: 0, verificationFreshness: "fresh" },
+            { windowHours: 168, reconnectCount: 4, staleCount: 1, recoveryCount: 2, failedDeliveryCount: 2, summaryMedianCompletionMs: 2000, routeBudgetBreachCount: 0, verificationFreshness: "fresh" }
+          ],
           deliveryLedger: {
             items: [
               {
@@ -751,6 +821,7 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
             { route: "/api/incidents", budgetMs: 300, observedMs: 150, status: "ok" },
             { route: "/api/health", budgetMs: 100, observedMs: 60, status: "ok" }
           ],
+          routeBudgetRegressions: [],
           chaosScenarios: [
             { id: "stale-backend-fingerprint", title: "Stale backend fingerprint rejects live requests", deterministic: true, expectedOutcome: "stale_backend_fingerprint" },
             { id: "summary-poll-timeout", title: "Summary polling times out fail-closed", deterministic: true, expectedOutcome: "summary_job_polling_timed_out" },
@@ -784,20 +855,24 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
             ],
             readinessScore: gatewayStatus === "ready" ? 5 : 2,
             readinessLabel: gatewayStatus === "ready" ? "ready" : "blocked",
+            firstBlockedGateId: "delivery_dry_runs",
             lastSuccessfulVerifyAt: "2026-05-04T12:17:00.000Z",
+            lastSuccessfulVerifyAgeLabel: "5m old",
+            lastSuccessfulVerifyFreshness: "fresh",
             lastSuccessfulGatewayVerifyAt: "2026-05-04T12:18:00.000Z",
             lastSuccessfulDesktopVerifyAt: "2026-05-04T12:19:00.000Z",
             lastSuccessfulDocsCheckAt: "2026-05-04T12:19:30.000Z",
             docsCheckedCommitSha: "abc1234",
             gates: [
-              { id: "summary_freshness", label: "Summary freshness", status: "warning", detail: "Summary may exclude latest entries.", evidenceIds: [] },
-              { id: "delivery_dry_runs", label: "Delivery dry-runs", status: "blocked", detail: "Failed dry-run receipt is present.", evidenceIds: ["receipt-slack-verify"] },
-              { id: "replay_integrity", label: "Replay integrity", status: "passed", detail: "Replay evidence is reconstructable.", evidenceIds: ["replay:incident-1"] },
-              { id: "gateway_readiness", label: "Gateway readiness", status: gatewayStatus === "ready" ? "passed" : "blocked", detail: "Gateway readiness fixture.", evidenceIds: ["verification-gateway"] },
-              { id: "desktop_self_check", label: "Desktop self-check", status: "unknown", detail: "Desktop self-check fixture unavailable.", evidenceIds: [] },
-              { id: "route_budgets", label: "Route budgets", status: "passed", detail: "Route budgets are within fixture baselines.", evidenceIds: ["/api/summary-jobs", "/api/incidents", "/api/health"] }
+              { id: "summary_freshness", label: "Summary freshness", status: "warning", detail: "Summary may exclude latest entries.", evidenceIds: [], ageMs: 300000, ageLabel: "5m old", freshness: "aging", blockingReasons: [], nextSafeActions: ["Refresh the generated summary before handoff."] },
+              { id: "delivery_dry_runs", label: "Delivery dry-runs", status: "blocked", detail: "Failed dry-run receipt is present.", evidenceIds: ["receipt-slack-verify"], ageMs: 60000, ageLabel: "1m old", freshness: "fresh", blockingReasons: ["Failed dry-run receipt receipt-slack-verify is present."], nextSafeActions: ["Resolve the failed dry-run before live delivery."] },
+              { id: "replay_integrity", label: "Replay integrity", status: "passed", detail: "Replay evidence is reconstructable.", evidenceIds: ["replay:incident-1"], ageMs: 0, ageLabel: "0m ago", freshness: "fresh", blockingReasons: [], nextSafeActions: ["Keep replay evidence attached to handoff."] },
+              { id: "gateway_readiness", label: "Gateway readiness", status: gatewayStatus === "ready" ? "passed" : "blocked", detail: "Gateway readiness fixture.", evidenceIds: ["verification-gateway"], ageMs: 120000, ageLabel: "2m old", freshness: "fresh", blockingReasons: gatewayStatus === "ready" ? [] : ["Gateway readiness fixture is blocked."], nextSafeActions: ["Run verify:gateway and record the receipt."] },
+              { id: "desktop_self_check", label: "Desktop self-check", status: "unknown", detail: "Desktop self-check fixture unavailable.", evidenceIds: [], ageMs: 0, ageLabel: "age unavailable", freshness: "unknown", blockingReasons: ["No desktop self-check receipt."], nextSafeActions: ["Run verify:desktop-native and record the receipt."] },
+              { id: "route_budgets", label: "Route budgets", status: "passed", detail: "Route budgets are within fixture baselines.", evidenceIds: ["/api/summary-jobs", "/api/incidents", "/api/health"], ageMs: 0, ageLabel: "0m ago", freshness: "fresh", blockingReasons: [], nextSafeActions: ["Keep route-budget receipt attached to operations report."] }
             ]
           },
+          verificationReceiptDiffs: [],
           governedSdkManifests: [
             { id: "slack", permissions: ["delivery:slack"], expiresAt: "2026-06-08", supportsDryRun: true, failureModes: ["missing_config"] },
             { id: "email", permissions: ["delivery:email"], expiresAt: "2026-06-08", supportsDryRun: true, failureModes: ["missing_config"] },
@@ -805,6 +880,18 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
             { id: "plugins", permissions: ["plugin:run"], expiresAt: "2026-06-08", supportsDryRun: true, failureModes: ["validation_blocked"] }
           ],
           evidenceQualityScores: incidents.length > 0 ? [{ incidentId: "incident-1", score: 82, grade: "good", freshness: 70, completeness: 100, provenance: 90, actionOutcomeCoverage: 70 }, { dayKey: "2026-05-03", score: 88, grade: "good", freshness: 80, completeness: 90, provenance: 90, actionOutcomeCoverage: 90 }] : [],
+          closeoutReadiness: { score: 62, label: "blocked", blockers: ["failed dry-run"], requiredEvidenceFresh: false },
+          exportableViews: [
+            { id: "scope-missing", label: "Scope missing", evidenceCount: 4, unresolvedEvidenceCount: 1, staleSummaryCount: 1, redactedJson: "{\"id\":\"scope-missing\",\"redacted\":true}", newerEvidenceExists: true, newerEvidenceReason: "A newer receipt landed after the saved view summary was generated." }
+          ],
+          incidentTemplates: [
+            { id: "missing-scopes", title: "Missing Gateway scopes", summary: "Resolve missing scopes.", stageNotes: { detect: "Copy missing scopes.", explain: "Classify scope gap.", recommend: "Escalate scope grant.", act: "Rerun verify:gateway.", record: "Record outcome." } },
+            { id: "delivery-dead-letter", title: "Delivery dead letter", summary: "Resolve failed receipt.", stageNotes: { detect: "Open failed receipt.", explain: "Classify failure.", recommend: "Pick retry policy.", act: "Rerun dry-run.", record: "Record receipt." } }
+          ],
+          deliveryContractPreviews: [
+            { target: "slack", dryRunSchema: ["target", "dayKey", "dryRun"], liveSchema: ["target", "dayKey", "title", "body"], idempotencyFields: ["idempotencyKey", "requestFingerprint"], exactFieldCountMatch: false, missingInDryRun: ["title", "body"], missingInLive: ["dryRun"], paritySummary: "field counts differ (3 dry-run, 4 live); missing in dry-run: title, body; missing in live: dryRun", schemaWarnings: [] },
+            { target: "generic-webhook", dryRunSchema: ["target", "dayKey", "dryRun"], liveSchema: ["target", "dayKey", "title", "body"], idempotencyFields: ["idempotencyKey", "requestFingerprint"], exactFieldCountMatch: false, missingInDryRun: ["title", "body"], missingInLive: ["dryRun"], paritySummary: "field counts differ (3 dry-run, 4 live); missing in dry-run: title, body; missing in live: dryRun", schemaWarnings: ["Generic webhook requires explicit endpoint configuration."] }
+          ],
           deliveryTargetHealth: [
             {
               target: "slack",
@@ -906,7 +993,8 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
             artifactPath: "/Users/m4/OpenClog/docs/openclog-native-cutover.md",
             summary: "Native host cutover remains in truthful-prep mode until the desktop evidence ledger becomes authoritative.",
             nextSteps: ["Keep secure secret handling in the desktop boundary.", "Record machine-local readiness snapshots before cutover."]
-          }
+          },
+          releaseReadinessGate: { status: "blocked", requiredCommands: ["verify", "verify:gateway", "docs:check", "verify:desktop-native", "dry-run delivery"], blockers: ["failed dry-run"] }
         }
       }
     });

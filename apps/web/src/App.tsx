@@ -123,6 +123,7 @@ import {
   buildReconnectTrendText,
   buildRetryReceiptConfirmation,
   buildRetryWithNewKeyReceiptConfirmation,
+  buildVerificationTrustSummary,
   describeActiveOperatorView,
   describeIncidentActionRecordingStatus,
   describeComposerConnectivity,
@@ -133,6 +134,7 @@ import {
   describeStaleSummaryInterval,
   describeStaleSummaryWarning,
   diagnosticsCollapsedStorageKey,
+  formatAttentionNowItem,
   mergeDiagnosticsCollapsedState,
   mergeSearchPresets,
   createHomeRouteState,
@@ -156,12 +158,15 @@ import {
   capabilityGateAllows,
   formatRetentionPreview,
   formatCapabilitySummary,
+  formatCloseoutReadiness,
   formatCorrelationBadge,
+  formatExportableOperatorView,
   isGeneratedSummaryStale,
   formatMonitoringImportSummary,
   formatSummaryJobDurations,
   isSummaryJobActive,
   mergeOperatorViewsForDay,
+  formatWhyBlocked,
   remainingPinnedSummaryCharacters,
   searchEmptyState,
   summarizeAlertFindings,
@@ -175,6 +180,9 @@ import "./styles/app.css";
 
 const PINNED_CONTEXT_COLLAPSED_STORAGE_KEY = "openclog.pinned-context.collapsed";
 const SESSION_DRILLDOWN_STORAGE_KEY = "openclog.session-drilldown.state";
+const INCIDENT_PANEL_STATE_STORAGE_KEY = "openclog.incident-panel.state";
+const INCIDENT_TEMPLATE_STORAGE_PREFIX = "openclog.incident-template";
+const INCIDENT_TEMPLATE_DEFAULT_STORAGE_KEY = "openclog.incident-template.default";
 const RETENTION_EXECUTION_POLICY = { keepDays: 1, includeAudit: true, includeRedactedEvents: true, includeSummaries: true };
 const timelineFilterOptions: Array<{ id: JournalFilterKey; label: string }> = [
   { id: "errors", label: "Errors" },
@@ -232,6 +240,7 @@ export function App() {
   const [retentionPreviewState, setRetentionPreviewState] = useState<Awaited<ReturnType<typeof previewRetention>> | null>(null);
   const [incidents, setIncidents] = useState<IncidentSummary[]>([]);
   const [selectedIncidentId, setSelectedIncidentId] = useState("");
+  const [selectedIncidentTemplateId, setSelectedIncidentTemplateId] = useState("");
   const [incidentCaptured, setIncidentCaptured] = useState(false);
   const [incidentWorkspace, setIncidentWorkspace] = useState<Awaited<ReturnType<typeof fetchIncidentWorkspace>> | null>(null);
   const [incidentActionRecords, setIncidentActionRecords] = useState<IncidentActionRecord[]>([]);
@@ -351,6 +360,20 @@ export function App() {
   const bundlePreviewText = useMemo(() => (bundlePreview ? formatBundleManifestPreview(bundlePreview) : null), [bundlePreview]);
   const replayBundleDiffText = useMemo(() => formatReplayBundleDiff(replayBundleDiffState), [replayBundleDiffState]);
   const closeoutPlanText = useMemo(() => formatCloseoutPlan(closeoutPlanState), [closeoutPlanState]);
+  const enrichedOperatorViews = useMemo(() => {
+    const exportableViewById = new Map((operationsReport?.exportableViews ?? []).map((view) => [view.id, view]));
+    return operatorViews.map((view) => {
+      const exportable = exportableViewById.get(view.id);
+      return exportable
+        ? {
+            ...view,
+            evidenceCount: exportable.evidenceCount,
+            unresolvedEvidenceCount: exportable.unresolvedEvidenceCount,
+            staleSummaryCount: exportable.staleSummaryCount
+          }
+        : view;
+    });
+  }, [operationsReport?.exportableViews, operatorViews]);
   const activeOperatorView = useMemo(
     () =>
       describeActiveOperatorView(
@@ -360,12 +383,21 @@ export function App() {
           grouped,
           activeFilters
         },
-        operatorViews
+        enrichedOperatorViews
       ),
-    [activeFilters, grouped, operatorViews, route.selectedDayKey, searchQuery]
+    [activeFilters, enrichedOperatorViews, grouped, route.selectedDayKey, searchQuery]
   );
   const operatorViewSource = useMemo(() => describeOperatorViewSource(activeOperatorView), [activeOperatorView]);
   const pinnedSummaryRemaining = useMemo(() => remainingPinnedSummaryCharacters(pinnedSummary), [pinnedSummary]);
+  const routeBudgetRegressionDayKeys = useMemo(
+    () => (operationsReport && operationsReport.routeBudgetRegressions.length > 0 ? [operationsReport.dayKey] : []),
+    [operationsReport]
+  );
+  const collapsedRightRailSummary = useMemo(() => {
+    const center = operationsReport?.verificationCenter;
+    if (!center?.lastSuccessfulVerifyAgeLabel) return "Verify age unavailable";
+    return `Verify ${center.lastSuccessfulVerifyFreshness ?? "unknown"} · ${center.lastSuccessfulVerifyAgeLabel}`;
+  }, [operationsReport]);
   const backendMismatchDetail = useMemo(() => {
     if (healthRuntimeFingerprint === "unknown") {
       if (gateway.stale && gateway.targetReachable) {
@@ -483,6 +515,48 @@ export function App() {
       // Ignore malformed drilldown state.
     }
   }, [route.selectedDayKey, searchQuery]);
+
+  useEffect(() => {
+    try {
+      const key = route.selectedDayKey;
+      window.localStorage.setItem(INCIDENT_PANEL_STATE_STORAGE_KEY, JSON.stringify({ key, incidentId: selectedIncidentId, tab: sessionTab }));
+    } catch {
+      // Ignore incident panel persistence failures.
+    }
+  }, [route.selectedDayKey, selectedIncidentId, sessionTab]);
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(INCIDENT_PANEL_STATE_STORAGE_KEY);
+      if (!stored) return;
+      const parsed = JSON.parse(stored) as { key?: string; incidentId?: string; tab?: "timeline" | "actions" | "deliveries" };
+      if (parsed.key !== route.selectedDayKey) return;
+      if (typeof parsed.incidentId === "string") setSelectedIncidentId(parsed.incidentId);
+      if (parsed.tab === "actions" || parsed.tab === "deliveries" || parsed.tab === "timeline") setSessionTab(parsed.tab);
+    } catch {
+      // Ignore malformed incident panel state.
+    }
+  }, [route.selectedDayKey]);
+
+  useEffect(() => {
+    try {
+      if (!route.selectedDayKey) return;
+      const key = `${INCIDENT_TEMPLATE_STORAGE_PREFIX}.${route.selectedDayKey}`;
+      window.localStorage.setItem(key, selectedIncidentTemplateId);
+      if (selectedIncidentTemplateId) window.localStorage.setItem(INCIDENT_TEMPLATE_DEFAULT_STORAGE_KEY, selectedIncidentTemplateId);
+    } catch {
+      // Ignore incident template persistence failures.
+    }
+  }, [route.selectedDayKey, selectedIncidentTemplateId]);
+
+  useEffect(() => {
+    try {
+      const key = `${INCIDENT_TEMPLATE_STORAGE_PREFIX}.${route.selectedDayKey}`;
+      setSelectedIncidentTemplateId(window.localStorage.getItem(key) ?? window.localStorage.getItem(INCIDENT_TEMPLATE_DEFAULT_STORAGE_KEY) ?? "");
+    } catch {
+      setSelectedIncidentTemplateId("");
+    }
+  }, [route.selectedDayKey]);
 
   useEffect(() => {
     void fetchSettings()
@@ -805,11 +879,25 @@ export function App() {
       } else if (event.altKey && event.key.toLowerCase() === "l") {
         event.preventDefault();
         focusShellTarget(alertsPanelRef.current, "Alert workspace focused.");
+      } else if (event.altKey && event.key.toLowerCase() === "v") {
+        event.preventDefault();
+        const center = document.querySelector<HTMLElement>('[aria-label="Verification Center"]');
+        focusShellTarget(center, "Verification Center focused.");
+      } else if (event.altKey && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        const blockedGate = document.querySelector<HTMLElement>('[data-verification-gate-status="blocked"]');
+        focusShellTarget(blockedGate, "Verification failure focused.");
+      } else if (event.altKey && event.key.toLowerCase() === "r") {
+        event.preventDefault();
+        void handleApplyOperatorViewById("failed-receipts");
+      } else if (event.altKey && event.key.toLowerCase() === "m") {
+        event.preventDefault();
+        void handleApplyOperatorViewById("stale-summaries");
       }
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [visibleDay.entries]);
+  }, [enrichedOperatorViews, visibleDay.entries]);
 
   function jumpToNextMatchingEntry(entries: JournalEntry[], predicate: (entry: JournalEntry) => boolean): void {
     const matches = entries.filter(predicate);
@@ -1066,6 +1154,7 @@ export function App() {
 
   async function handleSaveOperatorView(): Promise<void> {
     const label = searchQuery.trim() ? `${visibleDay.dayKey} ${searchQuery.trim()}` : `${visibleDay.dayKey} investigation`;
+    const matchingExportableView = operationsReport?.exportableViews.find((view) => view.label === label);
     const nextView: OperatorViewPreset = {
       id: label.toLocaleLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || `view-${operatorViews.length + 1}`,
       label,
@@ -1073,6 +1162,8 @@ export function App() {
       searchQuery,
       activeFilters,
       grouped,
+      evidenceCount: matchingExportableView?.evidenceCount,
+      unresolvedEvidenceCount: matchingExportableView?.unresolvedEvidenceCount,
       hypothesis: searchQuery.trim() ? `Investigate whether ${searchQuery.trim()} explains the active incident.` : "Investigate the active day evidence.",
       validationSteps: ["Review timeline evidence.", "Check receipts and incident actions.", "Record the closeout or next validation step."],
       drilldown: {
@@ -1109,6 +1200,50 @@ export function App() {
       setSearchNextCursor(result.nextCursor);
     }
     setNotice(`${view.label} loaded.`);
+  }
+
+  async function handleApplyOperatorViewById(viewId: string): Promise<void> {
+    const view = enrichedOperatorViews.find((candidate) => candidate.id === viewId);
+    if (!view) {
+      setNotice(`Operator view ${viewId} is unavailable.`);
+      return;
+    }
+    await handleApplyOperatorView(view);
+  }
+
+  async function handleRefreshStaleSummaries(): Promise<void> {
+    const dayKeys = [...new Set(operationsReport?.staleSummaryDayKeys ?? [])];
+    if (dayKeys.length === 0) {
+      setNotice("No stale summaries need refresh.");
+      return;
+    }
+    if (summaryRefreshActive) {
+      setNotice("Summary refresh already queued or running.");
+      return;
+    }
+    let completed = 0;
+    for (const dayKey of dayKeys) {
+      const job = await createSummaryJob(dayKey);
+      if (dayKey === day.dayKey) {
+        setSummaryJob(job);
+        setSummaryJobPollLatencyMs(null);
+      }
+      const settled = await pollSummaryJobUntilSettled(job, {
+        onUpdate: (nextJob) => {
+          if (dayKey === day.dayKey) setSummaryJob(nextJob);
+        },
+        onPollLatency: (latencyMs) => {
+          if (dayKey === day.dayKey) setSummaryJobPollLatencyMs(latencyMs);
+        }
+      });
+      if (dayKey === day.dayKey) applySummaryJobResult(settled);
+      if (settled.status === "failed") {
+        setNotice(`Stale summary refresh failed closed for ${dayKey}${settled.error ? `: ${settled.error}` : "."}`);
+        return;
+      }
+      completed += 1;
+    }
+    setNotice(`Queued and reconciled ${completed} stale summary job${completed === 1 ? "" : "s"}.`);
   }
 
   async function refreshJournalDayIndex(preferredDayKey = route.selectedDayKey || visibleDay.dayKey): Promise<void> {
@@ -1498,6 +1633,7 @@ async function handleRetryReceipt(id: string): Promise<void> {
   ];
 
   const onboardingItems = buildOnboardingItems(gateway);
+  const verificationTrustSummary = buildVerificationTrustSummary(operationsReport);
 
   return (
     <AppShell
@@ -1533,7 +1669,7 @@ async function handleRetryReceipt(id: string): Promise<void> {
           inputRef={searchInputRef}
           nextCursor={searchNextCursor}
           activeViewSource={operatorViewSource}
-          operatorViews={operatorViews}
+          operatorViews={enrichedOperatorViews}
           presets={searchPresets}
           query={searchQuery}
           results={searchResults}
@@ -1613,8 +1749,11 @@ async function handleRetryReceipt(id: string): Promise<void> {
       themeIds={selectableThemeIds}
       healthPollAgeLabel={healthPollAgeLabel}
       healthPollLatencyMs={healthPollLatencyMs}
+      verificationTrustSummary={verificationTrustSummary}
+      collapsedRightRailSummary={collapsedRightRailSummary}
       version={version}
       recentDays={archiveView.recentDays}
+      routeBudgetRegressionDayKeys={routeBudgetRegressionDayKeys}
       selectedOlderDay={archiveView.selectedOlderDay}
       archiveCalendarValue={archiveCalendarValue}
       archiveCalendarMessage={archiveCalendarMessage}
@@ -1643,6 +1782,10 @@ async function handleRetryReceipt(id: string): Promise<void> {
         void handleToastClick(toast);
       }}
       onToolFilterFocus={() => focusShellTarget(toolFilterRef.current, "Tool filter focused.")}
+      onVerificationFailureFocus={() => {
+        const blockedGate = document.querySelector<HTMLElement>('[data-verification-gate-status="blocked"]');
+        focusShellTarget(blockedGate, "Verification failure focused.");
+      }}
     >
       <DayHeader
         day={visibleDay}
@@ -1659,6 +1802,7 @@ async function handleRetryReceipt(id: string): Promise<void> {
         connectivityLabel={composerConnectivity.label}
         inputRef={composerRef}
         notice={notice}
+        showConnectivityDetail={gateway.missingScopes.length > 0 || gateway.stale}
         theme={resolvedTheme}
         onComposerChange={setComposer}
         onSend={handleSend}
@@ -1740,6 +1884,7 @@ async function handleRetryReceipt(id: string): Promise<void> {
         incidentsPanelRef={incidentsPanelRef}
         alertsPanelRef={alertsPanelRef}
         selectedIncidentId={selectedIncidentId}
+        selectedIncidentTemplateId={selectedIncidentTemplateId}
         selectedProfileId={selectedProfileId}
         selectedSessionKey={selectedSessionKey}
         sessionTab={sessionTab}
@@ -1760,6 +1905,9 @@ async function handleRetryReceipt(id: string): Promise<void> {
 	        onCopyIncidentId={(id) => {
 	          void copyTextWithNotice(id, "Incident id copied.");
 	        }}
+        onCopyWhyBlocked={(summary) => {
+          void copyTextWithNotice(summary, "Blocked-state summary copied with redaction applied.");
+        }}
 	        onCopyReceiptId={(id) => {
 	          void copyTextWithNotice(id, "Receipt id copied with redaction applied.");
 	        }}
@@ -1799,6 +1947,7 @@ async function handleRetryReceipt(id: string): Promise<void> {
         onRunIntegrityCheck={() => void handleRunIntegrityCheck()}
         onRunIntegrityMonitor={() => void handleRunIntegrityMonitor()}
         onRegisterPlugin={() => void handleRegisterPlugin()}
+        onRefreshStaleSummaries={() => void handleRefreshStaleSummaries()}
         onRunPlugin={(pluginId) => {
           void handleRunPlugin(pluginId);
         }}
@@ -1810,6 +1959,7 @@ async function handleRetryReceipt(id: string): Promise<void> {
 	          void handleVerifyIntegration(target);
 	        }}
 	        onSelectIncident={setSelectedIncidentId}
+        onSelectIncidentTemplate={setSelectedIncidentTemplateId}
         onSelectProfile={(id) => {
           void handleSelectProfile(id);
         }}
@@ -2134,7 +2284,12 @@ function SearchPanel(props: {
               <button type="button" onClick={() => props.onApplyOperatorView(view)}>
                 {view.label}
               </button>
-              <small>{view.builtIn ? "Built-in" : "User"}</small>
+              <small>
+                {view.builtIn ? "Built-in" : "User"}
+                {typeof view.unresolvedEvidenceCount === "number" ? ` · unresolved ${view.unresolvedEvidenceCount}` : ""}
+                {typeof view.evidenceCount === "number" ? ` · evidence ${view.evidenceCount}` : ""}
+                {typeof view.staleSummaryCount === "number" ? ` · stale summaries ${view.staleSummaryCount}` : ""}
+              </small>
             </span>
           ))}
         </div>
@@ -2231,6 +2386,7 @@ function OperationalPanels(props: {
   runbook: Awaited<ReturnType<typeof fetchRunbook>> | null;
   verificationReceipts: VerificationReceipt[];
   selectedIncidentId: string;
+  selectedIncidentTemplateId: string;
   selectedProfileId: string;
   selectedSessionKey: string;
   sessionTab: "timeline" | "actions" | "deliveries";
@@ -2248,6 +2404,7 @@ function OperationalPanels(props: {
   onCopyApiExample: (route: string, payload: Record<string, unknown>) => void;
   onCopyBundleDigest: (digest: string) => void;
   onCopyIncidentId: (id: string) => void;
+  onCopyWhyBlocked: (summary: string) => void;
   onCopySessionSummary: () => void;
   onCopyOfflineBundle: () => void;
   onCopyReceiptId: (id: string) => void;
@@ -2274,6 +2431,7 @@ function OperationalPanels(props: {
   onRunIntegrityCheck: () => void;
   onRunIntegrityMonitor: () => void;
   onRegisterPlugin: () => void;
+  onRefreshStaleSummaries: () => void;
   onRunPlugin: (pluginId: string) => void;
   onSaveAlertRule: () => void;
   onSaveInvestigationNote: () => void;
@@ -2281,6 +2439,7 @@ function OperationalPanels(props: {
   onTightenRetention: () => void;
   onVerifyIntegration: (target: VerifiableIntegrationTarget) => void;
   onSelectIncident: (id: string) => void;
+  onSelectIncidentTemplate: (id: string) => void;
   onSelectProfile: (id: string) => void;
   onSelectSession: (id: string) => void;
   onSessionScrollChange: (value: number) => void;
@@ -2301,6 +2460,10 @@ function OperationalPanels(props: {
   const operationsReport = props.operationsReport;
   const failedDryRunNotice = Object.values(props.integrationVerificationReceipts).map((receipt) => receipt ? buildDryRunFailureJumpNotice(receipt) : null).find((notice) => notice !== null);
   const activeSummaryJobDurations = props.summaryJob ? formatSummaryJobDurations(props.summaryJob) : null;
+  const summaryRouteRegression = operationsReport?.routeBudgetRegressions.find((regression) => regression.route === "/api/summary-jobs");
+  const incidentRouteRegression = operationsReport?.routeBudgetRegressions.find((regression) => regression.route === "/api/incidents");
+  const healthRouteRegression = operationsReport?.routeBudgetRegressions.find((regression) => regression.route === "/api/health");
+  const selectedIncidentTemplate = operationsReport?.incidentTemplates.find((template) => template.id === props.selectedIncidentTemplateId) ?? null;
   const deliveryTargets: Array<{ label: string; target: VerifiableIntegrationTarget }> = [
     { label: "Slack", target: "slack" },
     { label: "Webhook", target: "generic-webhook" },
@@ -2308,6 +2471,25 @@ function OperationalPanels(props: {
   ];
   return (
     <section className="workspace-grid" aria-label="Operational workbench">
+      {operationsReport ? (
+        <section className="workspace-panel attention-now-strip" aria-label="Needs attention now">
+          <div className="panel-header">
+            <h3>Needs attention now</h3>
+            <button type="button" onClick={props.onRefreshStaleSummaries}>
+              Refresh stale summaries
+            </button>
+          </div>
+          {operationsReport.attentionNow.length > 0 ? (
+            <ul>
+              {operationsReport.attentionNow.map((item) => (
+                <li key={item.id}>{formatAttentionNowItem(item)}</li>
+              ))}
+            </ul>
+          ) : (
+            <p>No current attention rollups from local evidence.</p>
+          )}
+        </section>
+      ) : null}
       <section className="workspace-panel">
         <div className="panel-header">
           <h3>Session drilldown</h3>
@@ -2335,6 +2517,12 @@ function OperationalPanels(props: {
             <p>
               {props.sessionDetail.toolCount} tools, {props.sessionDetail.approvalCount} approvals, {props.sessionDetail.reconnectCount} reconnects.
             </p>
+            {props.sessionDetail.provenance?.backfilled ? (
+              <p>
+                <strong>{props.sessionDetail.provenance.sourceLabel ?? "Backfilled from OpenClaw"}</strong>
+                {props.sessionDetail.provenance.importedAt ? ` · imported ${props.sessionDetail.provenance.importedAt}` : ""}
+              </p>
+            ) : null}
             {props.sessionLatencyMs !== null ? <p>API response time: {props.sessionLatencyMs} ms.</p> : null}
             <p>Current drilldown tab: {props.sessionTab}. Saved scroll offset marker: {props.sessionDetail.entries.length}.</p>
             {props.sessionDetail.sanitizedSummary ? <p>{props.sessionDetail.sanitizedSummary}</p> : null}
@@ -2349,7 +2537,7 @@ function OperationalPanels(props: {
           <p>No session drilldown available.</p>
         )}
       </section>
-      <section className="workspace-panel" aria-label="Verification Center">
+      <section className="workspace-panel" aria-label="Verification Center" tabIndex={-1}>
         <div className="panel-header">
           <h3>Verification Center</h3>
         </div>
@@ -2358,6 +2546,18 @@ function OperationalPanels(props: {
             <p>
               Readiness score: {operationsReport.verificationCenter.readinessScore} ({operationsReport.verificationCenter.readinessLabel}).
             </p>
+            {operationsReport.verificationCenter.firstBlockedGateId ? (
+              <button
+                type="button"
+                onClick={() =>
+                  document
+                    .querySelector<HTMLElement>(`[data-verification-gate-status="blocked"]`)
+                    ?.focus({ preventScroll: false })
+                }
+              >
+                Jump target: first blocked gate {operationsReport.verificationCenter.firstBlockedGateId}
+              </button>
+            ) : null}
             <p>Last successful verify {operationsReport.verificationCenter.lastSuccessfulVerifyAt ?? "unavailable"}.</p>
             <p>Last successful verify:gateway {operationsReport.verificationCenter.lastSuccessfulGatewayVerifyAt ?? "unavailable"}.</p>
             <p>Last successful verify:desktop-native {operationsReport.verificationCenter.lastSuccessfulDesktopVerifyAt ?? "unavailable"}.</p>
@@ -2376,8 +2576,24 @@ function OperationalPanels(props: {
             ) : null}
             <ul>
               {operationsReport.verificationCenter.gates.map((gate) => (
-                <li key={gate.id}>
-                  <strong>{gate.label}</strong>: {gate.status}. {gate.detail}
+                <li key={gate.id} data-verification-gate-status={gate.status} tabIndex={gate.status === "blocked" ? 0 : -1}>
+                  <strong>{gate.label}</strong>: {gate.status}. {gate.detail} Freshness {gate.freshness ?? "unknown"} ({gate.ageLabel ?? "age unavailable"}).
+                  {gate.status === "blocked" || gate.blockingReasons.length > 0 ? (
+                    <details>
+                      <summary>Why blocked</summary>
+                      <p>{formatWhyBlocked({ label: gate.label, blockingReasons: gate.blockingReasons, nextSafeActions: gate.nextSafeActions, evidenceIds: gate.evidenceIds })}</p>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          props.onCopyWhyBlocked(
+                            formatWhyBlocked({ label: gate.label, blockingReasons: gate.blockingReasons, nextSafeActions: gate.nextSafeActions, evidenceIds: gate.evidenceIds })
+                          )
+                        }
+                      >
+                        Copy why blocked summary
+                      </button>
+                    </details>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -2415,6 +2631,7 @@ function OperationalPanels(props: {
         <button type="button" disabled={isSummaryJobActive(props.summaryJob)} onClick={props.onGenerateSummary}>
           {isSummaryJobActive(props.summaryJob) ? "Summary refresh in progress" : "Refresh current summary"}
         </button>
+        {summaryRouteRegression ? <p className="validation-message">Route budget regression: {summaryRouteRegression.route} is {summaryRouteRegression.deltaMs} ms over baseline.</p> : null}
         {props.integrityReport ? <p>{props.integrityReport.checkedEntries} entries checked; mismatches {props.integrityReport.mismatchedEntryIds.length}.</p> : null}
         {props.retentionPreviewText ? <p>{props.retentionPreviewText}</p> : <p>Preview keeps the newest 1 day before any cleanup is applied.</p>}
         {props.retentionSnapshotText ? <p>{props.retentionSnapshotText}</p> : null}
@@ -2433,6 +2650,11 @@ function OperationalPanels(props: {
             {props.summaryJob.correlationId ? <CorrelationBadge correlationId={props.summaryJob.correlationId} onCopy={props.onCopyReceiptId} /> : null}
             {props.summaryJob.completedAt ? <p>Summary job completed at {props.summaryJob.completedAt}.</p> : null}
             {props.summaryJob.error ? <p className="validation-message">Summary job failed closed: {props.summaryJob.error}</p> : null}
+            {operationsReport?.summaryJobHistory.queueDepth ? (
+              <p>
+                Summary queue depth {operationsReport.summaryJobHistory.queueDepth}; oldest waiting {operationsReport.summaryJobHistory.oldestWaitingAgeLabel ?? "age unavailable"}.
+              </p>
+            ) : null}
           </div>
         ) : (
           <p>Summary never generated for this day yet.</p>
@@ -2482,6 +2704,9 @@ function OperationalPanels(props: {
             </ul>
             <p>Investigation bundle preview: {operationsReport.investigationBundlePreview.items.length} redacted item(s) ready.</p>
             <p>Summary-job history: {operationsReport.summaryJobHistory.jobs.length} job(s) tracked.</p>
+            <p>
+              Queue depth {operationsReport.summaryJobHistory.queueDepth}; oldest waiting {operationsReport.summaryJobHistory.oldestWaitingAgeLabel ?? "none"}.
+            </p>
             <ul>
               {operationsReport.summaryJobHistory.days.map((dayHistory) => (
                 <li key={dayHistory.dayKey}>
@@ -2518,6 +2743,35 @@ function OperationalPanels(props: {
               ))}
             </ul>
             <p>Route budgets: {operationsReport.routePerformanceBudgets.map((budget) => `${budget.route} ${budget.status}`).join(", ")}.</p>
+            <p>Closeout readiness: {formatCloseoutReadiness(operationsReport.closeoutReadiness)}</p>
+            <p>
+              Readiness aggregates:{" "}
+              {operationsReport.readinessAggregates
+                .map((aggregate) => `${aggregate.windowHours}h reconnects ${aggregate.reconnectCount}, stale ${aggregate.staleCount}, failed deliveries ${aggregate.failedDeliveryCount}`)
+                .join("; ")}.
+            </p>
+            <p>
+              Exportable saved views:{" "}
+              {operationsReport.exportableViews.length > 0 ? operationsReport.exportableViews.map(formatExportableOperatorView).join(" | ") : "none"}.
+            </p>
+            {operationsReport.exportableViews.some((view) => (view.staleSummaryCount ?? 0) > 0) ? (
+              <p>Saved-view stale summary counts are shown separately from newer-evidence warnings.</p>
+            ) : null}
+            {operationsReport.exportableViews.some((view) => view.newerEvidenceExists) ? (
+              <p className="validation-message">Newer evidence exists for one or more saved views. Refresh summaries or receipts before handoff generation.</p>
+            ) : null}
+            {operationsReport.routeBudgetRegressions.length > 0 ? (
+              <p>
+                Route-budget regressions:{" "}
+                {operationsReport.routeBudgetRegressions.map((regression) => `${regression.route} +${regression.deltaMs} ms over baseline`).join(", ")}.
+              </p>
+            ) : null}
+            {operationsReport.verificationReceiptDiffs.length > 0 ? (
+              <p>
+                Verification receipt diffs:{" "}
+                {operationsReport.verificationReceiptDiffs.map((diff) => `${diff.command} ${diff.status}`).join(", ")}.
+              </p>
+            ) : null}
             <ul>
               {operationsReport.routePerformanceBudgets.map((budget) => (
                 <li key={budget.route}>
@@ -2565,6 +2819,32 @@ function OperationalPanels(props: {
               ))}
             </ul>
             <p>Policy packs: {operationsReport.policyRecommendationPacks.map((pack) => pack.label).join(", ")}.</p>
+            <p>Release readiness gate: {operationsReport.releaseReadinessGate.status} ({operationsReport.releaseReadinessGate.blockers.join(", ") || "no blockers"}).</p>
+            <label>
+              <span>Incident template</span>
+              <select aria-label="Incident template" value={props.selectedIncidentTemplateId} onChange={(event) => props.onSelectIncidentTemplate(event.target.value)}>
+                <option value="">Select template</option>
+                {operationsReport.incidentTemplates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {selectedIncidentTemplate ? (
+              <p>
+                {selectedIncidentTemplate.summary} Detect: {selectedIncidentTemplate.stageNotes.detect} Record: {selectedIncidentTemplate.stageNotes.record}
+              </p>
+            ) : (
+              <p>Incident templates: {operationsReport.incidentTemplates.map((template) => template.title).join(", ")}.</p>
+            )}
+            <p>
+              Delivery contract previews:{" "}
+              {operationsReport.deliveryContractPreviews
+                .map((preview) => `${preview.target} ${preview.dryRunSchema.length}/${preview.liveSchema.length} · ${preview.paritySummary}`)
+                .join(", ")}
+              .
+            </p>
             <p>Role-aware simulations: {operationsReport.roleAwareSimulations.map((simulation) => `${simulation.title} (${simulation.liveSideEffects ? "live" : "no live side effects"})`).join(", ")}.</p>
             <p>Governed SDK manifests: {operationsReport.governedSdkManifests.map((manifest) => `${manifest.id} ${manifest.permissions.join("/")}`).join(", ")}.</p>
             <p>
@@ -2602,6 +2882,7 @@ function OperationalPanels(props: {
         <button type="button" onClick={props.onSaveAlertRule}>
           Save alert rule
         </button>
+        {incidentRouteRegression ? <p className="validation-message">Route budget regression: {incidentRouteRegression.route} is {incidentRouteRegression.deltaMs} ms over baseline.</p> : null}
         {props.incidentCaptured ? <p>Incident snapshot captured.</p> : null}
         <p>{props.incidents.length} incidents, {props.alertSummary.activeCount} active alert finding(s), {props.alertSummary.snoozedCount} snoozed.</p>
         {props.incidents.length > 0 ? (
@@ -2710,19 +2991,48 @@ function OperationalPanels(props: {
                     <h4>Act</h4>
                     <div className="search-presets">
                       {props.incidentWorkspace.loop.act.map((action) => (
-                      <button
-                          key={action.id}
-                          type="button"
-                          disabled={action.availability === "blocked"}
-                          title={action.reason ?? action.description}
-                          onClick={() =>
-                            props.onExecuteIncidentAction(action.id, {
-                              ...(action.id === "save_note" || action.id === "record_closeout" ? { body: props.investigationNoteDraft } : {})
-                            })
-                          }
-                        >
-                          {action.availability === "blocked" ? buildGatewayScopeButtonLabel(action.label, props.gatewayMissingScopes) : action.label}
-                        </button>
+                        <span key={action.id}>
+                          <button
+                            type="button"
+                            disabled={action.availability === "blocked"}
+                            title={action.reason ?? action.description}
+                            onClick={() =>
+                              props.onExecuteIncidentAction(action.id, {
+                                ...(action.id === "save_note" || action.id === "record_closeout" ? { body: props.investigationNoteDraft } : {})
+                              })
+                            }
+                          >
+                            {action.availability === "blocked" ? buildGatewayScopeButtonLabel(action.label, props.gatewayMissingScopes) : action.label}
+                          </button>
+                          {action.availability === "blocked" ? (
+                            <details>
+                              <summary>Why blocked</summary>
+                              <p>
+                                {formatWhyBlocked({
+                                  label: action.label,
+                                  blockingReasons: [action.reason ?? action.description, ...(props.gatewayMissingScopes.length > 0 ? [`missing ${props.gatewayMissingScopes.join(", ")}`] : [])],
+                                  nextSafeActions: ["Copy missing scopes", "Re-run the relevant dry-run or verification receipt"],
+                                  evidenceIds: action.capabilityId ? [action.capabilityId] : []
+                                })}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  props.onCopyWhyBlocked(
+                                    formatWhyBlocked({
+                                      label: action.label,
+                                      blockingReasons: [action.reason ?? action.description, ...(props.gatewayMissingScopes.length > 0 ? [`missing ${props.gatewayMissingScopes.join(", ")}`] : [])],
+                                      nextSafeActions: ["Copy missing scopes", "Re-run the relevant dry-run or verification receipt"],
+                                      evidenceIds: action.capabilityId ? [action.capabilityId] : []
+                                    })
+                                  )
+                                }
+                              >
+                                Copy why blocked summary
+                              </button>
+                            </details>
+                          ) : null}
+                        </span>
                       ))}
                     </div>
                     <ul>
@@ -2843,6 +3153,7 @@ function OperationalPanels(props: {
         <button type="button" onClick={props.onPrepareCloseout}>
           Prepare end-of-day closeout
         </button>
+        {healthRouteRegression ? <p className="validation-message">Route budget regression: {healthRouteRegression.route} is {healthRouteRegression.deltaMs} ms over baseline.</p> : null}
         {props.integrationPayload ? <textarea readOnly value={props.integrationPayload} /> : <p>No integration payload generated yet.</p>}
         {props.closeoutPlanText ? <p>{props.closeoutPlanText}</p> : null}
         {props.healthAggregate ? (
@@ -2909,10 +3220,27 @@ function OperationalPanels(props: {
                       ? `Deliver to ${item.label.toLocaleLowerCase()}`
                       : buildGatewayScopeButtonLabel(`Deliver to ${item.label.toLocaleLowerCase()}`, props.gatewayMissingScopes)}
                   </button>
+                  {!capabilityGateAllows(capabilities, `delivery:${item.target}`) ? (
+                    <details>
+                      <summary>Why blocked</summary>
+                      <p>
+                        {formatWhyBlocked({
+                          label: `Deliver to ${item.label.toLocaleLowerCase()}`,
+                          blockingReasons: props.gatewayMissingScopes.length > 0 ? props.gatewayMissingScopes.map((scope) => `missing ${scope}`) : ["capability gate unavailable for live delivery"],
+                          nextSafeActions: [
+                            props.gatewayMissingScopes.length > 0 ? `Copy missing scopes: ${props.gatewayMissingScopes.join(", ")}` : "Inspect delivery capability manifest",
+                            "Run dry-run verification after configuration changes"
+                          ],
+                          evidenceIds: [item.target, `delivery:${item.target}`]
+                        })}
+                      </p>
+                    </details>
+                  ) : null}
                 </div>
                 {verificationReceipt ? (
                   <>
                     <p>{formatIntegrationVerificationReceipt(verificationReceipt)}</p>
+                    <CorrelationBadge correlationId={verificationReceipt.correlationId} onCopy={props.onCopyReceiptId} />
                     <p>{formatReceiptDetails(verificationReceipt)}</p>
                   </>
                 ) : (
@@ -2946,6 +3274,9 @@ function OperationalPanels(props: {
                   </button>
                   <button aria-label={`Copy receipt id ${receipt.id}`} type="button" onClick={() => props.onCopyReceiptId(receipt.id)}>
                     Copy receipt id
+                  </button>
+                  <button aria-label={`Copy receipt JSON ${receipt.id}`} type="button" onClick={() => props.onCopyReceiptId(JSON.stringify(receipt))}>
+                    Copy receipt JSON
                   </button>
                 </div>
               </li>

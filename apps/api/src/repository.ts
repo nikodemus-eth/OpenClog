@@ -692,13 +692,28 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
         if (entry.kind === "tool_call" || entry.kind === "tool_result") toolCount += 1;
         if (/reconnect/i.test(entry.title) || /reconnect/i.test(entry.body ?? "")) reconnectCount += 1;
       }
+      const backfilledEntries = entries.filter((entry) => entry.backfilled);
+      const latestImportedAt = backfilledEntries
+        .map((entry) => entry.importedAt)
+        .filter((timestamp): timestamp is string => Boolean(timestamp))
+        .sort((left, right) => right.localeCompare(left))[0];
+      const sanitizedSummary = buildSessionDrilldownSummary(sessionKey, entries, toolCount, uniqueApprovalIds.size, reconnectCount);
+      const provenance =
+        backfilledEntries.length > 0
+          ? {
+              backfilled: true,
+              sourceLabel: backfilledEntries[0]?.sourceLabel ?? "Backfilled from OpenClaw",
+              importedAt: latestImportedAt
+            }
+          : undefined;
       return {
         sessionKey,
         entries,
         toolCount,
         approvalCount: uniqueApprovalIds.size,
         reconnectCount,
-        sanitizedSummary: buildSessionDrilldownSummary(sessionKey, entries, toolCount, uniqueApprovalIds.size, reconnectCount)
+        sanitizedSummary: provenance ? `${sanitizedSummary}, ${provenance.sourceLabel}${provenance.importedAt ? ` imported ${provenance.importedAt}` : ""}` : sanitizedSummary,
+        ...(provenance ? { provenance } : {})
       };
     },
     getIncident(id) {
@@ -1345,6 +1360,11 @@ function migrate(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS journal_closeout_completions (id TEXT PRIMARY KEY, completion_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_verification_receipts (id TEXT PRIMARY KEY, command TEXT NOT NULL DEFAULT 'unknown', status TEXT NOT NULL DEFAULT 'unknown', completed_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.000Z', receipt_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_investigation_workspaces (id TEXT PRIMARY KEY, workspace_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_readiness_snapshots (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, snapshot_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_incident_templates (id TEXT PRIMARY KEY, template_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_settings_history (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, settings_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_signed_bundle_manifests (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, manifest_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_native_runner_history (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, runner_json TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS idx_journal_entries_session ON journal_entries(session_id, timestamp);
     CREATE INDEX IF NOT EXISTS idx_journal_entries_status ON journal_entries(status, timestamp);
     CREATE INDEX IF NOT EXISTS idx_journal_entries_tool_name ON journal_entries(tool_name, timestamp);

@@ -2,20 +2,24 @@ import type { BundleExport, SearchPreset } from "../api.js";
 import {
   browserVisibleEntryText,
   describeGeneratedSummaryFreshness as describeGeneratedSummaryFreshnessFromCore,
+  type AttentionNowItem,
   type AlertFinding,
   type IncidentActionKind,
   type IncidentActionRecord,
   type CapabilityView,
+  type CloseoutReadinessScore,
   type CloseoutPlan,
   type CorrelationEdge,
   type CorrelationNode,
   type DeliveryReceipt,
+  type ExportableOperatorView,
   type GeneratedSummary,
   type JournalDay,
   type JournalEntry,
   type JournalFilterKey,
   type MonitoringImportResult,
   type OperatorViewPreset,
+  type OperationsBacklogReport,
   type ReplayBundleDiff,
   type ReplayStep,
   type RetentionPreview,
@@ -38,7 +42,22 @@ export const DEFAULT_SEARCH_PRESETS: SearchPreset[] = [
 ];
 
 export function buildShellShortcutHints(): string[] {
-  return ["[: left rail", "Alt+S: search", "Alt+C: composer", "]: diagnostics"];
+  return ["[: left rail", "Alt+S: search", "Alt+C: composer", "Alt+R: failed receipts", "Alt+M: stale summaries", "]: diagnostics"];
+}
+
+export function buildVerificationTrustSummary(report: OperationsBacklogReport | null): string {
+  if (!report) return "Last successful local verify bundle: unavailable";
+  const center = report.verificationCenter;
+  const verifySegment = center.lastSuccessfulVerifyAt
+    ? `verify ${center.lastSuccessfulVerifyAt} (${center.lastSuccessfulVerifyFreshness ?? "unknown"}, ${center.lastSuccessfulVerifyAgeLabel ?? "age unavailable"})`
+    : "verify unavailable";
+  return [
+    "Last successful local verify bundle:",
+    verifySegment,
+    `gateway ${center.lastSuccessfulGatewayVerifyAt ?? "unavailable"}`,
+    `desktop ${center.lastSuccessfulDesktopVerifyAt ?? "unavailable"}`,
+    `docs ${center.lastSuccessfulDocsCheckAt ?? "unavailable"}`
+  ].join(" ");
 }
 
 export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): OperatorViewPreset[] {
@@ -534,6 +553,29 @@ export function formatCapabilitySummary(capability: CapabilityView): string {
   ].join(" ");
 }
 
+export function formatAttentionNowItem(item: AttentionNowItem): string {
+  const detail = stripTrailingSentencePunctuation(safeWorkbenchCopy(item.detail));
+  return `${item.severity}: ${safeWorkbenchCopy(item.label)} - ${detail}. Evidence ${item.evidenceIds.map(safeWorkbenchCopy).join(", ") || "none"}. Action: ${safeWorkbenchCopy(item.action)}`;
+}
+
+export function formatWhyBlocked(input: { label: string; blockingReasons: string[]; nextSafeActions: string[]; evidenceIds: string[] }): string {
+  const reasons = input.blockingReasons.map(safeWorkbenchCopy).join("; ") || "no blocker detail available";
+  const actions = input.nextSafeActions.map(safeWorkbenchCopy).join("; ") || "collect fresh local evidence";
+  const evidence = input.evidenceIds.map(safeWorkbenchCopy).join(", ") || "none";
+  return `${safeWorkbenchCopy(input.label)} blocked: ${reasons}. Next safe actions: ${actions}. Evidence: ${evidence}.`;
+}
+
+export function formatCloseoutReadiness(readiness: CloseoutReadinessScore): string {
+  const blockers = readiness.blockers.map(safeWorkbenchCopy).join("; ") || "no blockers";
+  return `Closeout readiness ${readiness.label} (${String(readiness.score)}): ${blockers}. Required evidence is ${readiness.requiredEvidenceFresh ? "fresh" : "not fresh"}.`;
+}
+
+export function formatExportableOperatorView(view: ExportableOperatorView): string {
+  const warning = view.newerEvidenceExists ? ` Warning: newer evidence exists. ${safeWorkbenchCopy(view.newerEvidenceReason ?? "Refresh saved evidence before handoff.")}` : "";
+  const staleSummary = typeof view.staleSummaryCount === "number" ? ` ${String(view.staleSummaryCount)} stale summary day(s).` : "";
+  return `${safeWorkbenchCopy(view.label)}: ${String(view.evidenceCount)} evidence item(s), ${String(view.unresolvedEvidenceCount)} unresolved.${staleSummary}${warning} ${safeWorkbenchCopy(view.redactedJson)}`;
+}
+
 export function capabilityGateAllows(capabilities: CapabilityView[], capabilityId: string): boolean {
   return capabilities.find((capability) => capability.id === capabilityId)?.useGate.allowed === true;
 }
@@ -704,5 +746,9 @@ function safeWorkbenchCopy(value: string): string {
       redacted: true
     },
     { expanded: true }
-  ).body;
+  ).body.replace(/\b(token=)[^\s,;"}]+/gi, "$1[REDACTED_SECRET]");
+}
+
+function stripTrailingSentencePunctuation(value: string): string {
+  return value.replace(/[.!?]+$/u, "");
 }

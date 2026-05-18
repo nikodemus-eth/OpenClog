@@ -79,6 +79,7 @@ export interface JournalEntry {
   dayKey: string;
   sessionId?: string;
   source: JournalEntrySource;
+  sourceLabel?: string;
   kind: JournalEntryKind;
   title: string;
   body?: string;
@@ -91,6 +92,8 @@ export interface JournalEntry {
   artifacts?: JournalArtifact[];
   actions?: JournalAction[];
   rawEventHash?: string;
+  backfilled?: boolean;
+  importedAt?: string;
   redacted: boolean;
 }
 
@@ -182,6 +185,11 @@ export interface SessionDrilldown {
   approvalCount: number;
   reconnectCount: number;
   sanitizedSummary?: string;
+  provenance?: {
+    backfilled: boolean;
+    sourceLabel?: string;
+    importedAt?: string;
+  };
 }
 
 export interface RetentionPolicy {
@@ -250,6 +258,8 @@ export interface IncidentSummary {
   createdAt: string;
   runbookSuggestions: RunbookSuggestion[];
   loopProgress?: IncidentLoopProgress;
+  loopStageNotes?: Partial<Record<keyof IncidentLoopProgress, string>>;
+  selectedTemplateId?: string;
   handoffPacketIds?: string[];
 }
 
@@ -290,6 +300,14 @@ export interface OperatorViewPreset {
   drilldown?: SessionDrilldownViewState;
   hypothesis?: string;
   validationSteps?: string[];
+  evidenceCount?: number;
+  unresolvedEvidenceCount?: number;
+  staleSummaryCount?: number;
+  exportVersion?: 1;
+  redaction?: {
+    redacted: true;
+    redactedFields: string[];
+  };
 }
 
 export interface OpenClogSettings {
@@ -963,6 +981,9 @@ export interface SummaryJobDayHistory {
 export interface SummaryJobHistoryPanel {
   jobs: SummaryJobHistoryItem[];
   days: SummaryJobDayHistory[];
+  queueDepth: number;
+  oldestWaitingAgeMs?: number;
+  oldestWaitingAgeLabel?: string;
 }
 
 export interface IncidentEvidenceChecklistItem {
@@ -1049,19 +1070,116 @@ export interface VerificationCenterGate {
   status: OperationsGateStatus;
   detail: string;
   evidenceIds: string[];
+  ageMs?: number;
+  ageLabel?: string;
+  freshness?: VerificationReceipt["freshness"];
+  blockingReasons: string[];
+  nextSafeActions: string[];
 }
 
 export interface VerificationCenterReport {
   generatedAt: string;
   gates: VerificationCenterGate[];
+  firstBlockedGateId?: VerificationCenterGate["id"];
   receipts: VerificationReceipt[];
   readinessScore: number;
   readinessLabel: "ready" | "warning" | "blocked";
   lastSuccessfulVerifyAt?: string;
+  lastSuccessfulVerifyAgeLabel?: string;
+  lastSuccessfulVerifyFreshness?: VerificationReceipt["freshness"];
   lastSuccessfulGatewayVerifyAt?: string;
   lastSuccessfulDesktopVerifyAt?: string;
   lastSuccessfulDocsCheckAt?: string;
   docsCheckedCommitSha?: string;
+}
+
+export interface AttentionNowItem {
+  id:
+    | "stale_summary"
+    | "approval_backlog"
+    | "repeated_receipt_failure"
+    | "reconnect_event"
+    | "route_budget_regression"
+    | "failed_dry_run_delivery";
+  severity: "info" | "warning" | "critical";
+  label: string;
+  detail: string;
+  evidenceIds: string[];
+  action: string;
+}
+
+export interface ReadinessAggregate {
+  windowHours: 24 | 168;
+  reconnectCount: number;
+  staleCount: number;
+  recoveryCount: number;
+  failedDeliveryCount: number;
+  summaryMedianCompletionMs: number;
+  routeBudgetBreachCount: number;
+  verificationFreshness: VerificationReceipt["freshness"];
+}
+
+export interface RouteBudgetRegression {
+  route: RoutePerformanceBudget["route"];
+  baselineMs: number;
+  observedMs: number;
+  deltaMs: number;
+  severity: "watch" | "breach";
+}
+
+export interface CloseoutReadinessScore {
+  score: number;
+  label: "ready" | "warning" | "blocked";
+  blockers: string[];
+  requiredEvidenceFresh: boolean;
+}
+
+export interface VerificationReceiptDiff {
+  command: string;
+  failedReceiptId: string;
+  passingReceiptId?: string;
+  status: "still-failing" | "recovered";
+  failedAt: string;
+  passedAt?: string;
+  failedCommitSha?: string;
+  passingCommitSha?: string;
+  commitChanged: boolean;
+}
+
+export interface ExportableOperatorView {
+  id: string;
+  label: string;
+  evidenceCount: number;
+  unresolvedEvidenceCount: number;
+  staleSummaryCount?: number;
+  redactedJson: string;
+  newerEvidenceExists?: boolean;
+  newerEvidenceReason?: string;
+}
+
+export interface IncidentTemplate {
+  id: "missing-scopes" | "reconnect-storm" | "delivery-dead-letter" | "stale-summary" | "route-budget-regression";
+  title: string;
+  summary: string;
+  stageNotes: Record<keyof IncidentLoopProgress, string>;
+}
+
+export interface DeliveryContractPreview {
+  target: DeliveryAdapterTarget;
+  dryRunSchema: string[];
+  liveSchema: string[];
+  idempotencyFields: string[];
+  exactFieldCountMatch: boolean;
+  missingInDryRun: string[];
+  missingInLive: string[];
+  paritySummary: string;
+  schemaWarnings: string[];
+}
+
+export interface ReleaseReadinessGate {
+  status: "ready" | "blocked";
+  requiredCommands: string[];
+  blockers: string[];
 }
 
 export interface GovernedSdkManifest {
@@ -1180,19 +1298,28 @@ export interface OperationsBacklogReport {
   dayKey: string;
   incidentId?: string;
   generatedAt: string;
+  attentionNow: AttentionNowItem[];
+  staleSummaryDayKeys: string[];
   summaryJobHistory: SummaryJobHistoryPanel;
   incidentEvidenceChecklist: IncidentEvidenceChecklist;
   investigationBundlePreview: InvestigationBundlePreview;
   readinessHistory: ReadinessHistorySparkline;
+  readinessAggregates: ReadinessAggregate[];
   deliveryLedger: DeliveryLedger;
   deliveryTargetHealth: DeliveryTargetHealth[];
   incidentTimeline: IncidentTimeline;
   routePerformanceBudgets: RoutePerformanceBudget[];
+  routeBudgetRegressions: RouteBudgetRegression[];
   chaosScenarios: ChaosTestScenario[];
   recommendationRationales: RecommendationRationale[];
   verificationCenter: VerificationCenterReport;
+  verificationReceiptDiffs: VerificationReceiptDiff[];
   governedSdkManifests: GovernedSdkManifest[];
   evidenceQualityScores: EvidenceQualityScore[];
+  closeoutReadiness: CloseoutReadinessScore;
+  exportableViews: ExportableOperatorView[];
+  incidentTemplates: IncidentTemplate[];
+  deliveryContractPreviews: DeliveryContractPreview[];
   guidedIncidentCommand: GuidedIncidentCommand;
   roleAwareSimulations: RoleAwareIncidentSimulation[];
   causalityGraph: CorrelationGraph;
@@ -1203,4 +1330,5 @@ export interface OperationsBacklogReport {
   retentionImpact: RetentionPreview;
   activeHypotheses: ActiveHypothesis[];
   nativeCutoverPlan: NativeCutoverPlan;
+  releaseReadinessGate: ReleaseReadinessGate;
 }

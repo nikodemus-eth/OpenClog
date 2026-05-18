@@ -39,3 +39,19 @@ Closeout notes:
 - Verification Center rows can now report receipt age/freshness alongside the existing timestamps, which makes “fresh vs aging vs stale evidence” part of the morning briefing instead of an implicit operator inference.
 - `/api/operations/report` now carries richer summary-job day totals, 24-hour delivery-target health trends, backend/Gateway readiness splits, retention-impact output, saved-view hypotheses, and a native cutover prep artifact reference.
 - Future daily reports should call out readiness score, receipt-age evidence, active investigation hypotheses, and the native cutover prep status as current product seams rather than backlog-only concepts.
+
+## 2026-05-15 Full Operations Roadmap Follow-Through
+
+- Daily reports should lead with the `Needs attention now` strip when present: stale summaries, approval backlog, repeated receipt failures, reconnect events, route-budget breaches, and failed dry-run deliveries are now first-order morning triage signals.
+- Verification status should distinguish the shell-header trust chip, collapsed rail stale-age badges, Verification Center gate freshness, receipt diffs, and release-readiness gate instead of compressing them into a single green/yellow/red claim.
+- Incident progress reporting should cite template choice, Detect/Explain/Recommend/Act/Record completion, closeout readiness score, newer-evidence summary warnings, and unresolved evidence counts beside saved operator views.
+- Delivery and integration sections should include contract-preview parity, dry-run/live idempotency posture, failed dry-run details, missing-scope copy, and whether saved-view/export payloads were redacted for handoff.
+- Native/local infrastructure remains a roadmap lane, not a completed authority move: readiness snapshots, settings history, signed bundle manifests, and native runner history tables exist as durable-local prep while Fastify remains current authority.
+
+## 2026-05-17 Release 2 Follow-Through
+
+- Daily reports should now call out backfill provenance explicitly when recovered OpenClaw sessions influence the operator view: backfilled badge presence and import timestamp are first-order trust cues.
+- Verification summary copy should distinguish three surfaces: the shell-header jump to the first blocked gate, the collapsed-rail latest verify age/freshness summary, and the Verification Center gate-level stale/blocked state.
+- Saved-view reporting should separate stale-summary counts from newer-evidence warnings so operators can tell “summary needs refresh” apart from “underlying evidence changed.”
+- Delivery reporting should include the dry-run/live parity line with exact field-count match, missing-in-dry-run fields, missing-in-live fields, and schema warnings before discussing live send posture.
+- Queue-pressure reporting should mention summary-job queue depth and oldest waiting age directly in the center-lane workbench summary when backlog pressure is part of the story.

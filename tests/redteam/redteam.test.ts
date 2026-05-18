@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { formatCapabilitySummary, formatCorrelationNode, formatMissionReplayStep, formatMonitoringImportSummary, formatReceiptDetails, formatRetentionSnapshotImpact } from "../../apps/web/src/state/operator-workspace.js";
+import { formatCapabilitySummary, formatCorrelationNode, formatExportableOperatorView, formatMissionReplayStep, formatMonitoringImportSummary, formatReceiptDetails, formatRetentionSnapshotImpact, formatWhyBlocked } from "../../apps/web/src/state/operator-workspace.js";
 import { browserVisibleEntryText, classifyComposerInput, redactGatewayPayload, toPersistableRedactedEvent } from "../../packages/core/src/index.js";
 
 describe("red-team fixtures", () => {
@@ -163,6 +163,25 @@ describe("red-team fixtures", () => {
     expect(`${importSummary}\n${capability}`).not.toMatch(/registry-secret|\/Users\/m4\/OpenClog\/\.env/);
     expect(capability).toContain("[REDACTED_SECRET]");
     expect(importSummary).toContain("[LOCAL_PATH]");
+  });
+
+  test("new roadmap export and blocker copy preserve browser secret boundaries", () => {
+    const exportView = formatExportableOperatorView({
+      id: "view-secret",
+      label: "Authorization: Bearer export-secret",
+      evidenceCount: 2,
+      unresolvedEvidenceCount: 1,
+      redactedJson: "{\"query\":\"/Users/m4/OpenClog/.env token=secret-token\",\"redacted\":true}"
+    });
+    const blocked = formatWhyBlocked({
+      label: "Deliver to Slack",
+      blockingReasons: ["missing config OPENCLAW_GATEWAY_TOKEN=oc-token", "path /Users/m4/OpenClog/.env unavailable"],
+      nextSafeActions: ["Copy missing scopes"],
+      evidenceIds: ["receipt-secret"]
+    });
+
+    expect(`${exportView}\n${blocked}`).not.toMatch(/export-secret|secret-token|oc-token|\/Users\/m4\/OpenClog\/\.env/);
+    expect(`${exportView}\n${blocked}`).toMatch(/\[REDACTED_SECRET\]|\[LOCAL_PATH\]/);
   });
 });
 

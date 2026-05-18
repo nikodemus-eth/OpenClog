@@ -22,6 +22,7 @@
     "test:visual:raw": "playwright test tests/e2e/visual.spec.ts",
     "test:redteam": "vitest run tests/redteam",
     "test:changed": "vitest run packages/app/test/application.test.ts apps/api/test/advanced-features.test.ts apps/web/test/operator-workspace.test.ts apps/web/test/ui-state.test.ts",
+    "test:workbench": "vitest run packages/app/test/application.test.ts apps/api/test/advanced-features.test.ts apps/api/test/repository.test.ts apps/web/test/operator-workspace.test.ts apps/web/test/ui-state.test.ts",
     "typecheck": "tsc -b tsconfig.json",
     "verify": "tsx scripts/run-and-record-verification.ts --label \"npm run verify\" -- npm run verify:raw",
     "verify:raw": "npm run check:forbidden-rpc && npm run typecheck && npm run lint && npm run build && npm run test:coverage && npm run test:e2e && npm run test:visual && npm run test:redteam && npm run docs:check",

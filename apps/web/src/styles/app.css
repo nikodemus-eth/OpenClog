@@ -561,6 +561,14 @@ button {
   width: 100%;
 }
 
+.collapsed-rail-summary {
+  margin: 0;
+  color: var(--stitch-muted);
+  font-size: 0.68rem;
+  line-height: 1.35;
+  text-align: center;
+}
+
 .collapsed-rail-button svg,
 .rail-collapse-toggle svg {
   color: currentColor;

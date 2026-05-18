@@ -717,6 +717,7 @@ describe("advanced OpenClog features", () => {
     const operationsReport = await app.inject({ method: "GET", url: "/api/operations/report?dayKey=2026-05-04&incidentId=incident-1" });
     const deliveryLedger = await app.inject({ method: "GET", url: "/api/operations/delivery-ledger?status=failed&q=slack" });
     const simulations = await app.inject({ method: "GET", url: "/api/operations/simulations" });
+    const tables = repo.listTables();
 
     expect(version.json()).toMatchObject({
       version: expect.any(String),
@@ -787,18 +788,33 @@ describe("advanced OpenClog features", () => {
     });
     expect(operationsReport.json()).toMatchObject({
       report: expect.objectContaining({
+        attentionNow: expect.any(Array),
+        staleSummaryDayKeys: expect.any(Array),
+        readinessAggregates: expect.arrayContaining([expect.objectContaining({ windowHours: 24 }), expect.objectContaining({ windowHours: 168 })]),
+        closeoutReadiness: expect.objectContaining({ score: expect.any(Number), label: expect.any(String), requiredEvidenceFresh: expect.any(Boolean) }),
+        releaseReadinessGate: expect.objectContaining({ requiredCommands: expect.arrayContaining(["verify", "verify:gateway", "docs:check", "verify:desktop-native"]) }),
+        deliveryContractPreviews: expect.arrayContaining([expect.objectContaining({ target: "slack", dryRunSchema: expect.any(Array), liveSchema: expect.any(Array) })]),
         verificationCenter: expect.objectContaining({
           docsCheckedCommitSha: "def5678",
           lastSuccessfulDocsCheckAt: "2026-05-10T11:01:00.000Z",
           readinessScore: expect.any(Number),
           readinessLabel: expect.any(String),
           receipts: expect.arrayContaining([expect.objectContaining({ id: expect.any(String), ageLabel: expect.any(String), freshness: expect.any(String) })]),
-          gates: expect.arrayContaining([expect.objectContaining({ id: "summary_freshness" })])
+          gates: expect.arrayContaining([expect.objectContaining({ id: "summary_freshness", ageLabel: expect.any(String), blockingReasons: expect.any(Array), nextSafeActions: expect.any(Array) })])
         }),
         retentionImpact: expect.objectContaining({ removedEntryCount: expect.any(Number) }),
         nativeCutoverPlan: expect.objectContaining({ status: "prep", artifactPath: "docs/openclog-native-cutover.md" })
       })
     });
+    expect(tables).toEqual(
+      expect.arrayContaining([
+        "journal_readiness_snapshots",
+        "journal_incident_templates",
+        "journal_settings_history",
+        "journal_signed_bundle_manifests",
+        "journal_native_runner_history"
+      ])
+    );
     expect(deliveryLedger.json()).toMatchObject({
       ledger: {
         items: expect.arrayContaining([expect.objectContaining({ target: "slack", status: "failed", sameKeyRetryRequiresConfirmation: true })])

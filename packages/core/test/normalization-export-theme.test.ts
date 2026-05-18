@@ -5,6 +5,7 @@ import {
   getTheme,
   getThemes,
   normalizeGatewayEvent,
+  operatorDayKeyFromTimestamp,
   sampleJournalDay,
   themeIds
 } from "../src/index.js";
@@ -43,6 +44,19 @@ describe("normalization, exports, and themes", () => {
     expect(normalizeGatewayEvent({ event: "session.message", payload: { key: "s1", role: "assistant", text: "hi", ts: 5 } })).toMatchObject({
       kind: "assistant_message",
       source: "openclaw"
+    });
+    expect(
+      normalizeGatewayEvent({
+        event: "session.message",
+        payload: { sessionKey: "agent:hugin:recovery", role: "assistant", text: "Recovered from OpenClaw session log.", ts: 5, source: "openclaw-session-jsonl", importedAt: "2026-05-17T16:00:00.000Z" }
+      })
+    ).toMatchObject({
+      kind: "assistant_message",
+      source: "openclaw",
+      sessionId: "agent:hugin:recovery",
+      backfilled: true,
+      importedAt: "2026-05-17T16:00:00.000Z",
+      sourceLabel: "Backfilled from OpenClaw"
     });
     expect(
       normalizeGatewayEvent({
@@ -132,6 +146,106 @@ describe("normalization, exports, and themes", () => {
       kind: "system_status",
       body: "{}"
     });
+  });
+
+  test("groups late UTC OpenClaw messages by the operator's local day", () => {
+    expect(
+      normalizeGatewayEvent(
+        {
+          event: "session.message",
+          payload: {
+            sessionKey: "agent:highfather:main",
+            messageId: "late-newsletter-triage",
+            message: {
+              role: "assistant",
+              content: "Triage complete.",
+              timestamp: "2026-05-16T04:17:15.175Z"
+            }
+          }
+        },
+        { timeZone: "America/Los_Angeles" }
+      )
+    ).toMatchObject({
+      dayKey: "2026-05-15",
+      timestamp: "2026-05-16T04:17:15.175Z",
+      body: "Triage complete."
+    });
+  });
+
+  test("falls back to UTC day grouping for invalid operator time zones and preserves missing import timestamps", () => {
+    expect(
+      normalizeGatewayEvent(
+        {
+          event: "session.message",
+          payload: {
+            sessionKey: "agent:hugin:backfill",
+            role: "assistant",
+            text: "Recovered summary.",
+            ts: "2026-05-16T04:17:15.175Z",
+            source: "openclaw-session-jsonl"
+          }
+        },
+        { timeZone: "Bad/Timezone" }
+      )
+    ).toMatchObject({
+      dayKey: "2026-05-16",
+      backfilled: true,
+      importedAt: undefined,
+      sourceLabel: "Backfilled from OpenClaw"
+    });
+  });
+
+  test("falls back to ISO dates when date formatting yields incomplete parts", () => {
+    const RealDateTimeFormat = Intl.DateTimeFormat;
+    Intl.DateTimeFormat = class extends RealDateTimeFormat {
+      formatToParts(): Intl.DateTimeFormatPart[] {
+        return [{ type: "literal", value: "/" }];
+      }
+    } as Intl.DateTimeFormatConstructor;
+
+    try {
+      expect(
+        normalizeGatewayEvent(
+          {
+            event: "session.message",
+            payload: {
+              sessionKey: "agent:hugin:partial-parts",
+              role: "assistant",
+              text: "Fallback formatting.",
+              ts: "2026-05-16T04:17:15.175Z"
+            }
+          },
+          { timeZone: "UTC" }
+        )
+      ).toMatchObject({ dayKey: "2026-05-16" });
+    } finally {
+      Intl.DateTimeFormat = RealDateTimeFormat;
+    }
+  });
+
+  test("falls back for invalid timestamps and missing local timezone resolution", () => {
+    const RealDateTimeFormat = Intl.DateTimeFormat;
+    Intl.DateTimeFormat = function (...args: ConstructorParameters<typeof Intl.DateTimeFormat>) {
+      const formatter = new RealDateTimeFormat(...args);
+      return {
+        ...formatter,
+        resolvedOptions() {
+          return { ...formatter.resolvedOptions(), timeZone: "" };
+        }
+      } as Intl.DateTimeFormat;
+    } as Intl.DateTimeFormatConstructor;
+
+    try {
+      expect(operatorDayKeyFromTimestamp("not-a-date")).toBe("2026-05-02");
+      expect(
+        normalizeGatewayEvent({
+          event: "session.message",
+          payload: { key: "s1", role: "assistant", text: "hello", ts: 1 }
+        })
+      ).toMatchObject({ dayKey: "1970-01-01" });
+    } finally {
+      Intl.DateTimeFormat = RealDateTimeFormat;
+    }
   });
 
   test("exports day as Markdown and HTML without raw payload fields", () => {

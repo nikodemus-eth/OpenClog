@@ -196,3 +196,17 @@ Track OpenClog security posture, Gateway authority boundaries, redaction, and fa
 - Delivery-target health trends, readiness history splits, retention-impact summaries, and saved-view hypotheses are all assembled from bounded local report data, so the richer backlog surfaces do not widen browser access to Gateway or secret-bearing state.
 - The new keyboard shortcut strip and rail shortcuts are presentation helpers only; they focus or reveal existing bounded surfaces and do not add hidden control paths or bypass blocked-action checks.
 - The native cutover artifact is documentation-only prep in this tranche and explicitly preserves the current Fastify authority boundary for report assembly, incident actions, retention, and delivery policy.
+
+## 2026-05-15 Roadmap Security Baseline
+- The tracked high-severity npm audit finding was remediated through the package lock only; `npm audit --json` is expected to report zero vulnerabilities before closeout, and no runtime dependency shortcut or ignored advisory was added.
+- Verification trust chips and stale-age badges are read-only summaries of persisted local verification receipts. They do not create a browser endpoint for writing receipts or claiming command success.
+- `why blocked` drawers expose operator-facing blocker reasons from capability gates, Gateway readiness, integrity state, missing configuration, and failed dry-run receipts without exposing Gateway tokens, device identity, auth headers, raw frames, delivery secrets, or unsafe local paths.
+- Copy actions for receipts, missing scopes, bundle digests, dry-run details, and saved-view exports reuse the browser redaction helper and now guard token query strings in addition to existing secret, raw-frame, cookie, and local-path patterns.
+- Exportable saved views and delivery contract previews remain bounded local artifacts with explicit redaction metadata. They are designed for escalation handoff, not for exporting raw Gateway evidence or secret-bearing configuration.
+- Release-readiness gating blocks green claims when required evidence is stale, failed, unknown, or missing; it does not infer success from UI freshness copy alone.
+
+## 2026-05-17 Release 2 Trust Surfaces
+- Backfilled OpenClaw evidence is now explicitly labeled at the source and drilldown layers, which reduces the risk of operators mistaking recovered session content for live Gateway-backed evidence.
+- The new `Copy why blocked summary` affordances reuse the existing blocker formatter and browser redaction path, so handoff copy stays bounded to operator-safe explanations instead of leaking config, scope negotiation internals, or secret-bearing payload details.
+- Dry-run/live delivery contract parity stays metadata-only: operators can compare missing fields, exact field-count match, and schema warnings without exposing delivery secrets or inventing a live-send success path.
+- Workstation-local incident-template defaults, stale-summary counters, queue-depth indicators, and collapsed-rail verification copy are presentation/persistence helpers only; none of them grant new Gateway scopes, browser write authority, or direct access to verification receipts.

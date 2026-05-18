@@ -238,6 +238,17 @@ Record deterministic verification, live Gateway verification, coverage policy, a
   - `npm run typecheck`
   - `npx playwright test tests/e2e/advanced-features.spec.ts --project=chromium`
 - `npm run test:coverage` passed with 20 Vitest files, 161 tests, and 100 percent measured statements, branches, functions, and lines: 728/728 statements, 696/696 branches, 201/201 functions, and 576/576 lines.
+
+## 2026-05-17 Release 2 Trust Surfaces
+- Added focused coverage for OpenClaw backfill provenance, invalid timezone/default-home fallbacks, env-driven importer limits, skipped-message defensive branches, saved-view stale-summary formatting, verification trust-summary fallbacks, summary-job queue metrics, first-blocked-gate selection, and delivery dry-run/live parity summaries.
+- Introduced `npm run test:workbench` as the fast iteration lane for the most frequently changed shared app/API/web workbench suites.
+- Refreshed all 54 desktop/mobile Playwright visual snapshots after the new header actions, provenance badges, queue metrics, stale-summary counters, and collapsed-rail verification summary changed the intended operator layout.
+- Final verification on this tranche passed with:
+  - `npm run test:coverage` at 100 percent statements, branches, functions, and lines
+  - `npm run verify`
+  - `npm run verify:gateway`
+  - `npm run verify:desktop-native`
+  - `git diff --check`
 - The first full `npm run verify` exposed intentional visual snapshot drift from the new operations panels; the actual desktop and mobile screenshots were inspected, all 54 visual baselines were refreshed, and the rerun passed with 206 E2E tests, 54 visual snapshots, 7 red-team tests, and docs check.
 - Final closeout commands passed:
   - `npm run verify`
@@ -286,3 +297,22 @@ Record deterministic verification, live Gateway verification, coverage policy, a
   - `npm test -- packages/app/test/application.test.ts`
   - `npm test -- apps/api/test/advanced-features.test.ts`
 - Full closeout verification for this tranche is required through the repo gate: `npm run verify`, `npm run verify:gateway`, `npm run verify:desktop-native`, `npm run smoke -w @openclog/desktop`, and `git diff --check` before commit and push.
+
+## 2026-05-15 Full Operations Roadmap
+- Added failing-first unit/API/UI/red-team coverage for stale-age Verification Center gates, attention-now rollups, blocker derivation, closeout readiness scoring, route-budget regression classification, export redaction, incident-loop persistence, delivery contract previews, verification receipt diffs, release-readiness gating, and durable-local migration tables.
+- Expanded Playwright coverage for the visible roadmap flow: `Needs attention now`, Verification Center freshness badges, blocked-action drawers, closeout readiness, readiness aggregates, exportable saved views, route-budget regressions, incident templates, delivery contract previews, and release-readiness state.
+- Focused verification passed during implementation:
+  - `npx vitest run packages/app/test/application.test.ts apps/api/test/advanced-features.test.ts apps/web/test/operator-workspace.test.ts tests/redteam/redteam.test.ts`
+  - `npm run typecheck`
+  - `npx vitest run packages/app/test/application.test.ts -t "full 30-item operations backlog report"`
+  - `npx vitest run apps/api/test/advanced-features.test.ts -t "serves roadmap backend"`
+  - `npx vitest run apps/web/test/operator-workspace.test.ts -t "formats attention strips"`
+  - `npx vitest run tests/redteam/redteam.test.ts -t "new roadmap export"`
+- The full gate initially exposed branch coverage gaps in roadmap copy helpers, fixture-timeout races in expanded advanced endpoints, and intentional visual snapshot drift from the new operations panels. Focused fixes covered the copy branches, bounded the fixtures, and refreshed all 54 visual baselines after inspection.
+- Closeout results:
+  - `npm audit --json` reported zero vulnerabilities and was recorded as a local verification receipt.
+  - `npm run verify` passed with 20 Vitest files / 169 tests, 100 percent statements/branches/functions/lines, 208 E2E tests, 54 visual snapshots, 8 red-team tests, and docs check.
+  - `npm run verify:desktop-native` passed with 2 native cargo tests.
+  - `npm run docs:check` passed.
+  - `git diff --check` passed.
+  - `npm run verify:gateway` failed closed with `protocol mismatch`; no live Gateway success was claimed.

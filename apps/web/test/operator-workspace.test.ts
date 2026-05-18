@@ -1,10 +1,11 @@
 import { describe, expect, test } from "vitest";
-import type { CapabilityView, DeliveryReceipt, GeneratedSummary, JournalEntry, MonitoringImportResult } from "@openclog/core";
+import type { CapabilityView, DeliveryReceipt, GeneratedSummary, JournalEntry, MonitoringImportResult, OperationsBacklogReport } from "@openclog/core";
 import {
   addSearchPreset,
   buildNamedOperatorViews,
   buildReconnectTrendText,
   buildShellShortcutHints,
+  formatAttentionNowItem,
   classifyGatewayErrorCategory,
   classifyGatewayUrl,
   capabilityGateAllows,
@@ -13,6 +14,7 @@ import {
   buildGatewayScopeButtonLabel,
   buildRetryReceiptConfirmation,
   buildRetryWithNewKeyReceiptConfirmation,
+  buildVerificationTrustSummary,
   describeActiveOperatorView,
   describeAlertFindingState,
   describeComposerConnectivity,
@@ -32,9 +34,12 @@ import {
   formatBundleManifestPreview,
   formatCloseoutPlan,
   formatCapabilitySummary,
+  formatCloseoutReadiness,
+  formatExportableOperatorView,
   formatMonitoringImportSummary,
   formatMissionReplayStep,
   formatReceiptDetails,
+  formatWhyBlocked,
   formatSummaryJobDurations,
   formatVerificationReceiptAge,
   formatVerificationReceiptStatus,
@@ -86,6 +91,44 @@ describe("operator workspace helpers", () => {
     expect(classifyGatewayUrl("wss://gateway.example.com")).toMatchObject({ kind: "remote", label: "Remote target" });
     expect(classifyGatewayUrl("::bad-url::")).toMatchObject({ kind: "invalid", label: "Invalid Gateway URL" });
     expect(classifyGatewayUrl(undefined)).toMatchObject({ kind: "unset", label: "Gateway URL unavailable" });
+  });
+
+  test("builds verification trust summaries for missing report data and unavailable verifies", () => {
+    expect(buildVerificationTrustSummary(null)).toBe("Last successful local verify bundle: unavailable");
+    expect(
+      buildVerificationTrustSummary({
+        verificationCenter: {
+          criticalIssueCount: 0,
+          failingGateCount: 0,
+          firstBlockedGateId: undefined,
+          gates: [],
+          lastSuccessfulDesktopVerifyAt: "2026-05-04T10:00:00.000Z",
+          lastSuccessfulDocsCheckAt: "2026-05-04T11:00:00.000Z",
+          lastSuccessfulGatewayVerifyAt: "2026-05-04T09:00:00.000Z",
+          lastSuccessfulVerifyAgeLabel: undefined,
+          lastSuccessfulVerifyAt: "2026-05-04T12:00:00.000Z",
+          lastSuccessfulVerifyFreshness: undefined,
+          summary: "Verify stale."
+        }
+      } as OperationsBacklogReport)
+    ).toContain("verify 2026-05-04T12:00:00.000Z (unknown, age unavailable)");
+    expect(
+      buildVerificationTrustSummary({
+        verificationCenter: {
+          criticalIssueCount: 0,
+          failingGateCount: 0,
+          firstBlockedGateId: undefined,
+          gates: [],
+          lastSuccessfulDesktopVerifyAt: undefined,
+          lastSuccessfulDocsCheckAt: undefined,
+          lastSuccessfulGatewayVerifyAt: undefined,
+          lastSuccessfulVerifyAgeLabel: undefined,
+          lastSuccessfulVerifyAt: undefined,
+          lastSuccessfulVerifyFreshness: undefined,
+          summary: "All clear."
+        }
+      } as OperationsBacklogReport)
+    ).toBe("Last successful local verify bundle: verify unavailable gateway unavailable desktop unavailable docs unavailable");
   });
 
   test("formats reconnect, retention, and empty-search guidance", () => {
@@ -224,6 +267,20 @@ describe("operator workspace helpers", () => {
     expect(dedupeLiveActionNotice([], "  ")).toEqual([]);
     expect(dedupeLiveActionNotice(["saved"], "saved")).toEqual(["saved"]);
     expect(dedupeLiveActionNotice(["alpha", "beta", "gamma"], "delta")).toEqual(["delta", "alpha", "beta"]);
+  });
+
+  test("formats exportable views with fallback newer-evidence copy", () => {
+    expect(
+      formatExportableOperatorView({
+        id: "saved-view",
+        label: "Saved view",
+        searchQuery: "delivery receipt",
+        grouped: false,
+        activeFilters: ["errors"],
+        newerEvidenceExists: true,
+        staleSummaryCount: 2
+      } as ExportableOperatorView)
+    ).toContain("newer evidence exists");
   });
 
   test("merges current built-in operator views with older persisted saved views", () => {
@@ -484,7 +541,7 @@ describe("operator workspace helpers", () => {
       ])
     ).toBe("Recorded at 2026-05-08T12:03:00.000Z.");
     expect(describeIncidentActionRecordingStatus("deliver_email", [])).toBe("Not yet recorded.");
-    expect(buildShellShortcutHints()).toEqual(["[: left rail", "Alt+S: search", "Alt+C: composer", "]: diagnostics"]);
+    expect(buildShellShortcutHints()).toEqual(["[: left rail", "Alt+S: search", "Alt+C: composer", "Alt+R: failed receipts", "Alt+M: stale summaries", "]: diagnostics"]);
   });
 
   test("describes active operator views, connectivity, summary job state, and per-view storage", () => {
@@ -571,6 +628,57 @@ describe("operator workspace helpers", () => {
       )
     ).toBe("2026-05-04T12:01:00.000Z");
     expect(getLastSuccessfulSummaryJobCompletionAt(null, { summary: "ready", createdAt: "2026-05-04T00:00:00.000Z", source: "rules" })).toBe("2026-05-04T00:00:00.000Z");
+    const trustReport: OperationsBacklogReport = {
+      dayKey: "2026-05-04",
+      generatedAt: "2026-05-04T12:10:00.000Z",
+      attentionNow: [],
+      summaryJobHistory: { jobs: [], days: [], queueDepth: 0 },
+      incidentEvidenceChecklist: { incidentId: "unscoped", ready: true, items: [] },
+      investigationBundlePreview: { dayKey: "2026-05-04", items: [], redactionWarnings: [] },
+      readinessHistory: { windowHours: 24, points: [] },
+      readinessAggregates: [],
+      deliveryLedger: { items: [] },
+      deliveryTargetHealth: [],
+      incidentTimeline: { startDayKey: "2026-05-04", endDayKey: "2026-05-04", events: [] },
+      routePerformanceBudgets: [],
+      routeBudgetRegressions: [],
+      chaosScenarios: [],
+      recommendationRationales: [],
+      verificationCenter: {
+        generatedAt: "2026-05-04T12:10:00.000Z",
+        gates: [],
+        firstBlockedGateId: undefined,
+        receipts: [],
+        readinessScore: 92,
+        readinessLabel: "ready",
+        lastSuccessfulVerifyAt: "2026-05-04T12:05:00.000Z",
+        lastSuccessfulVerifyAgeLabel: "5m old",
+        lastSuccessfulVerifyFreshness: "fresh"
+      },
+      verificationReceiptDiffs: [],
+      governedSdkManifests: [],
+      evidenceQualityScores: [],
+      closeoutReadiness: { score: 92, label: "ready", blockers: [], requiredEvidenceFresh: true },
+      exportableViews: [],
+      incidentTemplates: [],
+      deliveryContractPreviews: [],
+      guidedIncidentCommand: { stages: [] },
+      roleAwareSimulations: [],
+      causalityGraph: { incidentId: "incident-1", nodes: [], edges: [] },
+      operationsLedger: { entries: [] },
+      nativeTruthMonitor: { status: "passed", checks: [] },
+      policyRecommendationPacks: [],
+      escalationPlaybooks: [],
+      retentionImpact: { keepDays: 1, removedDayKeys: [], removedEntryCount: 0, removedSummaryCount: 0, removedAuditCount: 0 },
+      activeHypotheses: [],
+      nativeCutoverPlan: { status: "prep", artifactPath: "docs/openclog-native-cutover.md", summary: "prep", nextSteps: [] },
+      releaseReadinessGate: { status: "ready", requiredCommands: [], blockers: [] },
+      staleSummaryDayKeys: []
+    };
+    expect(buildVerificationTrustSummary(trustReport)).toBe(
+      "Last successful local verify bundle: verify 2026-05-04T12:05:00.000Z (fresh, 5m old) gateway unavailable desktop unavailable docs unavailable"
+    );
+    expect(buildVerificationTrustSummary(null)).toBe("Last successful local verify bundle: unavailable");
   });
 
   test("formats closeout plans, replay diffs, and investigation notes", () => {
@@ -897,6 +1005,97 @@ describe("operator workspace helpers", () => {
     expect(capabilityGateAllows([allowed], "delivery:slack")).toBe(true);
     expect(capabilityGateAllows([blocked], "delivery:email")).toBe(false);
     expect(capabilityGateAllows([], "delivery:slack")).toBe(false);
+  });
+
+  test("formats attention strips, blocker drawers, exportable views, and closeout readiness safely", () => {
+    expect(
+      formatAttentionNowItem({
+        id: "failed_dry_run_delivery",
+        severity: "critical",
+        label: "Failed dry-run delivery",
+        detail: "Slack failed because Authorization: Bearer secret was missing.",
+        evidenceIds: ["receipt-1"],
+        action: "Open why blocked drawer."
+      })
+    ).toBe("critical: Failed dry-run delivery - Slack failed because [REDACTED_SECRET] was missing. Evidence receipt-1. Action: Open why blocked drawer.");
+    expect(
+      formatWhyBlocked({
+        label: "Deliver to Slack",
+        blockingReasons: ["missing operator.approvals", "delivery target is not configured"],
+        nextSafeActions: ["Copy missing scopes", "Run a fresh dry-run"],
+        evidenceIds: ["receipt-1"]
+      })
+    ).toBe("Deliver to Slack blocked: missing operator.approvals; delivery target is not configured. Next safe actions: Copy missing scopes; Run a fresh dry-run. Evidence: receipt-1.");
+    expect(
+      formatCloseoutReadiness({
+        score: 42,
+        label: "blocked",
+        blockers: ["stale summary", "failed dry-run"],
+        requiredEvidenceFresh: false
+      })
+    ).toBe("Closeout readiness blocked (42): stale summary; failed dry-run. Required evidence is not fresh.");
+    const view = formatExportableOperatorView({
+      id: "saved-secret",
+      label: "Saved secret view",
+      evidenceCount: 3,
+      unresolvedEvidenceCount: 1,
+      staleSummaryCount: 1,
+      redactedJson: "{\"label\":\"Authorization: Bearer secret\",\"redacted\":true}"
+    });
+    expect(view).toContain("Saved secret view: 3 evidence item(s), 1 unresolved");
+    expect(view).toContain("1 stale summary day(s).");
+    expect(view).not.toContain("Bearer secret");
+    expect(view).toContain("[REDACTED_SECRET]");
+    expect(
+      formatAttentionNowItem({
+        id: "stale_summary",
+        severity: "warning",
+        label: "Stale summary",
+        detail: "Summary is older than the newest receipt",
+        evidenceIds: [],
+        action: "Refresh summary"
+      })
+    ).toBe("warning: Stale summary - Summary is older than the newest receipt. Evidence none. Action: Refresh summary");
+    expect(
+      formatWhyBlocked({
+        label: "Plugin action",
+        blockingReasons: [],
+        nextSafeActions: [],
+        evidenceIds: []
+      })
+    ).toBe("Plugin action blocked: no blocker detail available. Next safe actions: collect fresh local evidence. Evidence: none.");
+    expect(
+      formatCloseoutReadiness({
+        score: 91,
+        label: "ready",
+        blockers: [],
+        requiredEvidenceFresh: true
+      })
+    ).toBe("Closeout readiness ready (91): no blockers. Required evidence is fresh.");
+    expect(
+      formatExportableOperatorView({
+        id: "token-query",
+        label: "Token query",
+        evidenceCount: 1,
+        unresolvedEvidenceCount: 0,
+        staleSummaryCount: 1,
+        redactedJson: "{\"url\":\"https://example.test/callback?token=secret\"}",
+        newerEvidenceExists: true,
+        newerEvidenceReason: "A newer receipt landed after the saved view summary was generated."
+      })
+    ).toContain("token=[REDACTED_SECRET]");
+    expect(
+      formatExportableOperatorView({
+        id: "token-query",
+        label: "Token query",
+        evidenceCount: 1,
+        unresolvedEvidenceCount: 0,
+        staleSummaryCount: 1,
+        redactedJson: "{\"url\":\"https://example.test/callback?token=secret\"}",
+        newerEvidenceExists: true,
+        newerEvidenceReason: "A newer receipt landed after the saved view summary was generated."
+      })
+    ).toContain("Warning: newer evidence exists. A newer receipt landed after the saved view summary was generated.");
   });
 });
 
