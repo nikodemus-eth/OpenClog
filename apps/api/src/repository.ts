@@ -581,12 +581,24 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
         source: "rules",
         ...(lastEntryIncludedAt ? { lastEntryIncludedAt } : {}),
         ...(latestEntryObservedAt ? { latestEntryObservedAt } : {}),
+        summaryEvidenceCutoffAt: lastEntryIncludedAt || createdAt,
+        newerEvidenceArrived: Boolean(latestEntryObservedAt && lastEntryIncludedAt && latestEntryObservedAt > lastEntryIncludedAt),
+        newerEvidenceReason: latestEntryObservedAt && lastEntryIncludedAt && latestEntryObservedAt > lastEntryIncludedAt ? `A newer journal entry landed at ${latestEntryObservedAt} after the summary cutoff ${lastEntryIncludedAt}.` : undefined,
         freshnessState: latestEntryObservedAt && latestEntryObservedAt > createdAt ? "stale" : "fresh"
       };
       db.prepare("INSERT INTO journal_daily_summaries (day_key, summary, created_at) VALUES (?, ?, ?) ON CONFLICT(day_key) DO UPDATE SET summary = excluded.summary, created_at = excluded.created_at").run(dayKey, generatedSummary.summary, generatedSummary.createdAt);
       return generatedSummary;
     },
     createSummaryJob(dayKey) {
+      const existingJob = repo
+        .listSummaryJobs()
+        .find((job) => job.dayKey === dayKey && (job.status === "queued" || job.status === "running"));
+      if (existingJob) {
+        return {
+          ...existingJob,
+          progressLabel: "Summary job deduped to the existing active local queue entry."
+        };
+      }
       const createdAt = new Date().toISOString();
       const job: SummaryJob = {
         id: crypto.randomUUID(),

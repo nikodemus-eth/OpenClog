@@ -3,6 +3,12 @@
 ## Purpose
 Record first-person implementation notes from the builder/operator perspective.
 
+## 2026-05-20 Mega Tranche Rework
+- I kept this pass grounded in the repo’s real seams instead of pretending everything in the roadmap was net-new: I reworked the existing operations report and operator shell so the bigger trust story stays server-derived.
+- I let the shared contract widen first, because most of the requested UI work was really a truth-shape problem hiding behind presentation asks.
+- I treated summary-job deduping as product behavior rather than performance trivia; if the queue can silently fork, the operator can no longer trust what “refresh summary” means.
+- I kept the native boundary honest: Tauri emits stronger self-check evidence, but Fastify still owns policy and report decisions.
+
 ## 2026-05-18 Quick Wins Trust Tranche
 - I kept this pass honest to the plan: I finished the operator-trust Quick Wins instead of pretending a larger native cutover was part of the same change.
 - I let the backend/shared seam speak first and made the browser thinner: the new badge, comparison row, delivery verification age, route-budget row copy, and note counts all come from bounded report data or shared helpers.

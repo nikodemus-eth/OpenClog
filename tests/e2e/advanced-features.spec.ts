@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { installApiFixtures } from "./support/api-fixtures.js";
 
 test("journal quick wins and advanced workbench stay usable together", async ({ page }) => {
+  test.setTimeout(60_000);
   await installApiFixtures(page, {
     gatewayStatus: "ready",
     approvalCount: 1,

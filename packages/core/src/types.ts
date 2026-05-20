@@ -44,7 +44,7 @@ export interface JournalAction {
   danger?: boolean;
 }
 
-export type JournalFilterKey = "errors" | "approvals" | "tool_failures" | "session_starts" | "inter_session_messages" | "acks";
+export type JournalFilterKey = "errors" | "approvals" | "tool_failures" | "session_starts" | "inter_session_messages" | "acks" | "backfilled_openclaw";
 
 export interface JournalFilterPreset {
   dayKey: string;
@@ -67,6 +67,9 @@ export interface GeneratedSummary {
   lastEntryIncludedAt?: string;
   latestEntryObservedAt?: string;
   freshnessState?: "fresh" | "stale" | "unknown";
+  summaryEvidenceCutoffAt?: string;
+  newerEvidenceArrived?: boolean;
+  newerEvidenceReason?: string;
 }
 
 export interface RetentionMetadata {
@@ -310,6 +313,10 @@ export interface OperatorViewPreset {
     redacted: true;
     redactedFields: string[];
   };
+  persistedAcrossRestarts?: boolean;
+  selectedGateId?: VerificationCenterGate["id"];
+  lintFindings?: SavedViewLintFinding[];
+  handoffSummary?: string;
 }
 
 export interface OpenClogSettings {
@@ -604,6 +611,7 @@ export interface DeliveryReceipt {
     schedule?: string[];
     terminalAttemptRule?: string;
   };
+  retryBackoffEvents?: DeliveryRetryBackoffEvent[];
 }
 
 export interface CapabilityGate {
@@ -941,6 +949,8 @@ export interface VerificationReceipt {
   ageMs?: number;
   ageLabel?: string;
   freshness?: "fresh" | "aging" | "stale" | "unknown";
+  durationMs?: number;
+  requestFingerprint?: string;
 }
 
 export interface InvestigationWorkspace {
@@ -986,6 +996,122 @@ export interface SummaryJobHistoryPanel {
   queueDepth: number;
   oldestWaitingAgeMs?: number;
   oldestWaitingAgeLabel?: string;
+  dedupedDayKeys?: string[];
+}
+
+export interface DeliveryRetryBackoffEvent {
+  receiptId: string;
+  attemptNumber: number;
+  scheduledAt: string;
+  delayLabel: string;
+  usedNewIdempotencyKey: boolean;
+  remainingRetries: number;
+}
+
+export interface AttentionNowDeltaMetric {
+  id: "stale_summary" | "failed_receipt" | "blocked_gate" | "reconnect_storm" | "route_budget_breach";
+  label: string;
+  currentCount: number;
+  previousCount: number;
+  delta: number;
+}
+
+export interface AttentionNowDelta {
+  summary: string;
+  metrics: AttentionNowDeltaMetric[];
+}
+
+export interface VerificationReceiptLineage {
+  id: string;
+  command: string;
+  requestFingerprint: string;
+  latestFailedReceiptId?: string;
+  latestPassingReceiptId?: string;
+  status: "recovered" | "still-failing" | "passing-only";
+  receiptIds: string[];
+}
+
+export interface RouteBudgetBurnItem {
+  route: RoutePerformanceBudget["route"];
+  severity: "minor" | "material" | "critical";
+  frequency: number;
+  deltaMs: number;
+  previousDayDeltaMs: number;
+  sevenDayBaselineDeltaMs: number;
+}
+
+export interface RouteBudgetBurnReport {
+  generatedAt: string;
+  items: RouteBudgetBurnItem[];
+}
+
+export interface SavedViewLintFinding {
+  viewId: string;
+  severity: "info" | "warning";
+  message: string;
+}
+
+export interface SavedViewLintReport {
+  findings: SavedViewLintFinding[];
+}
+
+export interface DeliveryTrendPoint {
+  timestamp: string;
+  failedCount: number;
+  parityDriftCount: number;
+  missingConfigCount: number;
+}
+
+export interface DeliveryTargetDrilldown {
+  target: DeliveryAdapterTarget;
+  paritySummary: string;
+  retryHistory: DeliveryRetryBackoffEvent[];
+  trendPoints: DeliveryTrendPoint[];
+  schemaWarnings: string[];
+}
+
+export interface CloseoutPacketPreview {
+  summary: string;
+  blockerSummaries: string[];
+  lastPassingReceiptIds: string[];
+  unresolvedEvidenceCount: number;
+  redactionStatus: "bounded" | "warning";
+}
+
+export interface IncidentEvidenceDigest {
+  incidentId: string;
+  digest: string;
+  evidenceCount: number;
+}
+
+export interface SignedIncidentBundleManifest {
+  incidentId: string;
+  digest: string;
+  signature: string;
+  itemCount: number;
+}
+
+export interface MorningBriefArtifact {
+  headline: string;
+  bullets: string[];
+}
+
+export interface PolicyPackSummary {
+  environment: string;
+  readOnlyBrowserAuthority: true;
+  capabilityRuleCount: number;
+  deliveryRuleCount: number;
+}
+
+export interface RetentionImpactSimulation {
+  summary: string;
+  removedDayCount: number;
+  removedEntryCount: number;
+}
+
+export interface CausalityNarrative {
+  summary: string;
+  citedEvidenceIds: string[];
 }
 
 export interface IncidentEvidenceChecklistItem {
@@ -1077,6 +1203,11 @@ export interface VerificationCenterGate {
   freshness?: VerificationReceipt["freshness"];
   blockingReasons: string[];
   nextSafeActions: string[];
+  lastVerifiedAt?: string;
+  agingSoon?: boolean;
+  blockerSource?: "config" | "stale_evidence" | "capability_gate" | "desktop_unavailable" | "failing_evidence" | "unknown";
+  copyableBlockerSummary?: string;
+  lineageGroupId?: string;
 }
 
 export interface VerificationCenterReport {
@@ -1159,6 +1290,11 @@ export interface ExportableOperatorView {
   redactedJson: string;
   newerEvidenceExists?: boolean;
   newerEvidenceReason?: string;
+  persistedAcrossRestarts?: boolean;
+  selectedGateId?: VerificationCenterGate["id"];
+  lintFindings?: SavedViewLintFinding[];
+  handoffSummary?: string;
+  redactionSummary?: string;
 }
 
 export interface IncidentTemplate {
@@ -1166,6 +1302,9 @@ export interface IncidentTemplate {
   title: string;
   summary: string;
   stageNotes: Record<keyof IncidentLoopProgress, string>;
+  recommended?: boolean;
+  recommendedBecause?: string;
+  missingEvidenceKinds?: string[];
 }
 
 export interface DeliveryContractPreview {
@@ -1178,12 +1317,16 @@ export interface DeliveryContractPreview {
   missingInLive: string[];
   paritySummary: string;
   schemaWarnings: string[];
+  fieldDiffs?: Array<{ field: string; inDryRun: boolean; inLive: boolean }>;
 }
 
 export interface ReleaseReadinessGate {
   status: "ready" | "blocked";
   requiredCommands: string[];
   blockers: string[];
+  whyBlocking: string[];
+  staleAgeThresholdMinutes: number;
+  evidenceIds: string[];
 }
 
 export interface GovernedSdkManifest {
@@ -1219,6 +1362,13 @@ export interface DeliveryTargetHealth {
   failedCount24h: number;
   dryRunFailures24h: number;
   trend: "steady" | "degraded" | "improving";
+  retryHistory: DeliveryRetryBackoffEvent[];
+  nextRetryAt?: string;
+  remainingRetries?: number;
+  trendPoints?: DeliveryTrendPoint[];
+  parityDriftState?: "match" | "drift";
+  missingConfigCount7d?: number;
+  healthScore?: number;
 }
 
 export interface ActiveHypothesis {
@@ -1250,6 +1400,7 @@ export interface IncidentTimeline {
   startDayKey: string;
   endDayKey: string;
   events: IncidentTimelineEvent[];
+  carriesAcrossDays?: boolean;
 }
 
 export interface GuidedIncidentCommandStage {
@@ -1272,7 +1423,7 @@ export interface EscalationPlaybook {
 
 export interface RoleAwareIncidentSimulation {
   id: "stale-backend" | "missing-scopes" | "delivery-dead-letter";
-  role: "operator" | "incident-commander";
+  role: "viewer" | "operator" | "admin" | "incident-commander";
   title: string;
   liveSideEffects: false;
   expectedValidationSteps: string[];
@@ -1291,6 +1442,7 @@ export interface OperationsLedgerEntry {
 
 export interface NativeTruthMonitorReport {
   status: OperationsGateStatus;
+  divergenceSummary?: string;
   checks: Array<{
     id: "api_health" | "gateway_readiness" | "launch_agent" | "backend_fingerprint" | "desktop_self_check";
     status: OperationsGateStatus;
@@ -1309,6 +1461,7 @@ export interface OperationsBacklogReport {
   incidentId?: string;
   generatedAt: string;
   attentionNow: AttentionNowItem[];
+  attentionNowDelta: AttentionNowDelta;
   staleSummaryDayKeys: string[];
   summaryJobHistory: SummaryJobHistoryPanel;
   incidentEvidenceChecklist: IncidentEvidenceChecklist;
@@ -1320,24 +1473,35 @@ export interface OperationsBacklogReport {
   incidentTimeline: IncidentTimeline;
   routePerformanceBudgets: RoutePerformanceBudget[];
   routeBudgetRegressions: RouteBudgetRegression[];
+  routeBudgetBurnReport: RouteBudgetBurnReport;
   chaosScenarios: ChaosTestScenario[];
   recommendationRationales: RecommendationRationale[];
   verificationCenter: VerificationCenterReport;
   verificationReceiptDiffs: VerificationReceiptDiff[];
+  verificationReceiptLineage: VerificationReceiptLineage[];
   governedSdkManifests: GovernedSdkManifest[];
   evidenceQualityScores: EvidenceQualityScore[];
   closeoutReadiness: CloseoutReadinessScore;
   exportableViews: ExportableOperatorView[];
+  savedViewLint: SavedViewLintReport;
   incidentTemplates: IncidentTemplate[];
   deliveryContractPreviews: DeliveryContractPreview[];
+  deliveryTargetDrilldowns: DeliveryTargetDrilldown[];
   guidedIncidentCommand: GuidedIncidentCommand;
   roleAwareSimulations: RoleAwareIncidentSimulation[];
   causalityGraph: CorrelationGraph;
+  causalityNarrative: CausalityNarrative;
   operationsLedger: { entries: OperationsLedgerEntry[] };
+  closeoutPacketPreview: CloseoutPacketPreview;
+  incidentEvidenceDigest?: IncidentEvidenceDigest;
+  signedIncidentBundleManifest?: SignedIncidentBundleManifest;
+  morningBrief: MorningBriefArtifact;
   nativeTruthMonitor: NativeTruthMonitorReport;
   policyRecommendationPacks: PolicyRecommendationPack[];
+  policyPackSummary: PolicyPackSummary;
   escalationPlaybooks: EscalationPlaybook[];
   retentionImpact: RetentionPreview;
+  retentionImpactSimulation: RetentionImpactSimulation;
   activeHypotheses: ActiveHypothesis[];
   nativeCutoverPlan: NativeCutoverPlan;
   releaseReadinessGate: ReleaseReadinessGate;

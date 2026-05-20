@@ -53,6 +53,7 @@ import {
   formatRetentionSnapshotImpact,
   hasRetentionImpact,
   isSummaryJobActive,
+  isEntryMatchingFilter,
   isGeneratedSummaryStale,
   mergeOperatorViewsForDay,
   mergeSearchPresets,
@@ -267,7 +268,8 @@ describe("operator workspace helpers", () => {
       expect.objectContaining({ id: "stale-backend-fingerprint", builtIn: true, searchQuery: "stale backend fingerprint" }),
       expect.objectContaining({ id: "needs-operator-action-now", builtIn: true, hypothesis: "Needs operator action now highlights blocked, stale, and failed work that should be handled before handoff." }),
       expect.objectContaining({ id: "only-unresolved-incidents", builtIn: true, hypothesis: "Unresolved incidents combine open alerts, failed actions, and stale summaries." }),
-      expect.objectContaining({ id: "scope-missing", builtIn: true, searchQuery: "scope missing" })
+      expect.objectContaining({ id: "scope-missing", builtIn: true, searchQuery: "scope missing" }),
+      expect.objectContaining({ id: "backfilled-openclaw", builtIn: true, searchQuery: "\"Backfilled from OpenClaw\"" })
     ]);
     expect(dedupeLiveActionNotice([], "  ")).toEqual([]);
     expect(dedupeLiveActionNotice(["saved"], "saved")).toEqual(["saved"]);
@@ -286,6 +288,29 @@ describe("operator workspace helpers", () => {
         staleSummaryCount: 2
       } as ExportableOperatorView)
     ).toContain("newer evidence exists");
+  });
+
+  test("formats exportable views with lint findings and selected gate context", () => {
+    expect(
+      formatExportableOperatorView({
+        id: "saved-view",
+        label: "Saved view",
+        searchQuery: "delivery receipt",
+        grouped: false,
+        activeFilters: ["errors"],
+        evidenceCount: 3,
+        unresolvedEvidenceCount: 1,
+        redactedJson: "{\"label\":\"Saved view\"}",
+        lintFindings: [
+          {
+            id: "duplicate-view",
+            severity: "warning",
+            message: "Overlaps with stale summaries."
+          }
+        ],
+        selectedGateId: "release-readiness"
+      } as ExportableOperatorView)
+    ).toContain("Lint: Overlaps with stale summaries.. Selected gate release-readiness.");
   });
 
   test("merges current built-in operator views with older persisted saved views", () => {
@@ -319,6 +344,7 @@ describe("operator workspace helpers", () => {
       expect.objectContaining({ id: "needs-operator-action-now", builtIn: true }),
       expect.objectContaining({ id: "only-unresolved-incidents", builtIn: true }),
       expect.objectContaining({ id: "scope-missing", builtIn: true }),
+      expect.objectContaining({ id: "backfilled-openclaw", builtIn: true }),
       expect.objectContaining({ id: "saved-hypothesis", grouped: false, hypothesis: "Gateway scopes are missing." })
     ]);
   });
@@ -333,8 +359,48 @@ describe("operator workspace helpers", () => {
       expect.objectContaining({ id: "stale-backend-fingerprint", drilldown: { sessionKey: undefined, tab: "timeline", scrollTop: 0 } }),
       expect.objectContaining({ id: "needs-operator-action-now", drilldown: { sessionKey: undefined, tab: "actions", scrollTop: 0 } }),
       expect.objectContaining({ id: "only-unresolved-incidents", drilldown: { sessionKey: undefined, tab: "actions", scrollTop: 0 } }),
-      expect.objectContaining({ id: "scope-missing", drilldown: { sessionKey: undefined, tab: "actions", scrollTop: 0 } })
+      expect.objectContaining({ id: "scope-missing", drilldown: { sessionKey: undefined, tab: "actions", scrollTop: 0 } }),
+      expect.objectContaining({ id: "backfilled-openclaw", drilldown: { sessionKey: undefined, tab: "timeline", scrollTop: 0 } })
     ]);
+  });
+
+  test("matches backfilled OpenClaw timeline entries by flag and provenance text", () => {
+    expect(
+      isEntryMatchingFilter(
+        buildEntry("2026-05-08T12:00:00.000Z", {
+          backfilled: true
+        }),
+        "backfilled_openclaw"
+      )
+    ).toBe(true);
+    expect(
+      isEntryMatchingFilter(
+        buildEntry("2026-05-08T12:01:00.000Z", {
+          sourceLabel: "Recovered",
+          title: "Backfilled from OpenClaw archive import"
+        }),
+        "backfilled_openclaw"
+      )
+    ).toBe(true);
+    expect(
+      isEntryMatchingFilter(
+        buildEntry("2026-05-08T12:01:30.000Z", {
+          title: "Recovered evidence packet",
+          body: "Backfilled from OpenClaw after local replay."
+        }),
+        "backfilled_openclaw"
+      )
+    ).toBe(true);
+    expect(
+      isEntryMatchingFilter(
+        buildEntry("2026-05-08T12:02:00.000Z", {
+          sourceLabel: "Live capture",
+          title: "Operator note",
+          body: "Fresh local evidence only."
+        }),
+        "backfilled_openclaw"
+      )
+    ).toBe(false);
   });
 
   test("formats literal quick-win recovery, timing, scope, retry, correlation, and stale-summary affordances", () => {
@@ -831,10 +897,10 @@ describe("operator workspace helpers", () => {
     expect(formatReceiptDetails({ ...baseReceipt, id: "receipt-2", retryOfReceiptId: "receipt-1", attemptNumber: 2 })).toContain("Retry of receipt-1 attempt 2.");
     expect(formatReceiptDetails({ ...baseReceipt, id: "receipt-3", correlationId: undefined, retryOfReceiptId: "receipt-1", attemptNumber: undefined })).toContain("Correlation unavailable. Retry of receipt-1 attempt 1.");
     expect(formatIntegrationVerificationReceipt({ ...baseReceipt, id: "verify-1", dryRun: true, deliveryReference: "dry-run", deadLetterReason: "delivery target is not configured" })).toBe(
-      "slack dry-run verification failed. Delivery reference dry-run. Receipt verify-1. delivery target is not configured"
+      "slack dry-run receipt failed. Delivery reference dry-run. Receipt verify-1. delivery target is not configured"
     );
     expect(formatIntegrationVerificationReceipt({ ...baseReceipt, id: "verify-2", status: "sent", deliveryReference: undefined, deadLetterReason: undefined })).toBe(
-      "slack dry-run verification sent. Delivery reference unavailable. Receipt verify-2."
+      "slack dry-run receipt sent. Delivery reference unavailable. Receipt verify-2."
     );
     expect(classifyGatewayErrorCategory("gateway unavailable: Gateway connect.challenge timeout")).toBe("challenge_timeout");
     expect(classifyGatewayErrorCategory("device identity required")).toBe("device_identity");
@@ -900,7 +966,7 @@ describe("operator workspace helpers", () => {
   });
 
   test("ships the top eight investigative search presets as defaults", () => {
-    expect(DEFAULT_SEARCH_PRESETS).toHaveLength(8);
+    expect(DEFAULT_SEARCH_PRESETS).toHaveLength(9);
     expect(DEFAULT_SEARCH_PRESETS.map((preset) => preset.query)).toEqual([
       "status:failed tool",
       "approval pending",
@@ -909,7 +975,8 @@ describe("operator workspace helpers", () => {
       "adapter failed",
       "summary stale",
       "delivery receipt",
-      "plugin run"
+      "plugin run",
+      "\"Backfilled from OpenClaw\""
     ]);
     expect(mergeSearchPresets([])).toHaveLength(8);
     expect(mergeSearchPresets([{ id: "custom", label: "Custom", query: "custom" }])[0]).toMatchObject({ query: "custom" });
@@ -1260,7 +1327,7 @@ describe("operator workspace helpers", () => {
   });
 });
 
-function buildEntry(timestamp: string): JournalEntry {
+function buildEntry(timestamp: string, overrides: Partial<JournalEntry> = {}): JournalEntry {
   return {
     id: `entry-${timestamp}`,
     dayKey: "2026-05-04",
@@ -1268,6 +1335,7 @@ function buildEntry(timestamp: string): JournalEntry {
     kind: "assistant_message",
     title: "Gateway event",
     timestamp,
-    redacted: true
+    redacted: true,
+    ...overrides
   };
 }

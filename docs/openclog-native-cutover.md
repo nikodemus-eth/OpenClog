@@ -10,6 +10,11 @@ This artifact is truthful prep only. OpenClog still treats the Fastify API and s
 - Fastify still owns operations reporting, verification receipt assembly, retention, delivery policy, and incident action contracts.
 - The browser consumes bounded local report/view-model data and does not gain direct secret or Gateway authority.
 
+Current follow-through inside that boundary:
+
+- The scheduled self-check report now carries a native receipt id, observed API base, and a divergence summary so desktop evidence can later feed the machine-local ledger without changing current authority.
+- Divergence between desktop-observed health and Fastify-reported readiness remains an evidence item, not a browser-side policy decision.
+
 ## Cutover Goals
 
 - Move scheduled self-check ownership into the desktop boundary without duplicating Fastify policy logic.

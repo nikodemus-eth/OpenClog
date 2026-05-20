@@ -85,6 +85,14 @@ Release 2 also adds explicit trust and triage affordances to those existing lane
 - Day/archive rows can flag route-budget regressions, and saved operator views can show stale-summary counts separately from newer-evidence warnings.
 - Delivery contract previews include dry-run/live payload parity, and blocked incident or verification actions can expose copyable plain-text blocker summaries for handoff.
 
+The current mega-tranche follow-through expands those same trust surfaces instead of shifting authority:
+
+- `Needs attention now` now has a delta summary against the prior 24 hours so morning review can distinguish “still bad” from “getting worse.”
+- Verification Center gates now carry report-authored `last verified`, blocker source, `aging soon`, lineage-group, and copyable blocker-summary metadata in addition to the existing freshness badges.
+- Saved operator views now expose persistence and hygiene metadata: selected verification gate, restart persistence, lint findings, and handoff-safe summary text.
+- Delivery-target health now includes retry-history/backoff posture, parity-drift state, trend points, and a drilldown surface that stays bounded to local evidence.
+- The operations report now includes route-budget burn ranking, verification receipt lineage, closeout packet preview, morning brief copy, retention-impact simulation, and a bounded causality narrative.
+
 SQLite has prep tables for readiness snapshots, incident templates, settings history, signed bundle manifests, and native runner history. These tables support the roadmap's durable-local direction, but Fastify remains the current authority for Gateway readiness, receipts, operations reporting, incident actions, retention, delivery policy, and verification read paths until a native cutover proof replaces it.
 
 Native cutover remains truthful prep in the current repo state. The artifact at [`docs/openclog-native-cutover.md`](/Users/m4/OpenClog/docs/openclog-native-cutover.md) defines the intended desktop-boundary move without changing current Fastify authority for operator policy.

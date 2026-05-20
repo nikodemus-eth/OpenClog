@@ -42,7 +42,8 @@ export const DEFAULT_SEARCH_PRESETS: SearchPreset[] = [
   { id: "adapter-failures", label: "Adapter failures", query: "adapter failed" },
   { id: "stale-summaries", label: "Stale summaries", query: "summary stale" },
   { id: "delivery-receipts", label: "Delivery receipts", query: "delivery receipt" },
-  { id: "plugin-runs", label: "Plugin runs", query: "plugin run" }
+  { id: "plugin-runs", label: "Plugin runs", query: "plugin run" },
+  { id: "backfilled-openclaw", label: "Backfilled from OpenClaw", query: "\"Backfilled from OpenClaw\"" }
 ];
 
 export function buildShellShortcutHints(): string[] {
@@ -134,6 +135,7 @@ export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): Op
       activeFilters: ["errors", "approvals"],
       grouped: true,
       builtIn: true,
+      persistedAcrossRestarts: true,
       hypothesis: "Needs operator action now highlights blocked, stale, and failed work that should be handled before handoff.",
       validationSteps: ["Review blocked actions.", "Resolve failed receipts or dry-runs.", "Refresh stale evidence before handoff."],
       drilldown: { sessionKey, tab: "actions", scrollTop: 0 }
@@ -146,6 +148,7 @@ export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): Op
       activeFilters: ["errors", "approvals"],
       grouped: true,
       builtIn: true,
+      persistedAcrossRestarts: true,
       hypothesis: "Unresolved incidents combine open alerts, failed actions, and stale summaries.",
       validationSteps: ["Review active alerts.", "Retry or record failed actions.", "Refresh stale summaries before handoff."],
       drilldown: { sessionKey, tab: "actions", scrollTop: 0 }
@@ -158,7 +161,19 @@ export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): Op
       activeFilters: ["errors"],
       grouped: true,
       builtIn: true,
+      persistedAcrossRestarts: true,
       drilldown: { sessionKey, tab: "actions", scrollTop: 0 }
+    },
+    {
+      id: "backfilled-openclaw",
+      label: "Backfilled from OpenClaw",
+      dayKey,
+      searchQuery: "\"Backfilled from OpenClaw\"",
+      activeFilters: ["backfilled_openclaw"],
+      grouped: false,
+      builtIn: true,
+      persistedAcrossRestarts: true,
+      drilldown: { sessionKey, tab: "timeline", scrollTop: 0 }
     }
   ];
 }
@@ -365,9 +380,9 @@ export function applyOperatorViewTimelinePreference(view: OperatorViewPreset, gr
 export function mergeOperatorViewsForDay(dayKey: string, selectedSessionKey: string | undefined, persistedViews: OperatorViewPreset[] = []): OperatorViewPreset[] {
   const builtIns = buildNamedOperatorViews(dayKey, selectedSessionKey).map((view) => {
     const persisted = persistedViews.find((candidate) => candidate.builtIn === true && candidate.id === view.id);
-    return persisted ? { ...view, grouped: persisted.grouped } : view;
+    return persisted ? { ...view, grouped: persisted.grouped, selectedGateId: persisted.selectedGateId, lintFindings: persisted.lintFindings } : view;
   });
-  const savedViews = persistedViews.filter((view) => view.builtIn !== true);
+  const savedViews = persistedViews.filter((view) => view.builtIn !== true).map((view) => ({ ...view, persistedAcrossRestarts: true }));
   return [...builtIns, ...savedViews];
 }
 
@@ -547,7 +562,7 @@ export function formatReceiptDetails(receipt: DeliveryReceipt): string {
 
 export function formatIntegrationVerificationReceipt(receipt: DeliveryReceipt): string {
   return [
-    `${safeWorkbenchCopy(receipt.target)} dry-run verification ${safeWorkbenchCopy(receipt.status)}.`,
+    `${safeWorkbenchCopy(receipt.target)} dry-run receipt ${safeWorkbenchCopy(receipt.status)}.`,
     `Delivery reference ${safeWorkbenchCopy(receipt.deliveryReference ?? "unavailable")}.`,
     `Receipt ${safeWorkbenchCopy(receipt.id)}.`,
     receipt.deadLetterReason ? safeWorkbenchCopy(receipt.deadLetterReason) : ""
@@ -626,7 +641,9 @@ export function formatCloseoutReadiness(readiness: CloseoutReadinessScore): stri
 export function formatExportableOperatorView(view: ExportableOperatorView): string {
   const warning = view.newerEvidenceExists ? ` Warning: newer evidence exists. ${safeWorkbenchCopy(view.newerEvidenceReason ?? "Refresh saved evidence before handoff.")}` : "";
   const staleSummary = typeof view.staleSummaryCount === "number" ? ` ${String(view.staleSummaryCount)} stale summary day(s).` : "";
-  return `${safeWorkbenchCopy(view.label)}: ${String(view.evidenceCount)} evidence item(s), ${String(view.unresolvedEvidenceCount)} unresolved.${staleSummary}${warning} ${safeWorkbenchCopy(view.redactedJson)}`;
+  const lint = view.lintFindings?.length ? ` Lint: ${view.lintFindings.map((finding) => safeWorkbenchCopy(finding.message)).join("; ")}.` : "";
+  const verify = view.selectedGateId ? ` Selected gate ${safeWorkbenchCopy(view.selectedGateId)}.` : "";
+  return `${safeWorkbenchCopy(view.label)}: ${String(view.evidenceCount)} evidence item(s), ${String(view.unresolvedEvidenceCount)} unresolved.${staleSummary}${warning}${lint}${verify} ${safeWorkbenchCopy(view.redactedJson)}`;
 }
 
 export function capabilityGateAllows(capabilities: CapabilityView[], capabilityId: string): boolean {
@@ -702,6 +719,7 @@ export function isEntryMatchingFilter(entry: JournalEntry, filter: JournalFilter
   if (filter === "approvals") return entry.kind === "approval_requested" || entry.kind === "approval_resolved";
   if (filter === "tool_failures") return (entry.kind === "tool_call" || entry.kind === "tool_result") && (entry.severity === "error" || entry.status === "failed");
   if (filter === "session_starts") return entry.kind === "session_started";
+  if (filter === "backfilled_openclaw") return entry.backfilled === true || /backfilled from openclaw/i.test(`${entry.sourceLabel ?? ""} ${entry.title} ${entry.body ?? ""}`);
   if (filter === "inter_session_messages") {
     const title = `${entry.title} ${entry.body ?? ""}`.toLocaleLowerCase();
     return entry.source === "system" && (title.includes("inter-session") || title.includes("handoff"));

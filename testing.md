@@ -3,6 +3,12 @@
 ## Purpose
 Record deterministic verification, live Gateway verification, coverage policy, and closeout results.
 
+## 2026-05-20 Mega Tranche Rework
+- Added targeted unit/API coverage for the new report-contract surfaces and helper behavior: attention deltas, saved-view persistence metadata, verification receipt lineage, route-budget burn summaries, release-readiness explanations, delivery-target retry/trend metadata, and summary-job dedupe reporting.
+- Added operator-helper coverage for the new built-in `Backfilled from OpenClaw` view and filter so provenance-focused triage remains a tested default rather than an ad hoc query.
+- Targeted verification passed during implementation with `npm run test -- apps/web/test/operator-workspace.test.ts`, `npm run test -- packages/app/test/application.test.ts apps/api/test/advanced-features.test.ts`, and `npm run typecheck`.
+- Full deterministic closeout still requires the complete repo gate after docs/log refresh: `npm run verify`, `npm run verify:gateway`, `npm run verify:desktop-native`, and `git diff --check`.
+
 ## 2026-05-18 Quick Wins Trust Tranche
 - Added unit/API coverage for the new Quick Wins trust fields and helpers: built-in `Needs operator action now` view, active-incident badge formatting, delivery-target last-verified summaries, verification failed/passing comparison copy, timeline source summaries, and enriched operations-report contracts.
 - `npm run test:workbench` passed after the tranche changes.

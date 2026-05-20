@@ -1,5 +1,12 @@
 # OpenClog Reporting Seed
 
+## 2026-05-20 Mega Tranche Rework Follow-Through
+- The operations report now carries a stronger morning-triage contract: `attention now` deltas, verification receipt lineage, route-budget burn summaries, closeout packet preview, saved-view lint findings, delivery-target drilldowns, morning brief copy, retention-impact simulation, and a bounded causality narrative.
+- Summary-job pressure is now more truthful for operators and the local queue: duplicate refresh requests for the same day reuse the existing queued/running job instead of silently spawning a parallel one.
+- Verification Center reporting now distinguishes blocker source, last-verified timestamp, `aging soon` state, copyable blocker summaries, and report-authored release-readiness explanations before any green claim.
+- Saved-view reporting now treats persistence and hygiene as first-class trust surfaces: restart persistence, selected verification gate, lint findings, and handoff summary text are all explicit operator-facing metadata.
+- Delivery reporting now includes retry-history/backoff posture, parity drift signals, trend points, and target-health scoring so a new failure and a chronic failing target read differently in the workbench.
+
 ## 2026-05-18 Quick Wins Trust Tranche
 - Quick Wins now have stronger morning-trust surfaces in the shipped product: active-incident loop badge, delivery-target `last verified` evidence, explicit failed-vs-passing verification comparison, route-budget deltas on archive rows, and linked-note counts on incident cards.
 - Daily reports should now call out the built-in `Needs operator action now` view and the new keyboard focus paths for blocked actions and failed receipts as current operator-speed features rather than future ideas.

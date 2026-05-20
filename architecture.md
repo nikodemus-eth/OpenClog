@@ -3,6 +3,12 @@
 ## Purpose
 Track OpenClog architecture, component ownership, and authority boundaries.
 
+## 2026-05-20 Mega Tranche Rework
+- Fastify plus `@openclog/app` still own report assembly, policy interpretation, delivery governance, incident logic, and verification truth; the browser remains a read-only consumer of bounded report data.
+- `@openclog/core` now models richer operator-trust shapes: attention deltas, verification lineage, saved-view lint metadata, route-budget burn summaries, delivery drilldowns, closeout packet preview, morning brief, policy-pack summary, retention-impact simulation, and bounded causality narrative.
+- The repository/application seam now treats summary-job deduping as domain behavior rather than a UI assumption: a queued/running summary job for the same day is reused and surfaced as queue-pressure evidence.
+- Tauri still does not own policy decisions, but the desktop self-check report is now a more explicit native evidence artifact with receipt identity, observed API base, and divergence summary for future machine-local ledger ingestion.
+
 ## 2026-05-18 Quick Wins Trust Tranche
 - Fastify and `@openclog/app` remain the authority path for operator trust surfaces; the browser now renders additive report fields instead of deriving them ad hoc.
 - `@openclog/core` now models incident note counts, day-level route-budget regression metadata, delivery-target verification freshness fields, Verification Center failed/passing receipt highlights, and timeline source/source-label metadata.

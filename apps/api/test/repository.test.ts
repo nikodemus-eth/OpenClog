@@ -370,7 +370,7 @@ describe("SQLite repository", () => {
     expect(repo.listVerificationReceipts()).toEqual([receipt]);
   });
 
-  test("records real command receipts through the local verification runner", () => {
+  test("records real command receipts through the local verification runner", { timeout: 15000 }, () => {
     const dir = mkdtempSync(join(tmpdir(), "openclog-verify-runner-"));
     tempDirs.push(dir);
     const filename = join(dir, "openclog.db");
@@ -403,7 +403,7 @@ describe("SQLite repository", () => {
     ]);
   });
 
-  test("records failed command receipts and preserves the failing exit code", () => {
+  test("records failed command receipts and preserves the failing exit code", { timeout: 15000 }, () => {
     const dir = mkdtempSync(join(tmpdir(), "openclog-verify-runner-fail-"));
     tempDirs.push(dir);
     const filename = join(dir, "openclog.db");

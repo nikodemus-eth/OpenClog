@@ -29,7 +29,10 @@ struct DesktopSelfCheckItem {
 
 #[derive(Serialize)]
 struct DesktopSelfCheckReport {
+    receipt_id: String,
     generated_at: String,
+    observed_api_base: String,
+    divergence_summary: String,
     checks: Vec<DesktopSelfCheckItem>,
 }
 
@@ -128,14 +131,30 @@ fn delete_secure_secret(key: String) -> Result<SecretMutationResult, String> {
 fn run_scheduled_self_check() -> DesktopSelfCheckReport {
     let api_base = std::env::var("OPENCLOG_API_URL").unwrap_or_else(|_| "http://127.0.0.1:3000".to_string());
     let health = probe_api_health(&api_base);
+    let divergence_summary = if health.1.status == "ok" {
+        "Desktop self-check agrees with public Gateway readiness."
+    } else {
+        "Desktop self-check did not confirm Gateway readiness; Fastify remains authoritative until fresh native evidence is recorded."
+    };
     DesktopSelfCheckReport {
-        generated_at: "local-scheduled-check".to_string(),
+        receipt_id: format!("desktop-self-check:{}", api_base.replace([':', '/'], "_")),
+        generated_at: chrono_like_now(),
+        observed_api_base: api_base.clone(),
+        divergence_summary: divergence_summary.to_string(),
         checks: vec![
             health.0,
             health.1,
             probe_sqlite_integrity(),
             probe_secret_store(),
         ],
+    }
+}
+
+fn chrono_like_now() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => format!("unix:{}.{:03}", duration.as_secs(), duration.subsec_millis()),
+        Err(_) => "unix:0.000".to_string(),
     }
 }
 
@@ -227,10 +246,12 @@ mod tests {
     #[test]
     fn scheduled_self_check_reports_fail_closed_surfaces() {
         let report = run_scheduled_self_check();
+        assert!(report.receipt_id.starts_with("desktop-self-check:"));
         assert!(report.checks.iter().any(|check| check.id == "api_liveness"));
         assert!(report.checks.iter().any(|check| check.id == "gateway_readiness"));
         assert!(report.checks.iter().any(|check| check.id == "sqlite_integrity"));
         assert!(report.checks.iter().any(|check| check.id == "secret_store"));
+        assert!(!report.divergence_summary.is_empty());
     }
 }
 

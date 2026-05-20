@@ -219,25 +219,27 @@ export function AppShell(props: AppShellProps) {
     >
       <SkipLink />
       <header className="app-header" aria-label="OpenClog operator shell">
-        <TopAppBar
-          theme={props.theme}
-          onHomeClick={props.onHomeClick}
-          onJournalTopClick={props.onJournalTopClick}
-          onComposerFocus={props.onComposerFocus}
-          onGatewayFocus={() => expandRightRail(props.onGatewayFocus)}
-          onMainFocus={props.onMainFocus}
-          onShortcutsToggle={props.onShortcutsToggle}
-          onTimelineFocus={props.onTimelineFocus}
-          onToolFilterFocus={() => expandRightRail(props.onToolFilterFocus)}
-          healthPollAgeLabel={props.healthPollAgeLabel}
-          healthPollLatencyMs={props.healthPollLatencyMs}
-          verificationTrustSummary={props.verificationTrustSummary}
-          activeIncidentBadgeText={props.activeIncidentBadgeText}
-          onVerificationFailureFocus={props.onVerificationFailureFocus}
-          shellActionStatus={props.shellActionStatus}
-          version={props.version}
-          onActiveIncidentFocus={props.onActiveIncidentFocus}
-        />
+        <section>
+          <TopAppBar
+            theme={props.theme}
+            onHomeClick={props.onHomeClick}
+            onJournalTopClick={props.onJournalTopClick}
+            onComposerFocus={props.onComposerFocus}
+            onGatewayFocus={() => expandRightRail(props.onGatewayFocus)}
+            onMainFocus={props.onMainFocus}
+            onShortcutsToggle={props.onShortcutsToggle}
+            onTimelineFocus={props.onTimelineFocus}
+            onToolFilterFocus={() => expandRightRail(props.onToolFilterFocus)}
+            healthPollAgeLabel={props.healthPollAgeLabel}
+            healthPollLatencyMs={props.healthPollLatencyMs}
+            verificationTrustSummary={props.verificationTrustSummary}
+            activeIncidentBadgeText={props.activeIncidentBadgeText}
+            onVerificationFailureFocus={props.onVerificationFailureFocus}
+            shellActionStatus={props.shellActionStatus}
+            version={props.version}
+            onActiveIncidentFocus={props.onActiveIncidentFocus}
+          />
+        </section>
       </header>
       <Sidebar
         leftRailContent={props.leftRailContent}
@@ -773,9 +775,27 @@ export function Timeline(props: {
   const orderedEntries = useMemo(() => displayItems.flatMap((item) => (item.kind === "group" ? item.entries : [item.entry])), [displayItems]);
   const entryIds = useMemo(() => orderedEntries.map((entry) => entry.id), [orderedEntries]);
   const entryIndexById = useMemo(() => new Map(entryIds.map((id, index) => [id, index])), [entryIds]);
+  const [focusedEntryId, setFocusedEntryId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setFocusedEntryId((current) => {
+      if (current && entryIds.includes(current)) return current;
+      return null;
+    });
+  }, [entryIds]);
+
+  useEffect(() => {
+    if (!focusedEntryId) return;
+    const node = refs.current.get(focusedEntryId);
+    if (!node || document.activeElement === node) return;
+    window.requestAnimationFrame(() => {
+      refs.current.get(focusedEntryId)?.focus({ preventScroll: true });
+    });
+  }, [focusedEntryId, timelineRef]);
 
   useEffect(() => {
     if (!targetEntryId) return;
+    setFocusedEntryId(targetEntryId);
     const target = refs.current.get(targetEntryId);
     if (target) {
       target.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -806,7 +826,15 @@ export function Timeline(props: {
 
   function focusEntry(index: number): void {
     const id = entryIds[Math.max(0, Math.min(index, entryIds.length - 1))];
-    if (id) refs.current.get(id)?.focus();
+    if (!id) return;
+    setFocusedEntryId(id);
+    const focusTarget = () => {
+      const node = refs.current.get(id);
+      node?.focus({ preventScroll: true });
+    };
+    focusTarget();
+    window.requestAnimationFrame(focusTarget);
+    window.setTimeout(focusTarget, 0);
   }
 
   function handleTimelineKeyDown(event: React.KeyboardEvent<HTMLOListElement>): void {
@@ -861,11 +889,13 @@ export function Timeline(props: {
               entryIndexById={entryIndexById}
               expanded={expandedGroupIds.has(item.id)}
               expandedEntryId={expandedEntryId}
+              focusedEntryId={focusedEntryId}
               group={item}
               key={item.id}
               refs={refs}
               targetEntryId={targetEntryId}
               onCopyIncidentSummary={onCopyIncidentSummary}
+              onFocusEntry={setFocusedEntryId}
               onEntryKeyDown={handleEntryKeyDown}
               onTargetHandled={onTargetHandled}
               onToggleEntry={onToggleEntry}
@@ -874,6 +904,7 @@ export function Timeline(props: {
           ) : (
             <TimelineEntryCard
               entry={item.entry}
+              focused={focusedEntryId === item.entry.id || (focusedEntryId === null && (entryIndexById.get(item.entry.id) ?? 0) === 0)}
               expanded={expandedEntryId === item.entry.id}
               index={entryIndexById.get(item.entry.id) ?? 0}
               key={item.entry.id}
@@ -881,6 +912,7 @@ export function Timeline(props: {
                 if (node) refs.current.set(item.entry.id, node);
                 else refs.current.delete(item.entry.id);
               }}
+              onFocus={() => setFocusedEntryId(item.entry.id)}
               onCopyIncidentSummary={() => onCopyIncidentSummary(item.entry)}
               onKeyDown={(event) => handleEntryKeyDown(event, item.entry, entryIndexById.get(item.entry.id) ?? 0)}
               onToggle={() => onToggleEntry(item.entry.id)}
@@ -898,8 +930,10 @@ function TimelineGroupCard(props: {
   refs: RefObject<Map<string, HTMLDivElement>>;
   entryIndexById: Map<string, number>;
   expandedEntryId: string | null;
+  focusedEntryId: string | null;
   targetEntryId: string | null;
   onCopyIncidentSummary: (entry: JournalEntry) => void;
+  onFocusEntry: (entryId: string) => void;
   onEntryKeyDown: (event: React.KeyboardEvent<HTMLDivElement>, entry: JournalEntry, index: number) => void;
   onTargetHandled: () => void;
   onToggleEntry: (entryId: string) => void;
@@ -928,6 +962,10 @@ function TimelineGroupCard(props: {
             {props.group.entries.map((entry) => (
               <TimelineEntryCard
                 entry={entry}
+                focused={
+                  props.focusedEntryId === entry.id ||
+                  (props.focusedEntryId === null && (props.entryIndexById.get(entry.id) ?? 0) === 0)
+                }
                 expanded={props.expandedEntryId === entry.id}
                 index={props.entryIndexById.get(entry.id) ?? 0}
                 key={entry.id}
@@ -943,6 +981,7 @@ function TimelineGroupCard(props: {
                     }
                   } else props.refs.current.delete(entry.id);
                 }}
+                onFocus={() => props.onFocusEntry(entry.id)}
                 onCopyIncidentSummary={() => props.onCopyIncidentSummary(entry)}
                 onKeyDown={(event) => props.onEntryKeyDown(event, entry, props.entryIndexById.get(entry.id) ?? 0)}
                 onToggle={() => props.onToggleEntry(entry.id)}
@@ -958,7 +997,9 @@ function TimelineGroupCard(props: {
 export function TimelineEntryCard(props: {
   entry: JournalEntry;
   expanded: boolean;
+  focused: boolean;
   index: number;
+  onFocus: () => void;
   onCopyIncidentSummary: () => void;
   setRef: (node: HTMLDivElement | null) => void;
   onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
@@ -974,10 +1015,11 @@ export function TimelineEntryCard(props: {
         className={`entry-card ${tone}`}
         data-entry-id={props.entry.id}
         onClick={props.onToggle}
+        onFocus={props.onFocus}
         onKeyDown={props.onKeyDown}
         ref={props.setRef}
         role="button"
-        tabIndex={-1}
+        tabIndex={0}
       >
         <time>{new Date(props.entry.timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</time>
         <div className="entry-icon" aria-hidden="true">
@@ -1454,7 +1496,7 @@ function DiagnosticsCardHeader(props: { collapsed: boolean; cue?: ReactNode; onT
         {props.cue}
       </div>
       <button type="button" onClick={props.onToggle}>
-        {props.collapsed ? "Expand" : "Collapse"}
+        {props.collapsed ? `Expand ${props.title}` : "Collapse"}
       </button>
     </div>
   );

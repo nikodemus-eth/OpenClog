@@ -3,6 +3,12 @@
 ## Purpose
 Capture durable lessons that should shape future OpenClog work.
 
+## 2026-05-20 Mega Tranche Rework
+- Many “new” operator features are actually contract-clarity problems; if the report shape is too thin, the UI either invents state or duplicates policy.
+- Saved-view persistence becomes a governance surface once operators use it for handoff; restart persistence, linting, and selected-gate recovery need explicit behavior and tests.
+- Queue-pressure work should be domain-backed, not UI-backed. Deduping summary jobs at the repository boundary is more trustworthy than teaching the browser to guess whether a job is already running.
+- Native truth-monitor work is safest when it adds divergence evidence without creating a second authority path.
+
 ## 2026-05-02 Bootstrap Intent
 - Gateway protocol spelling is a correctness boundary; dotted RPC method names are part of the contract.
 - Offline fixtures can prove deterministic behavior, but they cannot be used to claim live Gateway readiness.
