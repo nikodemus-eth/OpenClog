@@ -167,6 +167,7 @@ import {
   formatExportableOperatorView,
   isGeneratedSummaryStale,
   formatMonitoringImportSummary,
+  formatRecoveredEvidenceSummary,
   formatSummaryJobDurations,
   isSummaryJobActive,
   mergeOperatorViewsForDay,
@@ -1837,6 +1838,7 @@ async function handleRetryReceipt(id: string): Promise<void> {
 
   const onboardingItems = buildOnboardingItems(gateway);
   const verificationTrustSummary = buildVerificationTrustSummary(operationsReport);
+  const recoveredEvidenceHeaderSummary = formatRecoveredEvidenceSummary(operationsReport?.recoveredEvidenceSummary);
 
   return (
     <AppShell
@@ -2001,6 +2003,7 @@ async function handleRetryReceipt(id: string): Promise<void> {
       <DayHeader
         day={visibleDay}
         lastSuccessfulSummaryJobCompletionAt={lastSuccessfulSummaryJobCompletionAt}
+        recoveredEvidenceSummary={recoveredEvidenceHeaderSummary ?? undefined}
         summaryFreshnessLabel={summaryFreshnessLabel}
         theme={resolvedTheme}
         onExport={handleExport}
@@ -2686,6 +2689,7 @@ function OperationalPanels(props: {
   const incidentRouteRegression = operationsReport?.routeBudgetRegressions.find((regression) => regression.route === "/api/incidents");
   const healthRouteRegression = operationsReport?.routeBudgetRegressions.find((regression) => regression.route === "/api/health");
   const selectedIncidentTemplate = operationsReport?.incidentTemplates.find((template) => template.id === props.selectedIncidentTemplateId) ?? null;
+  const recoveredEvidenceReportSummary = formatRecoveredEvidenceSummary(operationsReport?.recoveredEvidenceSummary, { latestSeparator: ";" });
   const deliveryTargets: Array<{ label: string; target: VerifiableIntegrationTarget }> = [
     { label: "Slack", target: "slack" },
     { label: "Webhook", target: "generic-webhook" },
@@ -2955,6 +2959,7 @@ function OperationalPanels(props: {
             <p>
               Evidence checklist: {operationsReport.incidentEvidenceChecklist.items.filter((item) => item.present).length}/{operationsReport.incidentEvidenceChecklist.items.length} present.
             </p>
+            {recoveredEvidenceReportSummary ? <p>{recoveredEvidenceReportSummary}</p> : null}
             <ul>
               {operationsReport.incidentEvidenceChecklist.items.map((item) => (
                 <li key={item.id}>

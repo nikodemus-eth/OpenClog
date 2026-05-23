@@ -7,6 +7,11 @@
 - Saved-view reporting now treats persistence and hygiene as first-class trust surfaces: restart persistence, selected verification gate, lint findings, and handoff summary text are all explicit operator-facing metadata.
 - Delivery reporting now includes retry-history/backoff posture, parity drift signals, trend points, and target-health scoring so a new failure and a chronic failing target read differently in the workbench.
 
+## 2026-05-20 OpenClaw Backfill Reporting Closeout
+- The live local backfill imported recovered OpenClaw session evidence from the real session log directory, not fixture data. The first manual run added 113 net-new backfilled entries; the final sweep added 1 more and caught the current window through `2026-05-20T22:23:30.907Z`.
+- Reporting can now treat `"Backfilled from OpenClaw"` as a working search and saved-view phrase because repository search indexes provenance labels and import timestamps.
+- The operations report now includes a recovered-evidence summary when OpenClaw backfill is material, and the page header repeats the operator-facing count. The live local report currently summarizes 236 backfilled entries across 7 days with latest import `2026-05-23T13:49:44.593Z`; `/api/days/2026-05-20` still shows the grounding case of 69 backfilled entries with latest import `2026-05-20T22:30:01.601Z`.
+
 ## 2026-05-18 Quick Wins Trust Tranche
 - Quick Wins now have stronger morning-trust surfaces in the shipped product: active-incident loop badge, delivery-target `last verified` evidence, explicit failed-vs-passing verification comparison, route-budget deltas on archive rows, and linked-note counts on incident cards.
 - Daily reports should now call out the built-in `Needs operator action now` view and the new keyboard focus paths for blocked actions and failed receipts as current operator-speed features rather than future ideas.

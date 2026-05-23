@@ -37,6 +37,7 @@ import type {
   ReadinessHistorySparkline,
   ReadinessAggregate,
   RecommendationRationale,
+  RecoveredEvidenceSummary,
   ReleaseReadinessGate,
   RoleAwareIncidentSimulation,
   RouteBudgetBurnReport,
@@ -113,10 +114,12 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
   const policyPackSummary = buildPolicyPackSummary();
   const retentionImpactSimulation = buildRetentionImpactSimulation(repo);
   const causalityNarrative = buildCausalityNarrative(causalityGraph, verificationCenter, routeBudgetRegressions, receipts);
+  const recoveredEvidenceSummary = buildRecoveredEvidenceSummary(repo, day);
   return {
     dayKey: input.dayKey,
     ...(incidentId ? { incidentId } : {}),
     generatedAt,
+    ...(recoveredEvidenceSummary.entryCount > 0 ? { recoveredEvidenceSummary } : {}),
     attentionNow,
     attentionNowDelta,
     staleSummaryDayKeys: buildStaleSummaryDayKeys(repo, day),
@@ -163,6 +166,44 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
     nativeCutoverPlan: buildNativeCutoverPlan(),
     releaseReadinessGate
   };
+}
+
+function buildRecoveredEvidenceSummary(repo: ApplicationRepository, currentDay: JournalDay): RecoveredEvidenceSummary {
+  const dayKeys = new Set<string>();
+  let entryCount = 0;
+  let latestImportedAt: string | undefined;
+  let sourceLabel = "Backfilled from OpenClaw";
+  const days = collectReportDays(repo, currentDay);
+
+  for (const day of days) {
+    const recoveredEntries = day.entries.filter((entry) => entry.backfilled === true && /openclaw/i.test(`${entry.source} ${entry.sourceLabel ?? ""}`));
+    if (recoveredEntries.length === 0) continue;
+    dayKeys.add(day.dayKey);
+    entryCount += recoveredEntries.length;
+    sourceLabel = recoveredEntries.find((entry) => entry.sourceLabel)?.sourceLabel ?? sourceLabel;
+    for (const entry of recoveredEntries) {
+      if (!entry.importedAt) continue;
+      if (!latestImportedAt || entry.importedAt.localeCompare(latestImportedAt) > 0) latestImportedAt = entry.importedAt;
+    }
+  }
+
+  return {
+    sourceLabel,
+    entryCount,
+    dayCount: dayKeys.size,
+    dayKeys: Array.from(dayKeys).sort(),
+    ...(latestImportedAt ? { latestImportedAt } : {})
+  };
+}
+
+function collectReportDays(repo: ApplicationRepository, currentDay: JournalDay): JournalDay[] {
+  const days = new Map<string, JournalDay>();
+  days.set(currentDay.dayKey, currentDay);
+  for (const dayRef of repo.listDays?.() ?? []) {
+    const day = repo.getDay?.(dayRef.dayKey);
+    if (day) days.set(day.dayKey, day);
+  }
+  return Array.from(days.values());
 }
 
 function buildSummaryJobHistory(jobs: SummaryJob[]): SummaryJobHistoryPanel {

@@ -736,7 +736,7 @@ export function BackendMismatchBanner(props: { detail: string; onRecover?: () =>
   );
 }
 
-export function DayHeader(props: { day: JournalDay; lastSuccessfulSummaryJobCompletionAt?: string; summaryFreshnessLabel: string; theme: Theme; onExport: () => void }) {
+export function DayHeader(props: { day: JournalDay; lastSuccessfulSummaryJobCompletionAt?: string; recoveredEvidenceSummary?: string; summaryFreshnessLabel: string; theme: Theme; onExport: () => void }) {
   const freshnessTone = props.summaryFreshnessLabel === "fresh" ? "success" : props.summaryFreshnessLabel === "missing" ? "info" : "warning";
   return (
     <header className="day-header">
@@ -747,6 +747,7 @@ export function DayHeader(props: { day: JournalDay; lastSuccessfulSummaryJobComp
         <div className="day-header-meta">
           <StatusChip label="Summary freshness" status={props.summaryFreshnessLabel} tone={freshnessTone} />
           {props.lastSuccessfulSummaryJobCompletionAt ? <span>Last summary completion {props.lastSuccessfulSummaryJobCompletionAt}</span> : null}
+          {props.recoveredEvidenceSummary ? <span>{props.recoveredEvidenceSummary}</span> : null}
         </div>
       </div>
       <button type="button" onClick={props.onExport}>

@@ -9,7 +9,7 @@ export interface JournalRouteState {
   selectedDayKey: string;
 }
 
-const filterKeys = new Set<JournalFilterKey>(["errors", "approvals", "tool_failures", "session_starts", "inter_session_messages", "acks"]);
+const filterKeys = new Set<JournalFilterKey>(["errors", "approvals", "tool_failures", "session_starts", "inter_session_messages", "acks", "backfilled_openclaw"]);
 
 export function useJournalRouting(defaultDayKey: string) {
   const initial = useMemo(() => readRoute(defaultDayKey), [defaultDayKey]);

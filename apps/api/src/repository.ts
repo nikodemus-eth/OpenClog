@@ -1179,11 +1179,11 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       return receipt;
     },
     searchEntries(query) {
-      const needle = query.trim().toLocaleLowerCase();
+      const needle = normalizeSearchNeedle(query);
       if (!needle) return [];
       return listAllEntries(db)
         .reverse()
-        .filter((entry) => [entry.title, entry.body ?? "", entry.toolName ?? "", entry.status ?? "", entry.kind, entry.sessionId ?? ""].join(" ").toLocaleLowerCase().includes(needle))
+        .filter((entry) => searchableEntryText(entry).toLocaleLowerCase().includes(needle))
         .map((entry) => ({
           entryId: entry.id,
           dayKey: entry.dayKey,
@@ -1659,10 +1659,13 @@ function buildSearchMatchDetails(entry: JournalEntry, needle: string): Pick<Jour
   const candidates = [
     { hint: "title", value: entry.title },
     { hint: "body", value: sanitizedBody },
+    { hint: "sourceLabel", value: entry.sourceLabel ?? "" },
+    { hint: "importedAt", value: entry.importedAt ?? "" },
     { hint: "toolName", value: entry.toolName ?? "" },
     { hint: "status", value: entry.status ?? "" },
     { hint: "sessionId", value: entry.sessionId ?? "" },
-    { hint: "kind", value: entry.kind }
+    { hint: "kind", value: entry.kind },
+    { hint: "provenance", value: entry.backfilled ? `Backfilled from OpenClaw ${entry.sourceLabel ?? ""} imported ${entry.importedAt ?? ""}` : "" }
   ];
   const matched = candidates.filter((candidate) => candidate.value.toLocaleLowerCase().includes(needle));
   const primary = matched[0] ?? candidates[0];
@@ -1670,6 +1673,26 @@ function buildSearchMatchDetails(entry: JournalEntry, needle: string): Pick<Jour
     matchSnippet: buildMatchSnippet(primary.hint, primary.value, needle),
     matchFieldHints: matched.map((candidate) => candidate.hint)
   };
+}
+
+function normalizeSearchNeedle(query: string): string {
+  const trimmed = query.trim();
+  const unquoted = trimmed.match(/^["'](.+)["']$/)?.[1] ?? trimmed;
+  return unquoted.toLocaleLowerCase();
+}
+
+function searchableEntryText(entry: JournalEntry): string {
+  return [
+    entry.title,
+    browserVisibleEntryText(entry, { expanded: true }).body,
+    entry.sourceLabel ?? "",
+    entry.importedAt ?? "",
+    entry.toolName ?? "",
+    entry.status ?? "",
+    entry.kind,
+    entry.sessionId ?? "",
+    entry.backfilled ? "Backfilled from OpenClaw" : ""
+  ].join(" ");
 }
 
 function buildMatchSnippet(hint: string, value: string, needle: string): string {

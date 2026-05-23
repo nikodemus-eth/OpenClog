@@ -3,6 +3,12 @@
 ## Purpose
 Track OpenClog security posture, Gateway authority boundaries, redaction, and fail-closed behavior.
 
+## 2026-05-20 OpenClaw Backfill Search Boundary
+- The live OpenClaw session backfill stayed inside the existing backend-owned SQLite path; no browser write endpoint or browser Gateway access was added.
+- The search fix indexes sanitized browser-visible body text plus provenance metadata (`sourceLabel`, `importedAt`, session id, and the explicit backfill phrase). It does not index raw Gateway frames, tokens, auth headers, device identity, or delivery secrets.
+- The recovered-evidence operations summary is derived from redacted journal entry metadata only: count, day key, source label, and import timestamp. It does not expose raw session JSONL paths, payloads, prompts, tokens, or Gateway auth material.
+- The route fix only preserves the existing `backfilled_openclaw` filter key in URL state; it does not grant additional operator permissions or expose new mutation capability.
+
 ## 2026-05-18 Quick Wins Trust Tranche
 - Blocked-action copy affordances now reuse the existing redaction-aware formatter across incident, delivery, and verification surfaces so handoff text stays bounded and sanitized.
 - Delivery-target freshness summaries and verification receipt comparisons expose receipt ids, age, and freshness metadata only; they do not expose delivery secrets, Gateway auth material, or raw credential-bearing payloads.

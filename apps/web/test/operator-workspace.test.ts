@@ -39,6 +39,7 @@ import {
   formatDeliveryTargetHealthSummary,
   formatExportableOperatorView,
   formatMonitoringImportSummary,
+  formatRecoveredEvidenceSummary,
   formatMissionReplayStep,
   formatReceiptDetails,
   formatWhyBlocked,
@@ -134,6 +135,43 @@ describe("operator workspace helpers", () => {
         }
       } as OperationsBacklogReport)
     ).toBe("Last successful local verify bundle: verify unavailable gateway unavailable desktop unavailable docs unavailable");
+  });
+
+  test("formats recovered OpenClaw evidence summaries for report and header surfaces", () => {
+    expect(formatRecoveredEvidenceSummary(undefined)).toBeNull();
+    expect(formatRecoveredEvidenceSummary({ sourceLabel: "Backfilled from OpenClaw", entryCount: 0, dayCount: 0, dayKeys: [] })).toBeNull();
+    expect(
+      formatRecoveredEvidenceSummary({
+        sourceLabel: "Backfilled from OpenClaw",
+        entryCount: 69,
+        dayCount: 1,
+        dayKeys: ["2026-05-20"],
+        latestImportedAt: "2026-05-20T22:30:01.601Z"
+      })
+    ).toBe("Recovered evidence: 69 entries across 1 day, latest import 2026-05-20T22:30:01.601Z");
+    expect(
+      formatRecoveredEvidenceSummary(
+        {
+          sourceLabel: "Backfilled from OpenClaw",
+          entryCount: 236,
+          dayCount: 7,
+          dayKeys: ["2026-05-16", "2026-05-17", "2026-05-18", "2026-05-19", "2026-05-20", "2026-05-22", "2026-05-23"],
+          latestImportedAt: "2026-05-23T13:49:44.593Z"
+        },
+        { latestSeparator: ";" }
+      )
+    ).toBe("Recovered evidence: 236 entries across 7 days; latest import 2026-05-23T13:49:44.593Z");
+    expect(
+      formatRecoveredEvidenceSummary(
+        {
+          sourceLabel: "Backfilled from OpenClaw",
+          entryCount: 1,
+          dayCount: 1,
+          dayKeys: ["2026-05-20"]
+        },
+        { latestSeparator: ";" }
+      )
+    ).toBe("Recovered evidence: 1 entry across 1 day");
   });
 
   test("formats reconnect, retention, and empty-search guidance", () => {

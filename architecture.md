@@ -9,6 +9,13 @@ Track OpenClog architecture, component ownership, and authority boundaries.
 - The repository/application seam now treats summary-job deduping as domain behavior rather than a UI assumption: a queued/running summary job for the same day is reused and surfaced as queue-pressure evidence.
 - Tauri still does not own policy decisions, but the desktop self-check report is now a more explicit native evidence artifact with receipt identity, observed API base, and divergence summary for future machine-local ledger ingestion.
 
+## 2026-05-20 OpenClaw Session Backfill Live Closeout
+- The real OpenClaw session recovery path was run against `/Users/m4/.openclaw/agents/main/sessions` and persisted into the local SQLite store owned by Fastify.
+- The live-data drift was not missing normalization; recovered entries already carried `backfilled`, `sourceLabel`, and `importedAt`. The exposed drift was discoverability: `/api/search?q="Backfilled from OpenClaw"` did not index provenance fields, and route parsing dropped the `backfilled_openclaw` filter.
+- Repository search now indexes sanitized body text plus `sourceLabel`, `importedAt`, session id, and an explicit backfill provenance phrase. The web route sanitizer now preserves `backfilled_openclaw`, keeping the built-in recovered-evidence view shareable.
+- After rebuilding and restarting `com.m4.openclog-api`, the final backfill sweep reported 69 backfilled entries for 2026-05-20, with session drilldown provenance `Backfilled from OpenClaw` and import timestamp `2026-05-20T22:30:01.601Z`.
+- `@openclog/app` now derives an operations-report `recoveredEvidenceSummary` from redacted journal entries, and the React shell renders that server-authored summary in the page header plus Operations backlog panel so recovered corpus counts are not inferred ad hoc in the browser.
+
 ## 2026-05-18 Quick Wins Trust Tranche
 - Fastify and `@openclog/app` remain the authority path for operator trust surfaces; the browser now renders additive report fields instead of deriving them ad hoc.
 - `@openclog/core` now models incident note counts, day-level route-budget regression metadata, delivery-target verification freshness fields, Verification Center failed/passing receipt highlights, and timeline source/source-label metadata.

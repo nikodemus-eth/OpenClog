@@ -9,6 +9,14 @@ Record deterministic verification, live Gateway verification, coverage policy, a
 - Targeted verification passed during implementation with `npm run test -- apps/web/test/operator-workspace.test.ts`, `npm run test -- packages/app/test/application.test.ts apps/api/test/advanced-features.test.ts`, and `npm run typecheck`.
 - Full deterministic closeout still requires the complete repo gate after docs/log refresh: `npm run verify`, `npm run verify:gateway`, `npm run verify:desktop-native`, and `git diff --check`.
 
+## 2026-05-20 OpenClaw Session Backfill Closeout
+- Added repository coverage proving quoted `"Backfilled from OpenClaw"` searches match provenance fields and import timestamps, not only body/title text.
+- Added route-state coverage proving the `backfilled_openclaw` filter survives URL parsing and serialization.
+- Added operations-report and browser fixture coverage proving recovered OpenClaw evidence is summarized with entry count, day count, and latest import timestamp in both the report panel and page header.
+- Tightened the keyboard accessibility Playwright assertion to wait for the first timeline entry before sending `ArrowDown` through the timeline locator itself after the full gate exposed a parallel-mount/focus race in the old sequence.
+- Focused verification passed with `npx vitest run apps/api/test/repository.test.ts apps/web/test/journal-routing.test.ts apps/web/test/operator-workspace.test.ts packages/app/test/application.test.ts`, `npx playwright test tests/e2e/advanced-features.spec.ts -g "journal quick wins"`, `npm run typecheck`, and `git diff --check`.
+- Live verification passed against the restarted API on `127.0.0.1:8787`: `/api/search?q="Backfilled from OpenClaw"` returned provenance-hinted results, `/api/days/2026-05-20` returned 69 backfilled entries, `/api/sessions/:key` returned drilldown provenance with import timestamp `2026-05-20T22:30:01.601Z`, and `/api/operations/report?dayKey=2026-05-20` returned recovered-evidence totals of 236 entries across 7 days with latest import `2026-05-23T13:49:44.593Z`.
+
 ## 2026-05-18 Quick Wins Trust Tranche
 - Added unit/API coverage for the new Quick Wins trust fields and helpers: built-in `Needs operator action now` view, active-incident badge formatting, delivery-target last-verified summaries, verification failed/passing comparison copy, timeline source summaries, and enriched operations-report contracts.
 - `npm run test:workbench` passed after the tranche changes.

@@ -170,8 +170,8 @@ for (const theme of accessibilityThemes) {
     await page.goto("/");
 
     await expect(page.getByRole("main")).toHaveAttribute("data-theme", theme);
-    await page.getByLabel("Timeline entries").focus();
-    await page.keyboard.press("ArrowDown");
+    await expect(page.getByLabel(/Timeline entry 1:/)).toBeVisible();
+    await page.getByLabel("Timeline entries").press("ArrowDown");
     await expect(page.getByLabel(/Timeline entry 1:/)).toBeFocused();
     const sendBox = await page.getByRole("button", { name: "Send" }).boundingBox();
     const focusOutline = await page.getByLabel(/Timeline entry 1:/).evaluate((element) => getComputedStyle(element).outlineStyle);

@@ -2,9 +2,9 @@
 
 ## Source Comparison
 
-Compared against the Google Doc titled `OpenClog` (`1FUJzFAW1TNgT42JWVeA2PClkyEPAgSt-PQYnCDj9B2Q`, read on 2026-05-10 at revision `AFwiY1__snKxFeCsRggcmcohBUWe9b70CNZFoaYlX1FHH1Ip8cf0kgvXOaEDDdgL_Ac9WF7G-a2JVzCHU-SGMi5VhzdJ-HN3--BJZkoUhvs`).
+Compared against the Google Doc titled `OpenClog` (`1FUJzFAW1TNgT42JWVeA2PClkyEPAgSt-PQYnCDj9B2Q`, re-read on 2026-05-20 at revision `AFwiY18A9XkufsG9rNVFGcddP3qtqhPRVEd8BOCOEh9Dt-LoZtPnlVJf2j6PiegI62j78yjsj9Bf-bOYW95OeYdaixm5ABOVCm60g5Gko6c`). The live doc is updated 2026-05-19 and is the current authority for the operator workbench shape, Fastify authority boundary, and OpenClaw session backfill provenance.
 
-That source doc is now stale in these places:
+The old source framing was stale in these places, and the current Google Doc now replaces that framing:
 
 - It frames the product as an early OpenClaw-branded journal/logbook with phase-based MVP work; the repo now ships a local operator workbench with a Fastify API, React shell, SQLite evidence store, and Tauri native boundary.
 - It lists the original daily-page regions and a small table sketch; the real schema and API now include summary jobs, incident actions, delivery receipts, verification receipts, operations reports, replay workspaces, backend fingerprints, and investigation workspaces.
@@ -80,6 +80,8 @@ The browser shell also persists the selected center-lane tab and incident panel 
 Release 2 also adds explicit trust and triage affordances to those existing lanes:
 
 - Recovered OpenClaw session entries and session drilldowns show `Backfilled from OpenClaw` provenance plus import timestamp when the evidence came from local session recovery rather than the live Gateway flow.
+- Provenance search also indexes `sourceLabel`, `importedAt`, and backfill provenance text so the built-in `"Backfilled from OpenClaw"` view can find recovered evidence through the same `/api/search` path as other operator queries.
+- `/api/operations/report` includes `recoveredEvidenceSummary` when local OpenClaw backfill evidence is present, and the browser shows that server-authored entry count, recovered day count, and latest import timestamp in the page header and Operations backlog panel.
 - The shell header can jump directly to the first blocked Verification Center gate using report-authored `firstBlockedGateId`.
 - The collapsed diagnostics rail can summarize the latest successful local verify bundle age/freshness even while the full rail is closed.
 - Day/archive rows can flag route-budget regressions, and saved operator views can show stale-summary counts separately from newer-evidence warnings.

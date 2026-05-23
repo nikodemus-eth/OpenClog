@@ -24,6 +24,7 @@ import {
   type OperatorViewPreset,
   type OperationsBacklogReport,
   type ReplayBundleDiff,
+  type RecoveredEvidenceSummary,
   type ReplayStep,
   type RetentionPreview,
   type SummaryJob,
@@ -63,6 +64,15 @@ export function buildVerificationTrustSummary(report: OperationsBacklogReport | 
     `desktop ${center.lastSuccessfulDesktopVerifyAt ?? "unavailable"}`,
     `docs ${center.lastSuccessfulDocsCheckAt ?? "unavailable"}`
   ].join(" ");
+}
+
+export function formatRecoveredEvidenceSummary(summary: RecoveredEvidenceSummary | undefined, options: { latestSeparator?: "," | ";" } = {}): string | null {
+  if (!summary || summary.entryCount <= 0 || summary.dayCount <= 0) return null;
+  const entryLabel = summary.entryCount === 1 ? "entry" : "entries";
+  const dayLabel = summary.dayCount === 1 ? "day" : "days";
+  const latestSeparator = options.latestSeparator ?? ",";
+  const latest = summary.latestImportedAt ? `${latestSeparator} latest import ${summary.latestImportedAt}` : "";
+  return `Recovered evidence: ${String(summary.entryCount)} ${entryLabel} across ${String(summary.dayCount)} ${dayLabel}${latest}`;
 }
 
 export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): OperatorViewPreset[] {

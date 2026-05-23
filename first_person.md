@@ -9,6 +9,12 @@ Record first-person implementation notes from the builder/operator perspective.
 - I treated summary-job deduping as product behavior rather than performance trivia; if the queue can silently fork, the operator can no longer trust what “refresh summary” means.
 - I kept the native boundary honest: Tauri emits stronger self-check evidence, but Fastify still owns policy and report decisions.
 
+## 2026-05-20 OpenClaw Session Backfill
+- I used the Google Doc as the authority, then ran the new backfill against the real local OpenClaw session logs rather than a fixture.
+- The recovered entries were already carrying honest provenance; the thing that broke under live data was discoverability, so I fixed search and route persistence instead of inventing another import path.
+- I restarted the local API only after rebuilding it, then verified the product path itself: day view, quoted provenance search, and session drilldown all show `Backfilled from OpenClaw` with import timestamps.
+- I promoted the recovered-evidence count into the report/header path because a material backfill should be visible to an operator before they already know which session to open.
+
 ## 2026-05-18 Quick Wins Trust Tranche
 - I kept this pass honest to the plan: I finished the operator-trust Quick Wins instead of pretending a larger native cutover was part of the same change.
 - I let the backend/shared seam speak first and made the browser thinner: the new badge, comparison row, delivery verification age, route-budget row copy, and note counts all come from bounded report data or shared helpers.

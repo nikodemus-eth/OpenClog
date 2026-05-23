@@ -3,6 +3,13 @@
 ## Purpose
 Track OpenClog implementation decisions, verification passes, refactors, and closeout evidence.
 
+## 2026-05-20 OpenClaw Session Backfill Live Closeout
+- Re-read the authoritative Google Doc `OpenClog` (`1FUJzFAW1TNgT42JWVeA2PClkyEPAgSt-PQYnCDj9B2Q`) at revision `AFwiY18A9XkufsG9rNVFGcddP3qtqhPRVEd8BOCOEh9Dt-LoZtPnlVJf2j6PiegI62j78yjsj9Bf-bOYW95OeYdaixm5ABOVCm60g5Gko6c` before touching the backfill path.
+- Ran `backfillOpenClawSessions` against the real local OpenClaw session logs at `/Users/m4/.openclaw/agents/main/sessions` and persisted the recovered entries into `openclog.db`.
+- Fixed the drift exposed by live data: provenance was present on recovered entries and drilldowns, but quoted provenance search and route-preserved backfill filters were not wired all the way through.
+- Rebuilt `@openclog/api` and restarted `com.m4.openclog-api`; the live API now returns recovered May 20 entries, provenance search hits, and drilldown import timestamps from the rebuilt server.
+- Added `recoveredEvidenceSummary` to the operations-report contract and rendered it in the main day header plus the Operations backlog panel so material backfills show entry counts, recovered day counts, and the latest import timestamp without requiring a drilldown first.
+
 ## 2026-05-18 Quick Wins Trust Tranche
 - Implemented the approved Quick Wins tranche on local `main` by extending shared trust/report contracts first, then wiring the web shell to those bounded fields.
 - Kept the refactor narrow: the new operator-facing trust strings live in [`apps/web/src/state/operator-workspace.ts`](/Users/m4/OpenClog/apps/web/src/state/operator-workspace.ts), while `App.tsx` now consumes helpers for the shell badge, delivery-target status, verification comparisons, and timeline-source summaries.

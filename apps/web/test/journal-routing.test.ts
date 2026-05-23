@@ -26,14 +26,14 @@ describe("journal routing", () => {
 
   test("normalizes duplicate filters, whitespace-only entries, and trimmed query state", () => {
     const route = readRouteFromParams(
-      new URLSearchParams("day=%202026-05-04%20&view=raw&filters=errors,unknown,errors,approvals&entry=%20&q=%20gateway%20"),
+      new URLSearchParams("day=%202026-05-04%20&view=raw&filters=errors,unknown,errors,approvals,backfilled_openclaw&entry=%20&q=%20gateway%20"),
       "2026-05-03"
     );
 
     expect(route).toEqual({
       selectedDayKey: "2026-05-04",
       grouped: false,
-      activeFilters: ["errors", "approvals"],
+      activeFilters: ["errors", "approvals", "backfilled_openclaw"],
       focusedEntryId: null,
       searchQuery: "gateway"
     });
@@ -42,10 +42,10 @@ describe("journal routing", () => {
       buildRouteParams({
         selectedDayKey: " 2026-05-04 ",
         grouped: false,
-        activeFilters: ["errors", "errors", "approvals"],
+        activeFilters: ["errors", "errors", "approvals", "backfilled_openclaw"],
         focusedEntryId: " entry-1 ",
         searchQuery: " gateway "
       }).toString()
-    ).toBe("day=2026-05-04&view=raw&filters=errors%2Capprovals&entry=entry-1&q=gateway");
+    ).toBe("day=2026-05-04&view=raw&filters=errors%2Capprovals%2Cbackfilled_openclaw&entry=entry-1&q=gateway");
   });
 });

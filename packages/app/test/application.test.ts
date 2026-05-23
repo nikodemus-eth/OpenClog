@@ -29,6 +29,35 @@ function buildDay(dayKey: string, entryIds: string[]): JournalDay {
   };
 }
 
+function buildBackfilledOpenClawDay(dayKey: string, count: number, latestImportedAt: string): JournalDay {
+  return {
+    ...buildDay(dayKey, []),
+    entries: Array.from({ length: count }, (_, index) => ({
+      id: `${dayKey}-openclaw-backfill-${index + 1}`,
+      dayKey,
+      source: "openclaw" as const,
+      sourceLabel: "Backfilled from OpenClaw",
+      kind: "assistant_message" as const,
+      title: "OpenClaw response",
+      body: `Recovered OpenClaw session message ${index + 1}`,
+      timestamp: `${dayKey}T22:${String(index).padStart(2, "0")}:00.000Z`,
+      status: "info" as const,
+      severity: "info" as const,
+      sessionId: "openclaw:session:real-log",
+      backfilled: true,
+      importedAt: index === count - 1 ? latestImportedAt : "2026-05-20T22:17:21.955Z",
+      redacted: true
+    })),
+    metrics: {
+      sessionCount: 1,
+      messageCount: count,
+      toolCallCount: 0,
+      approvalCount: 0,
+      errorCount: 0
+    }
+  };
+}
+
 describe("OpenClog application layer", () => {
   test("paginates search results and drilldowns with stable cursors", () => {
     const searchResults = [
@@ -837,6 +866,28 @@ describe("OpenClog application layer", () => {
       status: "prep",
       artifactPath: "docs/openclog-native-cutover.md",
       nextSteps: expect.arrayContaining(["Move scheduled self-check ownership into the desktop boundary without duplicating Fastify policy."])
+    });
+  });
+
+  test("summarizes recovered OpenClaw evidence across days for the operations report", () => {
+    const may20Backfill = buildBackfilledOpenClawDay("2026-05-20", 69, "2026-05-20T22:30:01.601Z");
+    const app = createOpenClogApplication({
+      repo: {
+        getDay: (dayKey: string) => (dayKey === "2026-05-20" ? may20Backfill : null),
+        listDays: () => [{ ...may20Backfill, entries: [] }]
+      }
+    });
+
+    const report = (app as never as { getOperationsBacklog(input: { dayKey: string }): unknown }).getOperationsBacklog({
+      dayKey: "2026-05-20"
+    }) as { recoveredEvidenceSummary?: { entryCount: number; dayCount: number; dayKeys: string[]; latestImportedAt?: string; sourceLabel: string } };
+
+    expect(report.recoveredEvidenceSummary).toEqual({
+      entryCount: 69,
+      dayCount: 1,
+      dayKeys: ["2026-05-20"],
+      latestImportedAt: "2026-05-20T22:30:01.601Z",
+      sourceLabel: "Backfilled from OpenClaw"
     });
   });
 

@@ -36,6 +36,42 @@ describe("SQLite repository", () => {
     expect(repo.listTables()).toEqual([...journalTableNames]);
   });
 
+  test("searches quoted OpenClaw backfill provenance and import timestamps", () => {
+    const repo = createSqliteRepository(":memory:");
+    repos.push(repo);
+
+    repo.addEntry({
+      id: "backfilled-openclaw-entry",
+      dayKey: "2026-05-20",
+      source: "openclaw",
+      kind: "assistant_message",
+      title: "OpenClaw response",
+      body: "Recovered operator note",
+      timestamp: "2026-05-20T22:00:23.406Z",
+      status: "info",
+      severity: "info",
+      sessionId: "openclaw:session:real-log",
+      sourceLabel: "Backfilled from OpenClaw",
+      backfilled: true,
+      importedAt: "2026-05-20T22:17:21.955Z",
+      redacted: true
+    });
+
+    expect(repo.searchEntries('"Backfilled from OpenClaw"')).toEqual([
+      expect.objectContaining({
+        entryId: "backfilled-openclaw-entry",
+        matchFieldHints: expect.arrayContaining(["sourceLabel", "provenance"]),
+        matchSnippet: expect.stringContaining("sourceLabel")
+      })
+    ]);
+    expect(repo.searchEntries("2026-05-20T22:17")).toEqual([
+      expect.objectContaining({
+        entryId: "backfilled-openclaw-entry",
+        matchFieldHints: expect.arrayContaining(["importedAt"])
+      })
+    ]);
+  });
+
   test("reports corrupted integrity rows when hashes or entry ids drift", () => {
     const dir = mkdtempSync(join(tmpdir(), "openclog-repo-"));
     tempDirs.push(dir);

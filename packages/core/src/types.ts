@@ -1450,6 +1450,14 @@ export interface NativeTruthMonitorReport {
   }>;
 }
 
+export interface RecoveredEvidenceSummary {
+  sourceLabel: string;
+  entryCount: number;
+  dayCount: number;
+  dayKeys: string[];
+  latestImportedAt?: string;
+}
+
 export interface PolicyRecommendationPack {
   id: "stale-backend" | "missing-scopes" | "failed-summaries" | "delivery-dead-letters";
   label: string;
@@ -1460,6 +1468,7 @@ export interface OperationsBacklogReport {
   dayKey: string;
   incidentId?: string;
   generatedAt: string;
+  recoveredEvidenceSummary?: RecoveredEvidenceSummary;
   attentionNow: AttentionNowItem[];
   attentionNowDelta: AttentionNowDelta;
   staleSummaryDayKeys: string[];

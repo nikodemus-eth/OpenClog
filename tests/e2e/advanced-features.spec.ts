@@ -57,6 +57,7 @@ test("journal quick wins and advanced workbench stay usable together", async ({ 
   await expect(page.getByRole("region", { name: "Today at a glance" })).toContainText("Reconnects");
   await expect(page.getByText(/Reconnect trend:/i)).toBeVisible();
   await expect(page.getByText(/Last successful sync/i)).toBeVisible();
+  await expect(page.getByLabel("Daily page")).toContainText("Recovered evidence: 69 entries across 1 day, latest import 2026-05-20T22:30:01.601Z");
   await page.getByRole("button", { name: "Expand" }).first().click();
   await page.getByLabel("Pinned note").fill("Pinned note for operators");
   await page.getByLabel("Pinned summary").fill("Pinned summary for operators");
@@ -188,6 +189,7 @@ test("journal quick wins and advanced workbench stay usable together", async ({ 
   await expect(page.getByLabel("Operations backlog surfaces")).toContainText("stale summary day");
   await expect(page.getByLabel("Operations backlog surfaces")).toContainText("missing in dry-run");
   await expect(page.getByLabel("Operations backlog surfaces")).toContainText("Evidence checklist");
+  await expect(page.getByLabel("Operations backlog surfaces")).toContainText("Recovered evidence: 69 entries across 1 day; latest import 2026-05-20T22:30:01.601Z");
   await expect(page.getByLabel("Operations backlog surfaces")).toContainText("same-key retry requires confirmation");
   await expect(page.getByLabel("Operations backlog surfaces")).toContainText("Delivery target health");
   await expect(page.getByLabel("Operations backlog surfaces")).toContainText("Incident timeline");

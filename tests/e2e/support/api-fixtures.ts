@@ -730,6 +730,13 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
           dayKey: "2026-05-03",
           incidentId: incidents[0]?.id,
           generatedAt: "2026-05-04T12:20:00.000Z",
+          recoveredEvidenceSummary: {
+            sourceLabel: "Backfilled from OpenClaw",
+            entryCount: 69,
+            dayCount: 1,
+            dayKeys: ["2026-05-20"],
+            latestImportedAt: "2026-05-20T22:30:01.601Z"
+          },
           attentionNow: [
             { id: "stale_summary", severity: "warning", label: "Stale summary", detail: "Generated summary may exclude newer local evidence.", evidenceIds: ["2026-05-03-entry-1"], action: "Refresh the generated summary before handoff." },
             { id: "failed_dry_run_delivery", severity: "critical", label: "Failed dry-run delivery", detail: "A failed dry-run receipt blocks safe live delivery.", evidenceIds: ["receipt-1"], action: "Open why blocked and rerun the dry-run after remediation." }
