@@ -589,7 +589,9 @@ describe("OpenClog application layer", () => {
             completedAt: "2026-05-08T12:00:07.000Z",
             progressLabel: "Summary generated.",
             generatedSummary: summaryDay.generatedSummary,
-            correlationId: "corr-summary-1"
+            correlationId: "corr-summary-1",
+            requestedBy: "local-operator",
+            reusedExistingJob: false
           }
         ],
         listDeliveryReceipts: () => [failedReceipt],
@@ -689,7 +691,7 @@ describe("OpenClog application layer", () => {
       incidentId: "incident-1"
     }) as {
       summaryJobHistory: {
-        jobs: Array<{ queuedForMs: number; runningForMs: number; medianCompletionMs: number; correlationId?: string }>;
+        jobs: Array<{ queuedForMs: number; runningForMs: number; medianCompletionMs: number; correlationId?: string; requestedBy?: string; reusedExistingJob?: boolean }>;
         days: Array<{ dayKey: string; completedCount: number; failedCount: number; queuedCount: number; runningCount: number }>;
         queueDepth: number;
         oldestWaitingAgeLabel?: string;
@@ -729,14 +731,23 @@ describe("OpenClog application layer", () => {
       routeBudgetRegressions: Array<{ route: string; baselineMs: number; observedMs: number; deltaMs: number; severity: string }>;
       closeoutReadiness: { score: number; label: string; blockers: string[]; requiredEvidenceFresh: boolean };
       verificationReceiptDiffs: Array<{ command: string; failedReceiptId: string; passingReceiptId?: string; status: string; commitChanged: boolean }>;
-      exportableViews: Array<{ id: string; label: string; redactedJson: string; evidenceCount: number; unresolvedEvidenceCount: number; staleSummaryCount?: number; newerEvidenceExists?: boolean }>;
+      exportableViews: Array<{ id: string; label: string; redactedJson: string; evidenceCount: number; unresolvedEvidenceCount: number; staleSummaryCount?: number; newerEvidenceExists?: boolean; lastSuccessfulSummaryAt?: string }>;
       incidentTemplates: Array<{ id: string; title: string; stageNotes: Record<string, string> }>;
       deliveryContractPreviews: Array<{ target: string; dryRunSchema: string[]; liveSchema: string[]; idempotencyFields: string[]; paritySummary: string; missingInDryRun: string[]; missingInLive: string[] }>;
       releaseReadinessGate: { status: string; blockers: string[]; requiredCommands: string[] };
       staleSummaryDayKeys: string[];
+      readinessHistory: { points: Array<{ backendHealthy: boolean; gatewayStatus: string; reasonCodes?: string[] }> };
+      morningBrief: { headline: string; bullets: string[]; citations?: string[] };
     };
 
-    expect(report.summaryJobHistory.jobs[0]).toMatchObject({ queuedForMs: 2000, runningForMs: 5000, medianCompletionMs: 7000, correlationId: "corr-summary-1" });
+    expect(report.summaryJobHistory.jobs[0]).toMatchObject({
+      queuedForMs: 2000,
+      runningForMs: 5000,
+      medianCompletionMs: 7000,
+      correlationId: "corr-summary-1",
+      requestedBy: "local-operator",
+      reusedExistingJob: false
+    });
     expect(report.summaryJobHistory.days).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ dayKey: "2026-05-08", completedCount: 1, failedCount: 0, queuedCount: 0, runningCount: 0 })
@@ -806,6 +817,7 @@ describe("OpenClog application layer", () => {
         evidenceCount: expect.any(Number),
         unresolvedEvidenceCount: expect.any(Number),
         staleSummaryCount: 1,
+        lastSuccessfulSummaryAt: "2026-05-08T12:00:07.000Z",
         redactedJson: expect.stringContaining("\"redacted\":true"),
         newerEvidenceExists: expect.any(Boolean)
       })
@@ -848,7 +860,9 @@ describe("OpenClog application layer", () => {
       endDayKey: "2026-05-08",
       events: expect.arrayContaining([expect.objectContaining({ kind: "summary_job" }), expect.objectContaining({ kind: "delivery_receipt" })])
     });
-    expect(report.readinessHistory.points).toEqual(expect.arrayContaining([expect.objectContaining({ backendHealthy: true, gatewayStatus: expect.any(String) })]));
+    expect(report.readinessHistory.points).toEqual(
+      expect.arrayContaining([expect.objectContaining({ backendHealthy: true, gatewayStatus: expect.any(String), reasonCodes: expect.any(Array) })])
+    );
     expect(report.guidedIncidentCommand.stages).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: "detect", complete: true }), expect.objectContaining({ id: "record" })])
     );
@@ -862,6 +876,7 @@ describe("OpenClog application layer", () => {
     expect(report.nativeTruthMonitor.checks).toEqual(expect.arrayContaining([expect.objectContaining({ id: "backend_fingerprint", status: "passed" })]));
     expect(report.retentionImpact).toMatchObject({ removedEntryCount: 0, removedDayKeys: [] });
     expect(report.activeHypotheses).toEqual([expect.objectContaining({ label: "Saved scope review", hypothesis: "Gateway scope grant is stale." })]);
+    expect(report.morningBrief.citations).toEqual(expect.arrayContaining(["stale_summary", "receipt-slack-failed"]));
     expect(report.nativeCutoverPlan).toMatchObject({
       status: "prep",
       artifactPath: "docs/openclog-native-cutover.md",
@@ -870,7 +885,19 @@ describe("OpenClog application layer", () => {
   });
 
   test("summarizes recovered OpenClaw evidence across days for the operations report", () => {
-    const may20Backfill = buildBackfilledOpenClawDay("2026-05-20", 69, "2026-05-20T22:30:01.601Z");
+    const may20Backfill = {
+      ...buildBackfilledOpenClawDay("2026-05-20", 69, "2026-05-20T22:30:01.601Z"),
+      generatedSummary: {
+        summary: "Recovered summary",
+        createdAt: "2026-05-20T22:10:00.000Z",
+        source: "rules" as const,
+        lastEntryIncludedAt: "2026-05-20T22:10:00.000Z",
+        latestEntryObservedAt: "2026-05-20T22:30:01.601Z",
+        freshnessState: "stale" as const,
+        newerEvidenceArrived: true,
+        newerEvidenceReason: "Recovered OpenClaw imports landed after the last summary."
+      }
+    };
     const app = createOpenClogApplication({
       repo: {
         getDay: (dayKey: string) => (dayKey === "2026-05-20" ? may20Backfill : null),
@@ -880,14 +907,26 @@ describe("OpenClog application layer", () => {
 
     const report = (app as never as { getOperationsBacklog(input: { dayKey: string }): unknown }).getOperationsBacklog({
       dayKey: "2026-05-20"
-    }) as { recoveredEvidenceSummary?: { entryCount: number; dayCount: number; dayKeys: string[]; latestImportedAt?: string; sourceLabel: string } };
+    }) as {
+      recoveredEvidenceSummary?: {
+        entryCount: number;
+        dayCount: number;
+        dayKeys: string[];
+        latestImportedAt?: string;
+        sourceLabel: string;
+        provisionalMetrics?: boolean;
+        cacheStateLabel?: string;
+      };
+    };
 
     expect(report.recoveredEvidenceSummary).toEqual({
       entryCount: 69,
       dayCount: 1,
       dayKeys: ["2026-05-20"],
       latestImportedAt: "2026-05-20T22:30:01.601Z",
-      sourceLabel: "Backfilled from OpenClaw"
+      sourceLabel: "Backfilled from OpenClaw",
+      provisionalMetrics: true,
+      cacheStateLabel: "Recovered evidence changed after the last successful summary."
     });
   });
 

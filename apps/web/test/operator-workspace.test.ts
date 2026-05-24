@@ -19,8 +19,10 @@ import {
   describeActiveOperatorView,
   describeAlertFindingState,
   describeComposerConnectivity,
+  describeChangesSinceSummary,
   describeIncidentActionRecordingStatus,
   describeOperatorViewSource,
+  describeRecoveredEvidenceDrift,
   describeSummaryJobState,
   describeStaleSummaryInterval,
   describeStaleSummaryWarning,
@@ -1191,6 +1193,7 @@ describe("operator workspace helpers", () => {
         evidenceCount: 1,
         unresolvedEvidenceCount: 0,
         staleSummaryCount: 1,
+        lastSuccessfulSummaryAt: "2026-05-04T12:00:00.000Z",
         redactedJson: "{\"url\":\"https://example.test/callback?token=secret\"}",
         newerEvidenceExists: true,
         newerEvidenceReason: "A newer receipt landed after the saved view summary was generated."
@@ -1203,11 +1206,25 @@ describe("operator workspace helpers", () => {
         evidenceCount: 1,
         unresolvedEvidenceCount: 0,
         staleSummaryCount: 1,
+        lastSuccessfulSummaryAt: "2026-05-04T12:00:00.000Z",
         redactedJson: "{\"url\":\"https://example.test/callback?token=secret\"}",
         newerEvidenceExists: true,
         newerEvidenceReason: "A newer receipt landed after the saved view summary was generated."
       })
     ).toContain("Warning: newer evidence exists. A newer receipt landed after the saved view summary was generated.");
+    expect(
+      formatExportableOperatorView({
+        id: "token-query",
+        label: "Token query",
+        evidenceCount: 1,
+        unresolvedEvidenceCount: 0,
+        staleSummaryCount: 1,
+        lastSuccessfulSummaryAt: "2026-05-04T12:00:00.000Z",
+        redactedJson: "{\"url\":\"https://example.test/callback?token=secret\"}",
+        newerEvidenceExists: true,
+        newerEvidenceReason: "A newer receipt landed after the saved view summary was generated."
+      })
+    ).toContain("Last successful summary 2026-05-04T12:00:00.000Z.");
   });
 
   test("formats active incident badges, delivery target freshness, timeline sources, and verification comparisons", () => {
@@ -1362,6 +1379,126 @@ describe("operator workspace helpers", () => {
         trend: "improving"
       })
     ).toBe("github-issue ok: Dry-run verification receipt is available. Last verified 9m ago (unknown). Latest dry-run receipt receipt-verify-2.");
+
+    expect(
+      formatDeliveryTargetHealthSummary({
+        target: "slack",
+        status: "ok",
+        detail: "Recent live success receipt is available.",
+        dryRunStatus: "passed",
+        latestReceiptId: "receipt-live-1",
+        latestDryRunReceiptId: "receipt-verify-3",
+        lastVerifiedAt: "2026-05-04T12:32:00.000Z",
+        lastVerifiedAgeLabel: "7m",
+        lastVerifiedFreshness: "fresh",
+        receiptCount24h: 3,
+        failedCount24h: 0,
+        dryRunFailures24h: 0,
+        trend: "steady"
+      })
+    ).toBe("slack ok: Recent live success receipt is available. Last verified 7m ago (fresh). Latest dry-run receipt receipt-verify-3. Latest live receipt receipt-live-1.");
+
+    expect(
+      formatTimelineEventSummary({
+        id: "timeline-2",
+        dayKey: "2026-05-04",
+        timestamp: "2026-05-04T12:04:00.000Z",
+        kind: "verification_receipt",
+        source: "gateway",
+        sourceLabel: "Gateway verification",
+        label: "Gateway verification blocked",
+        relatedId: "verify-gateway-1",
+        reasonCode: "missing_scopes"
+      })
+    ).toBe("2026-05-04T12:04:00.000Z: Gateway verification verification receipt Gateway verification blocked. Reason code missing_scopes.");
+  });
+
+  test("describes recovered evidence drift and summary change badges", () => {
+    expect(describeRecoveredEvidenceDrift(undefined, undefined)).toBeNull();
+    expect(
+      describeRecoveredEvidenceDrift(
+        {
+          sourceLabel: "Backfilled from OpenClaw",
+          entryCount: 4,
+          dayCount: 1,
+          dayKeys: ["2026-05-04"],
+          latestImportedAt: "2026-05-04T12:30:00.000Z",
+          provisionalMetrics: true,
+          cacheStateLabel: "Recovered evidence changed after the last successful summary."
+        },
+        "2026-05-04T12:10:00.000Z"
+      )
+    ).toBe("Recovered evidence changed after the last successful summary. Latest recovered import 2026-05-04T12:30:00.000Z.");
+    expect(
+      describeRecoveredEvidenceDrift(
+        {
+          sourceLabel: "Backfilled from OpenClaw",
+          entryCount: 4,
+          dayCount: 1,
+          dayKeys: ["2026-05-04"],
+          latestImportedAt: "2026-05-04T12:30:00.000Z",
+          provisionalMetrics: true
+        },
+        undefined
+      )
+    ).toBe("Recovered evidence changed after the last successful summary. Latest recovered import 2026-05-04T12:30:00.000Z.");
+    expect(
+      describeRecoveredEvidenceDrift(
+        {
+          sourceLabel: "Backfilled from OpenClaw",
+          entryCount: 4,
+          dayCount: 1,
+          dayKeys: ["2026-05-04"],
+          latestImportedAt: "2026-05-04T12:30:00.000Z",
+          provisionalMetrics: true
+        },
+        "2026-05-04T12:40:00.000Z"
+      )
+    ).toBeNull();
+
+    expect(
+      describeChangesSinceSummary({
+        freshness: {},
+        entryCount: 0
+      })
+    ).toBeNull();
+    expect(
+      describeChangesSinceSummary({
+        freshness: {
+          lastEntryIncludedAt: "2026-05-04T12:00:00.000Z",
+          latestEntryObservedAt: "2026-05-04T12:15:00.000Z"
+        },
+        entryCount: 3,
+        recoveredEntryCount: 2,
+        newerEvidenceExists: true,
+        receiptCount: 4
+      })
+    ).toBe(
+      "Changed since last summary: new journal activity observed through 2026-05-04T12:15:00.000Z, 3 visible journal entries, 4 delivery or verification receipt(s), 2 recovered OpenClaw entry(s), newer evidence landed after the saved summary."
+    );
+    expect(
+      describeChangesSinceSummary({
+        freshness: {
+          lastEntryIncludedAt: "2026-05-04T12:15:00.000Z",
+          latestEntryObservedAt: "2026-05-04T12:15:00.000Z"
+        },
+        entryCount: 1,
+        recoveredEntryCount: 0,
+        newerEvidenceExists: false,
+        receiptCount: 0
+      })
+    ).toBe("Changed since last summary: 1 visible journal entry.");
+    expect(
+      describeChangesSinceSummary({
+        freshness: {
+          lastEntryIncludedAt: "2026-05-04T12:15:00.000Z"
+        },
+        entryCount: 0,
+        recoveredEntryCount: 0,
+        newerEvidenceExists: false,
+        receiptCount: 0
+      })
+    ).toBeNull();
   });
 });
 

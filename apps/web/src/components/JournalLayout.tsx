@@ -124,6 +124,7 @@ interface AppShellProps {
   rightRailContent?: ReactNode;
   selectedOlderDay: Omit<JournalDay, "entries"> | null;
   shortcutsOpen: boolean;
+  shortcutHints: string[];
   shellActionStatus: string;
   lastSuccessfulSummaryJobCompletionAt?: string;
   theme: Theme;
@@ -270,12 +271,9 @@ export function AppShell(props: AppShellProps) {
       <main id="main-content" className="journal-page" aria-label="Daily page" data-theme={props.themeId} ref={props.mainRef} tabIndex={-1}>
         {props.children}
         <footer className="shell-shortcut-strip" aria-label="Keyboard shortcut hints">
-          <span>[ left rail</span>
-          <span>Alt+S search</span>
-          <span>Alt+B blocked action</span>
-          <span>Alt+R failed receipts</span>
-          <span>Alt+M stale summaries</span>
-          <span>] diagnostics</span>
+          {props.shortcutHints.map((hint) => (
+            <span key={hint}>{hint}</span>
+          ))}
         </footer>
       </main>
       {rightRailCollapsed ? (
@@ -736,7 +734,16 @@ export function BackendMismatchBanner(props: { detail: string; onRecover?: () =>
   );
 }
 
-export function DayHeader(props: { day: JournalDay; lastSuccessfulSummaryJobCompletionAt?: string; recoveredEvidenceSummary?: string; summaryFreshnessLabel: string; theme: Theme; onExport: () => void }) {
+export function DayHeader(props: {
+  day: JournalDay;
+  changedSinceSummaryText?: string;
+  lastSuccessfulSummaryJobCompletionAt?: string;
+  recoveredEvidenceDriftText?: string;
+  recoveredEvidenceSummary?: string;
+  summaryFreshnessLabel: string;
+  theme: Theme;
+  onExport: () => void;
+}) {
   const freshnessTone = props.summaryFreshnessLabel === "fresh" ? "success" : props.summaryFreshnessLabel === "missing" ? "info" : "warning";
   return (
     <header className="day-header">
@@ -748,6 +755,8 @@ export function DayHeader(props: { day: JournalDay; lastSuccessfulSummaryJobComp
           <StatusChip label="Summary freshness" status={props.summaryFreshnessLabel} tone={freshnessTone} />
           {props.lastSuccessfulSummaryJobCompletionAt ? <span>Last summary completion {props.lastSuccessfulSummaryJobCompletionAt}</span> : null}
           {props.recoveredEvidenceSummary ? <span>{props.recoveredEvidenceSummary}</span> : null}
+          {props.recoveredEvidenceDriftText ? <span>{props.recoveredEvidenceDriftText}</span> : null}
+          {props.changedSinceSummaryText ? <span>{props.changedSinceSummaryText}</span> : null}
         </div>
       </div>
       <button type="button" onClick={props.onExport}>

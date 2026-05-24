@@ -80,8 +80,8 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
   const incidentId = input.incidentId ?? incident?.id;
   const receipts = repo.listDeliveryReceipts?.() ?? [];
   const summaryJobs = repo.listSummaryJobs?.() ?? [];
-  const notes = repo.listInvestigationNotes?.({ dayKey: input.dayKey, ...(incidentId ? { incidentId } : {}) }) ?? [];
-  const handoffPackets = repo.listIncidentHandoffPackets?.({ dayKey: input.dayKey, ...(incidentId ? { incidentId } : {}) }) ?? [];
+  const notes = incidentId ? repo.listInvestigationNotes?.({ incidentId }) ?? [] : repo.listInvestigationNotes?.({ dayKey: input.dayKey }) ?? [];
+  const handoffPackets = incidentId ? repo.listIncidentHandoffPackets?.({ incidentId }) ?? [] : repo.listIncidentHandoffPackets?.({ dayKey: input.dayKey }) ?? [];
   const replay = safeReplay(repo, incidentId);
   const causalityGraph = safeCorrelation(repo, incidentId);
   const checklist = buildEvidenceChecklist({ day, incidentId, receipts, replaySteps: replay.steps.length, graph: causalityGraph, notes, handoffPackets });
@@ -110,11 +110,11 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
   const closeoutPacketPreview = buildCloseoutPacketPreview(closeoutReadiness, verificationCenter, checklist);
   const incidentEvidenceDigest = incident ? buildIncidentEvidenceDigest(incident.id, checklist) : undefined;
   const signedIncidentBundleManifest = incident ? buildSignedIncidentBundleManifest(incident.id, checklist) : undefined;
-  const morningBrief = buildMorningBrief(attentionNow, attentionNowDelta, releaseReadinessGate);
+  const recoveredEvidenceSummary = buildRecoveredEvidenceSummary(repo, day);
+  const morningBrief = buildMorningBrief(attentionNow, attentionNowDelta, releaseReadinessGate, recoveredEvidenceSummary, routeBudgetRegressions, summaryJobs);
   const policyPackSummary = buildPolicyPackSummary();
   const retentionImpactSimulation = buildRetentionImpactSimulation(repo);
   const causalityNarrative = buildCausalityNarrative(causalityGraph, verificationCenter, routeBudgetRegressions, receipts);
-  const recoveredEvidenceSummary = buildRecoveredEvidenceSummary(repo, day);
   return {
     dayKey: input.dayKey,
     ...(incidentId ? { incidentId } : {}),
@@ -130,7 +130,7 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
     readinessAggregates,
     deliveryLedger,
     deliveryTargetHealth,
-    incidentTimeline: buildIncidentTimeline(day, incident, notes, receipts, summaryJobs, verificationReceipts),
+    incidentTimeline: buildIncidentTimeline(day, incident, notes, receipts, summaryJobs, verificationReceipts, repo.listHealthTimeline?.(24) ?? []),
     routePerformanceBudgets: routeBudgets,
     routeBudgetRegressions,
     routeBudgetBurnReport,
@@ -174,6 +174,8 @@ function buildRecoveredEvidenceSummary(repo: ApplicationRepository, currentDay: 
   let latestImportedAt: string | undefined;
   let sourceLabel = "Backfilled from OpenClaw";
   const days = collectReportDays(repo, currentDay);
+  let provisionalMetrics = false;
+  let cacheStateLabel: string | undefined;
 
   for (const day of days) {
     const recoveredEntries = day.entries.filter((entry) => entry.backfilled === true && /openclaw/i.test(`${entry.source} ${entry.sourceLabel ?? ""}`));
@@ -184,6 +186,12 @@ function buildRecoveredEvidenceSummary(repo: ApplicationRepository, currentDay: 
     for (const entry of recoveredEntries) {
       if (!entry.importedAt) continue;
       if (!latestImportedAt || entry.importedAt.localeCompare(latestImportedAt) > 0) latestImportedAt = entry.importedAt;
+      if (!day.generatedSummary?.lastEntryIncludedAt || day.generatedSummary.lastEntryIncludedAt.localeCompare(entry.importedAt) < 0) {
+        provisionalMetrics = true;
+        cacheStateLabel = day.generatedSummary?.lastEntryIncludedAt
+          ? "Recovered evidence changed after the last successful summary."
+          : "Recovered evidence is present without a successful summary yet.";
+      }
     }
   }
 
@@ -192,7 +200,8 @@ function buildRecoveredEvidenceSummary(repo: ApplicationRepository, currentDay: 
     entryCount,
     dayCount: dayKeys.size,
     dayKeys: Array.from(dayKeys).sort(),
-    ...(latestImportedAt ? { latestImportedAt } : {})
+    ...(latestImportedAt ? { latestImportedAt } : {}),
+    ...(provisionalMetrics ? { provisionalMetrics, cacheStateLabel } : {})
   };
 }
 
@@ -217,6 +226,8 @@ function buildSummaryJobHistory(jobs: SummaryJob[]): SummaryJobHistoryPanel {
       runningForMs,
       totalMs,
       medianCompletionMs: 0,
+      requestedBy: job.requestedBy ?? "local-operator",
+      reusedExistingJob: job.reusedExistingJob ?? false,
       ...(job.error ? { failureReason: job.error } : {})
     } satisfies SummaryJobHistoryItem;
   });
@@ -310,9 +321,22 @@ function buildReadinessHistory(repo: ApplicationRepository): ReadinessHistorySpa
       gatewayStatus: /scope/i.test(entry.detail) || /scope/i.test(entry.title) ? "blocked" : entry.category === "recovery" || entry.category === "reconnect" ? "ready" : "degraded",
       missingScopeCount: /scope/i.test(entry.detail) || /scope/i.test(entry.title) ? 1 : 0,
       reconnectCount: entry.category === "reconnect" ? index + 1 : (aggregate?.reconnectCount ?? 0),
-      backendRestartCount: entry.category === "restart" ? 1 : 0
+      backendRestartCount: /restart/i.test(`${entry.title} ${entry.detail}`) ? 1 : 0,
+      reasonCodes: readinessReasonCodes(entry)
     }))
   };
+}
+
+function readinessReasonCodes(entry: { category: string; title: string; detail: string }): string[] {
+  const codes = new Set<string>();
+  if (entry.category === "reconnect") codes.add("reconnect_storm");
+  if (entry.category === "stale") codes.add("backend_degraded");
+  if (entry.category === "adapter_failure") codes.add("delivery_failure");
+  if (entry.category === "integrity") codes.add("integrity_warning");
+  if (entry.category === "recovery") codes.add("backend_recovery");
+  if (/scope/i.test(`${entry.title} ${entry.detail}`)) codes.add("missing_scopes");
+  if (/restart/i.test(`${entry.title} ${entry.detail}`)) codes.add("backend_restart");
+  return Array.from(codes);
 }
 
 function buildDeliveryLedger(repo: ApplicationRepository, input: DeliveryLedgerInput): DeliveryLedger {
@@ -728,6 +752,7 @@ function buildExportableViews(repo: ApplicationRepository, day: JournalDay, chec
   const unresolvedEvidenceCount = checklist.items.filter((item) => !item.present).length;
   const latestReceiptAt = latestCompletedAt((repo.listDeliveryReceipts?.() ?? []).map((receipt) => ({ completedAt: receipt.completedAt ?? receipt.requestedAt })));
   const summaryTimestamp = day.generatedSummary?.lastEntryIncludedAt ?? day.generatedSummary?.createdAt;
+  const lastSuccessfulSummaryAt = latestCompletedAt((repo.listSummaryJobs?.() ?? []).filter((job) => job.dayKey === day.dayKey && job.status === "completed").map((job) => ({ completedAt: job.completedAt ?? job.generatedSummary?.createdAt ?? job.createdAt }))) ?? day.generatedSummary?.createdAt;
   return views.filter((view) => view.builtIn !== true).map((view) => {
     const redacted = {
       id: view.id,
@@ -746,6 +771,7 @@ function buildExportableViews(repo: ApplicationRepository, day: JournalDay, chec
       evidenceCount: typeof view.evidenceCount === "number" ? view.evidenceCount : evidenceCount,
       unresolvedEvidenceCount: typeof view.unresolvedEvidenceCount === "number" ? view.unresolvedEvidenceCount : unresolvedEvidenceCount,
       staleSummaryCount: staleSummaryDayKeys.includes(day.dayKey) ? 1 : 0,
+      ...(lastSuccessfulSummaryAt ? { lastSuccessfulSummaryAt } : {}),
       redactedJson: JSON.stringify(redacted),
       persistedAcrossRestarts: true,
       selectedGateId: normalizeVerificationGateId(view.selectedGateId),
@@ -883,6 +909,12 @@ function buildEvidenceQualityScore(
   const provenance = checklist.items.find((item) => item.id === "correlation")?.present ? 90 : 50;
   const actionOutcomeCoverage = receipts.some((receipt) => receipt.incidentId === incidentId) ? 85 : 45;
   const score = Math.round((freshness + completeness + provenance + actionOutcomeCoverage) / 4);
+  const reasons = [
+    ...(freshness < 100 ? ["summary freshness is below the ready threshold"] : []),
+    ...(completeness < 100 ? ["incident evidence checklist is incomplete"] : []),
+    ...(provenance < 90 ? ["correlation evidence is missing or weak"] : []),
+    ...(actionOutcomeCoverage < 85 ? ["incident action outcomes are not fully covered by receipts"] : [])
+  ];
   return {
     incidentId,
     score,
@@ -890,7 +922,8 @@ function buildEvidenceQualityScore(
     freshness,
     completeness,
     provenance,
-    actionOutcomeCoverage
+    actionOutcomeCoverage,
+    reasons
   };
 }
 
@@ -907,6 +940,12 @@ function buildEvidenceQualityScores(
   const provenance = receipts.length > 0 ? 85 : 50;
   const actionOutcomeCoverage = receipts.some((receipt) => receipt.status === "failed") ? 60 : receipts.length > 0 ? 90 : 45;
   const score = Math.round((freshness + completeness + provenance + actionOutcomeCoverage) / 4);
+  const reasons = [
+    ...(freshness < 100 ? ["day summary freshness needs review"] : []),
+    ...(completeness < 100 ? ["day evidence completeness is below the target"] : []),
+    ...(provenance < 85 ? ["receipt or provenance coverage is thin"] : []),
+    ...(actionOutcomeCoverage < 90 ? ["recent delivery or action outcomes need more evidence"] : [])
+  ];
   scores.push({
     dayKey: day.dayKey,
     score,
@@ -914,7 +953,8 @@ function buildEvidenceQualityScores(
     freshness,
     completeness,
     provenance,
-    actionOutcomeCoverage
+    actionOutcomeCoverage,
+    reasons
   });
   return scores;
 }
@@ -935,6 +975,7 @@ function buildDeliveryTargetHealth(
     const scoped = receipts.filter((receipt) => receipt.target === target);
     const dryRuns = scoped.filter((receipt) => receipt.dryRun);
     const failedDryRun = dryRuns.find((receipt) => receipt.status === "failed");
+    const latestLiveSuccess = scoped.find((receipt) => receipt.dryRun !== true && receipt.status === "delivered");
     const latest = scoped[0];
     const latestDryRun = dryRuns[0];
     const failedCount24h = scoped.filter((receipt) => receipt.status === "failed").length;
@@ -959,8 +1000,14 @@ function buildDeliveryTargetHealth(
     }));
     return {
       target,
-      status: failedDryRun ? "blocked" : scoped.some((receipt) => receipt.dryRun) ? "ok" : "warning",
-      detail: failedDryRun ? "Latest dry-run verification failed closed." : scoped.some((receipt) => receipt.dryRun) ? "Dry-run verification receipt is available." : "Dry-run verification receipt has not been recorded yet.",
+      status: failedDryRun ? "blocked" : latestLiveSuccess ? "ok" : scoped.some((receipt) => receipt.dryRun) ? "ok" : "warning",
+      detail: failedDryRun
+        ? "Latest dry-run verification failed closed."
+        : latestLiveSuccess
+          ? "Recent live success receipt is available."
+          : scoped.some((receipt) => receipt.dryRun)
+            ? "Dry-run only verification receipt is available."
+            : "Dry-run verification receipt has not been recorded yet.",
       dryRunStatus: failedDryRun ? "failed" : scoped.some((receipt) => receipt.dryRun) ? "passed" : "missing",
       ...(latest ? { latestReceiptId: latest.id } : {}),
       ...(latestDryRun ? { latestDryRunReceiptId: latestDryRun.id } : {}),
@@ -1000,18 +1047,67 @@ function buildDeliveryTargetDrilldowns(
 function buildIncidentTimeline(
   day: JournalDay,
   incident: IncidentSummary | undefined,
-  notes: Array<{ id: string; createdAt: string }>,
-  receipts: Array<{ id: string; requestedAt: string; dayKey: string }>,
-  summaryJobs: Array<{ id: string; createdAt: string; dayKey: string }>,
-  verificationReceipts: Array<{ id: string; startedAt: string; completedAt?: string; command: string }>
+  notes: Array<{ id: string; createdAt: string; dayKey?: string; incidentId?: string }>,
+  receipts: Array<{ id: string; requestedAt: string; dayKey: string; status?: string; dryRun?: boolean }>,
+  summaryJobs: Array<{ id: string; createdAt: string; dayKey: string; status?: string }>,
+  verificationReceipts: Array<{ id: string; startedAt: string; completedAt?: string; command: string; status?: string; summary?: string }>,
+  readinessEvents: Array<{ id: string; timestamp: string; category: string; title: string; detail: string }>
 ): IncidentTimeline {
   const range = incident?.dayKeys?.length ? incident.dayKeys : [day.dayKey];
+  const rangeSet = new Set(range);
   const events = [
-    ...(incident ? [{ id: incident.id, dayKey: incident.dayKeys[0] ?? day.dayKey, timestamp: incident.createdAt, kind: "incident" as const, label: incident.title, relatedId: incident.id }] : []),
-    ...notes.map((note) => ({ id: note.id, dayKey: day.dayKey, timestamp: note.createdAt, kind: "note" as const, source: "human" as const, sourceLabel: "Human", label: `Note ${note.id}`, relatedId: note.id })),
-    ...receipts.map((receipt) => ({ id: receipt.id, dayKey: receipt.dayKey, timestamp: receipt.requestedAt, kind: "delivery_receipt" as const, source: "delivery" as const, sourceLabel: "Delivery", label: `Receipt ${receipt.id}`, relatedId: receipt.id })),
-    ...summaryJobs.map((job) => ({ id: job.id, dayKey: job.dayKey, timestamp: job.createdAt, kind: "summary_job" as const, source: "summary_job" as const, sourceLabel: "Summary job", label: `Summary job ${job.id}`, relatedId: job.id })),
-    ...verificationReceipts.map((receipt) => ({ id: receipt.id, dayKey: day.dayKey, timestamp: receipt.completedAt ?? receipt.startedAt, kind: "verification_receipt" as const, source: "gateway" as const, sourceLabel: /gateway/i.test(receipt.command) ? "Gateway verification" : "Verification", label: `Verification ${receipt.id}`, relatedId: receipt.id }))
+    ...(incident ? [{ id: incident.id, dayKey: incident.dayKeys[0] ?? day.dayKey, timestamp: incident.createdAt, kind: "incident" as const, label: incident.title, relatedId: incident.id, reasonCode: "incident_opened" }] : []),
+    ...notes
+      .filter((note) => !note.dayKey || rangeSet.has(note.dayKey))
+      .map((note) => ({ id: note.id, dayKey: note.dayKey ?? day.dayKey, timestamp: note.createdAt, kind: "note" as const, source: "human" as const, sourceLabel: "Human", label: `Note ${note.id}`, relatedId: note.id, reasonCode: "operator_note" })),
+    ...receipts
+      .filter((receipt) => rangeSet.has(receipt.dayKey))
+      .map((receipt) => ({
+        id: receipt.id,
+        dayKey: receipt.dayKey,
+        timestamp: receipt.requestedAt,
+        kind: "delivery_receipt" as const,
+        source: "delivery" as const,
+        sourceLabel: "Delivery",
+        label: `Receipt ${receipt.id}`,
+        relatedId: receipt.id,
+        reasonCode: receipt.status === "failed" ? "delivery_failure" : receipt.dryRun ? "dry_run_verification" : "live_delivery"
+      })),
+    ...summaryJobs
+      .filter((job) => rangeSet.has(job.dayKey))
+      .map((job) => ({
+        id: job.id,
+        dayKey: job.dayKey,
+        timestamp: job.createdAt,
+        kind: "summary_job" as const,
+        source: "summary_job" as const,
+        sourceLabel: "Summary job",
+        label: `Summary job ${job.id}`,
+        relatedId: job.id,
+        reasonCode: job.status === "failed" ? "summary_failed" : job.status === "running" || job.status === "queued" ? "summary_pending" : "summary_completed"
+      })),
+    ...verificationReceipts.map((receipt) => ({
+      id: receipt.id,
+      dayKey: day.dayKey,
+      timestamp: receipt.completedAt ?? receipt.startedAt,
+      kind: "verification_receipt" as const,
+      source: "gateway" as const,
+      sourceLabel: /gateway/i.test(receipt.command) ? "Gateway verification" : "Verification",
+      label: `Verification ${receipt.id}`,
+      relatedId: receipt.id,
+      reasonCode: /scope/i.test(receipt.summary ?? "") ? "missing_scopes" : receipt.status === "failed" ? "verification_failed" : "verification_passed"
+    })),
+    ...readinessEvents.slice(0, 8).map((event) => ({
+      id: `readiness-${event.id}`,
+      dayKey: day.dayKey,
+      timestamp: event.timestamp,
+      kind: "note" as const,
+      source: "gateway" as const,
+      sourceLabel: "Readiness",
+      label: event.title,
+      relatedId: event.id,
+      reasonCode: readinessReasonCodes(event)[0] ?? event.category
+    }))
   ].sort((left, right) => left.timestamp.localeCompare(right.timestamp));
   return {
     startDayKey: range[0] ?? day.dayKey,
@@ -1101,7 +1197,9 @@ function buildActiveHypotheses(repo: ApplicationRepository): ActiveHypothesis[] 
       id: view.id,
       label: view.label,
       hypothesis: view.hypothesis,
-      validationSteps: Array.isArray(view.validationSteps) ? view.validationSteps : []
+      validationSteps: Array.isArray(view.validationSteps) ? view.validationSteps : [],
+      status: "open",
+      evidenceIds: [`view:${view.id}`]
     }));
 }
 
@@ -1184,14 +1282,36 @@ function buildSignedIncidentBundleManifest(incidentId: string, checklist: Incide
   };
 }
 
-function buildMorningBrief(attentionNow: AttentionNowItem[], delta: AttentionNowDelta, releaseReadinessGate: ReleaseReadinessGate): MorningBriefArtifact {
+function buildMorningBrief(
+  attentionNow: AttentionNowItem[],
+  delta: AttentionNowDelta,
+  releaseReadinessGate: ReleaseReadinessGate,
+  recoveredEvidenceSummary: RecoveredEvidenceSummary,
+  routeBudgetRegressions: RouteBudgetRegression[],
+  summaryJobs: SummaryJob[]
+): MorningBriefArtifact {
+  const queueDepth = summaryJobs.filter((job) => job.status === "queued" || job.status === "running").length;
+  const citations = Array.from(
+    new Set([
+      ...attentionNow.map((item) => item.id),
+      ...attentionNow.flatMap((item) => item.evidenceIds),
+      ...releaseReadinessGate.evidenceIds,
+      ...(routeBudgetRegressions[0] ? [`route:${routeBudgetRegressions[0].route}`] : []),
+      ...(recoveredEvidenceSummary.entryCount > 0 ? recoveredEvidenceSummary.dayKeys.map((dayKey) => `recovered:${dayKey}`) : [])
+    ])
+  );
   return {
     headline: releaseReadinessGate.status === "ready" ? "Morning brief: local operations are ready for bounded closeout." : "Morning brief: local operations still need operator attention.",
     bullets: [
       delta.summary,
       attentionNow[0] ? `${attentionNow[0].label}: ${attentionNow[0].detail}` : "No active attention-now items.",
+      queueDepth > 0 ? `Summary queue depth ${queueDepth} is contributing to current operator pressure.` : "Summary queue is clear.",
+      recoveredEvidenceSummary.entryCount > 0
+        ? `${recoveredEvidenceSummary.sourceLabel} remains in scope across ${recoveredEvidenceSummary.dayCount} day(s).`
+        : "No recovered OpenClaw evidence is currently affecting the brief.",
       releaseReadinessGate.blockers[0] ? `Release blocker: ${releaseReadinessGate.blockers[0]}` : "Release gate is clear."
-    ]
+    ],
+    citations
   };
 }
 

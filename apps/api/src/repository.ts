@@ -596,7 +596,9 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       if (existingJob) {
         return {
           ...existingJob,
-          progressLabel: "Summary job deduped to the existing active local queue entry."
+          progressLabel: "Summary job deduped to the existing active local queue entry.",
+          requestedBy: existingJob.requestedBy ?? "local-operator",
+          reusedExistingJob: true
         };
       }
       const createdAt = new Date().toISOString();
@@ -606,7 +608,9 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
         status: "queued",
         createdAt,
         progressLabel: "Summary job queued for local evidence review.",
-        correlationId: crypto.randomUUID()
+        correlationId: crypto.randomUUID(),
+        requestedBy: "local-operator",
+        reusedExistingJob: false
       };
       db.prepare("INSERT INTO journal_summary_jobs (id, day_key, status, created_at, job_json) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET job_json = excluded.job_json").run(
         job.id,
@@ -647,6 +651,15 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       const days = repo.listDays().map((day) => repo.getDay(day.dayKey)).filter((day): day is JournalDay => day !== null);
       const toolCounts = new Map<string, number>();
       const failureCounts = new Map<string, number>();
+      const recoveredEntries = days.flatMap((day) => day.entries.filter((entry) => entry.backfilled === true));
+      const recoveredSummaryDrift = days.some((day) =>
+        day.entries.some(
+          (entry) =>
+            entry.backfilled === true &&
+            Boolean(entry.importedAt) &&
+            (!day.generatedSummary?.lastEntryIncludedAt || day.generatedSummary.lastEntryIncludedAt.localeCompare(entry.importedAt ?? "") < 0)
+        )
+      );
       for (const entry of days.flatMap((day) => day.entries)) {
         if (entry.toolName) toolCounts.set(entry.toolName, (toolCounts.get(entry.toolName) ?? 0) + 1);
         if (entry.severity === "error" || entry.status === "failed") {
@@ -661,7 +674,12 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
           .map((day) => ({ dayKey: day.dayKey, reconnectCount: day.entries.filter((entry) => /reconnect/i.test(entry.title) || /reconnect/i.test(entry.body ?? "")).length }))
           .filter((item) => item.reconnectCount > 0),
         approvalHotspots: days.map((day) => ({ dayKey: day.dayKey, approvalCount: day.metrics.approvalCount })).filter((item) => item.approvalCount > 0),
-        recurringFailureClasses: [...failureCounts.entries()].map(([label, count]) => ({ label, count }))
+        recurringFailureClasses: [...failureCounts.entries()].map(([label, count]) => ({ label, count })),
+        provisionalMetrics: recoveredEntries.length > 0 && recoveredSummaryDrift,
+        cacheStateLabel:
+          recoveredEntries.length > 0 && recoveredSummaryDrift
+            ? "Recovered evidence changed after the last successful summary; usage totals are provisional."
+            : undefined
       };
       saveJsonRow(db, "journal_analytics_snapshots", snapshot.createdAt, JSON.stringify(snapshot));
       return snapshot;

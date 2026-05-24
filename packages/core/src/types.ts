@@ -308,6 +308,7 @@ export interface OperatorViewPreset {
   evidenceCount?: number;
   unresolvedEvidenceCount?: number;
   staleSummaryCount?: number;
+  lastSuccessfulSummaryAt?: string;
   exportVersion?: 1;
   redaction?: {
     redacted: true;
@@ -317,6 +318,7 @@ export interface OperatorViewPreset {
   selectedGateId?: VerificationCenterGate["id"];
   lintFindings?: SavedViewLintFinding[];
   handoffSummary?: string;
+  rolePreset?: "triage" | "release" | "delivery" | "verification";
 }
 
 export interface OpenClogSettings {
@@ -340,6 +342,8 @@ export interface SummaryJob {
   generatedSummary?: GeneratedSummary;
   error?: string;
   correlationId?: string;
+  requestedBy?: string;
+  reusedExistingJob?: boolean;
 }
 
 export interface BackendFingerprint {
@@ -707,6 +711,8 @@ export interface AnalyticsSnapshot {
   reconnectHeavyDays: Array<{ dayKey: string; reconnectCount: number }>;
   approvalHotspots: Array<{ dayKey: string; approvalCount: number }>;
   recurringFailureClasses: Array<{ label: string; count: number }>;
+  provisionalMetrics?: boolean;
+  cacheStateLabel?: string;
 }
 
 export interface ReplayStep {
@@ -1094,6 +1100,7 @@ export interface SignedIncidentBundleManifest {
 export interface MorningBriefArtifact {
   headline: string;
   bullets: string[];
+  citations: string[];
 }
 
 export interface PolicyPackSummary {
@@ -1150,6 +1157,7 @@ export interface ReadinessHistorySparklinePoint {
   missingScopeCount: number;
   reconnectCount: number;
   backendRestartCount: number;
+  reasonCodes: string[];
 }
 
 export interface ReadinessHistorySparkline {
@@ -1287,6 +1295,7 @@ export interface ExportableOperatorView {
   evidenceCount: number;
   unresolvedEvidenceCount: number;
   staleSummaryCount?: number;
+  lastSuccessfulSummaryAt?: string;
   redactedJson: string;
   newerEvidenceExists?: boolean;
   newerEvidenceReason?: string;
@@ -1346,6 +1355,7 @@ export interface EvidenceQualityScore {
   completeness: number;
   provenance: number;
   actionOutcomeCoverage: number;
+  reasons: string[];
 }
 
 export interface DeliveryTargetHealth {
@@ -1376,6 +1386,9 @@ export interface ActiveHypothesis {
   label: string;
   hypothesis: string;
   validationSteps: string[];
+  status?: "open" | "validated" | "resolved";
+  evidenceIds?: string[];
+  resolutionNote?: string;
 }
 
 export interface NativeCutoverPlan {
@@ -1394,6 +1407,7 @@ export interface IncidentTimelineEvent {
   sourceLabel: string;
   label: string;
   relatedId?: string;
+  reasonCode?: string;
 }
 
 export interface IncidentTimeline {
@@ -1456,6 +1470,8 @@ export interface RecoveredEvidenceSummary {
   dayCount: number;
   dayKeys: string[];
   latestImportedAt?: string;
+  provisionalMetrics?: boolean;
+  cacheStateLabel?: string;
 }
 
 export interface PolicyRecommendationPack {

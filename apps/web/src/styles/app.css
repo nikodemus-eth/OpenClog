@@ -120,7 +120,7 @@ button {
 
 .top-app-bar {
   display: grid;
-  grid-template-columns: var(--left-rail-width) minmax(0, 1fr) auto;
+  grid-template-columns: var(--left-rail-width) minmax(0, 1fr) minmax(240px, 360px);
   gap: 0;
   align-items: center;
   min-height: 56px;
@@ -189,6 +189,7 @@ button {
   overflow-x: auto;
   padding-inline: 4px 18px;
   scrollbar-width: none;
+  justify-content: flex-start;
 }
 
 .top-nav::-webkit-scrollbar {
@@ -249,13 +250,16 @@ button {
 .top-utility {
   gap: 12px;
   justify-content: end;
+  max-width: 360px;
+  min-width: 240px;
+  overflow: hidden;
   padding-inline: 16px 30px;
   pointer-events: none;
 }
 
 .backend-meta {
   margin: 0;
-  max-width: min(42vw, 520px);
+  max-width: 132px;
   overflow: hidden;
   color: var(--stitch-muted);
   font-family: var(--mono-font);
@@ -276,7 +280,7 @@ button {
 
 .shell-action-status {
   margin: 0;
-  max-width: 230px;
+  max-width: 140px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--stitch-line) 72%, transparent);
   border-radius: 999px;

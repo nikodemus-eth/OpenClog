@@ -85,6 +85,7 @@ export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): Op
       activeFilters: ["errors"],
       grouped: true,
       builtIn: true,
+      rolePreset: "triage",
       drilldown: { sessionKey, tab: "timeline", scrollTop: 0 }
     },
     {
@@ -95,6 +96,7 @@ export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): Op
       activeFilters: ["approvals"],
       grouped: true,
       builtIn: true,
+      rolePreset: "verification",
       drilldown: { sessionKey, tab: "actions", scrollTop: 0 }
     },
     {
@@ -105,6 +107,7 @@ export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): Op
       activeFilters: ["errors"],
       grouped: false,
       builtIn: true,
+      rolePreset: "delivery",
       drilldown: { sessionKey, tab: "deliveries", scrollTop: 0 }
     },
     {
@@ -115,6 +118,7 @@ export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): Op
       activeFilters: [],
       grouped: false,
       builtIn: true,
+      rolePreset: "release",
       drilldown: { sessionKey, tab: "timeline", scrollTop: 0 }
     },
     {
@@ -125,6 +129,7 @@ export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): Op
       activeFilters: ["errors"],
       grouped: false,
       builtIn: true,
+      rolePreset: "delivery",
       drilldown: { sessionKey, tab: "deliveries", scrollTop: 0 }
     },
     {
@@ -135,6 +140,7 @@ export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): Op
       activeFilters: ["errors"],
       grouped: true,
       builtIn: true,
+      rolePreset: "verification",
       drilldown: { sessionKey, tab: "timeline", scrollTop: 0 }
     },
     {
@@ -146,6 +152,7 @@ export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): Op
       grouped: true,
       builtIn: true,
       persistedAcrossRestarts: true,
+      rolePreset: "triage",
       hypothesis: "Needs operator action now highlights blocked, stale, and failed work that should be handled before handoff.",
       validationSteps: ["Review blocked actions.", "Resolve failed receipts or dry-runs.", "Refresh stale evidence before handoff."],
       drilldown: { sessionKey, tab: "actions", scrollTop: 0 }
@@ -159,6 +166,7 @@ export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): Op
       grouped: true,
       builtIn: true,
       persistedAcrossRestarts: true,
+      rolePreset: "triage",
       hypothesis: "Unresolved incidents combine open alerts, failed actions, and stale summaries.",
       validationSteps: ["Review active alerts.", "Retry or record failed actions.", "Refresh stale summaries before handoff."],
       drilldown: { sessionKey, tab: "actions", scrollTop: 0 }
@@ -172,6 +180,7 @@ export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): Op
       grouped: true,
       builtIn: true,
       persistedAcrossRestarts: true,
+      rolePreset: "verification",
       drilldown: { sessionKey, tab: "actions", scrollTop: 0 }
     },
     {
@@ -183,6 +192,7 @@ export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): Op
       grouped: false,
       builtIn: true,
       persistedAcrossRestarts: true,
+      rolePreset: "triage",
       drilldown: { sessionKey, tab: "timeline", scrollTop: 0 }
     }
   ];
@@ -341,6 +351,35 @@ export function describeStaleSummaryInterval(freshness: { lastEntryIncludedAt?: 
   const end = Date.parse(freshness.latestEntryObservedAt);
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
   return `Stale because the summary is missing ${formatDuration(end - start)} of journal activity between ${safeWorkbenchCopy(freshness.lastEntryIncludedAt)} and ${safeWorkbenchCopy(freshness.latestEntryObservedAt)}.`;
+}
+
+export function describeRecoveredEvidenceDrift(summary: RecoveredEvidenceSummary | undefined, lastSuccessfulSummaryAt?: string): string | null {
+  if (!summary?.latestImportedAt || !summary.provisionalMetrics) return null;
+  if (lastSuccessfulSummaryAt && summary.latestImportedAt.localeCompare(lastSuccessfulSummaryAt) <= 0) return null;
+  return summary.cacheStateLabel
+    ? `${safeWorkbenchCopy(summary.cacheStateLabel)} Latest recovered import ${safeWorkbenchCopy(summary.latestImportedAt)}.`
+    : `Recovered evidence changed after the last successful summary. Latest recovered import ${safeWorkbenchCopy(summary.latestImportedAt)}.`;
+}
+
+export function describeChangesSinceSummary(input: {
+  freshness: { lastEntryIncludedAt?: string; latestEntryObservedAt?: string };
+  entryCount: number;
+  recoveredEntryCount?: number;
+  newerEvidenceExists?: boolean;
+  receiptCount?: number;
+}): string | null {
+  if (!input.freshness.lastEntryIncludedAt && !input.newerEvidenceExists && !input.recoveredEntryCount) return null;
+  const parts = [
+    input.freshness.lastEntryIncludedAt && input.freshness.latestEntryObservedAt && input.freshness.latestEntryObservedAt > input.freshness.lastEntryIncludedAt
+      ? `new journal activity observed through ${safeWorkbenchCopy(input.freshness.latestEntryObservedAt)}`
+      : null,
+    input.entryCount > 0 ? `${String(input.entryCount)} visible journal entr${input.entryCount === 1 ? "y" : "ies"}` : null,
+    typeof input.receiptCount === "number" && input.receiptCount > 0 ? `${String(input.receiptCount)} delivery or verification receipt(s)` : null,
+    input.recoveredEntryCount && input.recoveredEntryCount > 0 ? `${String(input.recoveredEntryCount)} recovered OpenClaw entry(s)` : null,
+    input.newerEvidenceExists ? "newer evidence landed after the saved summary" : null
+  ].filter(Boolean);
+  if (parts.length === 0) return null;
+  return `Changed since last summary: ${parts.join(", ")}.`;
 }
 
 export function buildDryRunFailureJumpNotice(receipt: DeliveryReceipt): { href: string; label: string; message: string } | null {
@@ -586,11 +625,14 @@ export function formatDeliveryTargetHealthSummary(item: DeliveryTargetHealth): s
     ? `Last verified ${safeWorkbenchCopy(item.lastVerifiedAgeLabel)} ago (${safeWorkbenchCopy(item.lastVerifiedFreshness ?? "unknown")}).`
     : "Last verified unavailable.";
   const latestDryRunReceipt = item.latestDryRunReceiptId ? ` Latest dry-run receipt ${safeWorkbenchCopy(item.latestDryRunReceiptId)}.` : "";
-  return `${safeWorkbenchCopy(item.target)} ${safeWorkbenchCopy(item.status)}: ${safeWorkbenchCopy(item.detail)} ${verification}${latestDryRunReceipt}`.trim();
+  const latestLiveReceipt =
+    item.status !== "blocked" && item.latestReceiptId && item.latestReceiptId !== item.latestDryRunReceiptId ? ` Latest live receipt ${safeWorkbenchCopy(item.latestReceiptId)}.` : "";
+  return `${safeWorkbenchCopy(item.target)} ${safeWorkbenchCopy(item.status)}: ${safeWorkbenchCopy(item.detail)} ${verification}${latestDryRunReceipt}${latestLiveReceipt}`.trim();
 }
 
 export function formatTimelineEventSummary(event: IncidentTimelineEvent): string {
-  return `${safeWorkbenchCopy(event.timestamp)}: ${safeWorkbenchCopy(event.sourceLabel)} ${safeWorkbenchCopy(event.kind.replaceAll("_", " "))} ${safeWorkbenchCopy(event.label)}.`;
+  const reasonCode = event.reasonCode ? ` Reason code ${safeWorkbenchCopy(event.reasonCode)}.` : "";
+  return `${safeWorkbenchCopy(event.timestamp)}: ${safeWorkbenchCopy(event.sourceLabel)} ${safeWorkbenchCopy(event.kind.replaceAll("_", " "))} ${safeWorkbenchCopy(event.label)}.${reasonCode}`;
 }
 
 export function formatReplayBundleDiff(diff: ReplayBundleDiff | null): string | null {
@@ -651,9 +693,10 @@ export function formatCloseoutReadiness(readiness: CloseoutReadinessScore): stri
 export function formatExportableOperatorView(view: ExportableOperatorView): string {
   const warning = view.newerEvidenceExists ? ` Warning: newer evidence exists. ${safeWorkbenchCopy(view.newerEvidenceReason ?? "Refresh saved evidence before handoff.")}` : "";
   const staleSummary = typeof view.staleSummaryCount === "number" ? ` ${String(view.staleSummaryCount)} stale summary day(s).` : "";
+  const lastSuccessfulSummary = view.lastSuccessfulSummaryAt ? ` Last successful summary ${safeWorkbenchCopy(view.lastSuccessfulSummaryAt)}.` : "";
   const lint = view.lintFindings?.length ? ` Lint: ${view.lintFindings.map((finding) => safeWorkbenchCopy(finding.message)).join("; ")}.` : "";
   const verify = view.selectedGateId ? ` Selected gate ${safeWorkbenchCopy(view.selectedGateId)}.` : "";
-  return `${safeWorkbenchCopy(view.label)}: ${String(view.evidenceCount)} evidence item(s), ${String(view.unresolvedEvidenceCount)} unresolved.${staleSummary}${warning}${lint}${verify} ${safeWorkbenchCopy(view.redactedJson)}`;
+  return `${safeWorkbenchCopy(view.label)}: ${String(view.evidenceCount)} evidence item(s), ${String(view.unresolvedEvidenceCount)} unresolved.${staleSummary}${lastSuccessfulSummary}${warning}${lint}${verify} ${safeWorkbenchCopy(view.redactedJson)}`;
 }
 
 export function capabilityGateAllows(capabilities: CapabilityView[], capabilityId: string): boolean {

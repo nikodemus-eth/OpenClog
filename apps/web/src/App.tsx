@@ -124,13 +124,16 @@ import {
   buildReconnectTrendText,
   buildRetryReceiptConfirmation,
   buildRetryWithNewKeyReceiptConfirmation,
+  buildShellShortcutHints,
   buildVerificationTrustSummary,
+  describeChangesSinceSummary,
   describeActiveOperatorView,
   describeIncidentActionRecordingStatus,
   describeComposerConnectivity,
   dedupeLiveActionNotice,
   describeAlertFindingState,
   describeOperatorViewSource,
+  describeRecoveredEvidenceDrift,
   describeSummaryJobState,
   describeStaleSummaryInterval,
   describeStaleSummaryWarning,
@@ -203,8 +206,20 @@ const timelineFilterOptions: Array<{ id: JournalFilterKey; label: string }> = [
 function normalizeOperationsReport(report: OperationsBacklogReport): OperationsBacklogReport {
   return {
     ...report,
+    recoveredEvidenceSummary: report.recoveredEvidenceSummary
+      ? {
+          ...report.recoveredEvidenceSummary,
+          dayKeys: report.recoveredEvidenceSummary.dayKeys ?? [],
+          provisionalMetrics: report.recoveredEvidenceSummary.provisionalMetrics ?? false
+        }
+      : report.recoveredEvidenceSummary,
     summaryJobHistory: {
       ...report.summaryJobHistory,
+      jobs: report.summaryJobHistory.jobs.map((job) => ({
+        ...job,
+        requestedBy: job.requestedBy ?? "unknown",
+        reusedExistingJob: job.reusedExistingJob ?? false
+      })),
       dedupedDayKeys: report.summaryJobHistory.dedupedDayKeys ?? []
     },
     attentionNowDelta: report.attentionNowDelta ?? {
@@ -216,9 +231,17 @@ function normalizeOperationsReport(report: OperationsBacklogReport): OperationsB
       items: []
     },
     verificationReceiptLineage: report.verificationReceiptLineage ?? [],
+    readinessHistory: {
+      ...report.readinessHistory,
+      points: report.readinessHistory.points.map((point) => ({
+        ...point,
+        reasonCodes: point.reasonCodes ?? []
+      }))
+    },
     exportableViews: report.exportableViews.map((view) => ({
       ...view,
-      lintFindings: view.lintFindings ?? []
+      lintFindings: view.lintFindings ?? [],
+      lastSuccessfulSummaryAt: view.lastSuccessfulSummaryAt
     })),
     savedViewLint: report.savedViewLint ?? {
       findings: []
@@ -248,13 +271,20 @@ function normalizeOperationsReport(report: OperationsBacklogReport): OperationsB
       })),
     incidentTimeline: {
       ...report.incidentTimeline,
-      carriesAcrossDays: report.incidentTimeline.carriesAcrossDays ?? false
+      carriesAcrossDays: report.incidentTimeline.carriesAcrossDays ?? false,
+      events: report.incidentTimeline.events.map((event) => ({
+        ...event,
+        reasonCode: event.reasonCode
+      }))
     },
     verificationCenter: {
       ...report.verificationCenter,
       gates: report.verificationCenter.gates.map((gate) => ({
         ...gate,
-        agingSoon: gate.agingSoon ?? false
+        agingSoon: gate.agingSoon ?? false,
+        blockingReasons: gate.blockingReasons ?? [],
+        nextSafeActions: gate.nextSafeActions ?? [],
+        evidenceIds: gate.evidenceIds ?? []
       }))
     },
     closeoutPacketPreview: report.closeoutPacketPreview ?? {
@@ -266,8 +296,18 @@ function normalizeOperationsReport(report: OperationsBacklogReport): OperationsB
     },
     morningBrief: report.morningBrief ?? {
       headline: "Morning brief unavailable.",
-      bullets: []
+      bullets: [],
+      citations: []
     },
+    governedSdkManifests: report.governedSdkManifests.map((manifest) => ({
+      ...manifest,
+      permissions: manifest.permissions ?? [],
+      failureModes: manifest.failureModes ?? []
+    })),
+    evidenceQualityScores: report.evidenceQualityScores.map((score) => ({
+      ...score,
+      reasons: score.reasons ?? []
+    })),
     policyPackSummary: report.policyPackSummary ?? {
       environment: "local",
       readOnlyBrowserAuthority: true,
@@ -283,6 +323,12 @@ function normalizeOperationsReport(report: OperationsBacklogReport): OperationsB
       removedDayCount: 0,
       removedEntryCount: 0
     },
+    activeHypotheses: report.activeHypotheses.map((hypothesis) => ({
+      ...hypothesis,
+      status: hypothesis.status ?? "open",
+      validationSteps: hypothesis.validationSteps ?? [],
+      evidenceIds: hypothesis.evidenceIds ?? []
+    })),
     causalityNarrative: report.causalityNarrative ?? {
       summary: "Causality narrative unavailable.",
       citedEvidenceIds: []
@@ -456,6 +502,21 @@ export function App() {
     () => getLastSuccessfulSummaryJobCompletionAt(summaryJob, day.generatedSummary),
     [day.generatedSummary, summaryJob]
   );
+  const recoveredEvidenceDriftText = useMemo(
+    () => describeRecoveredEvidenceDrift(operationsReport?.recoveredEvidenceSummary, lastSuccessfulSummaryJobCompletionAt),
+    [lastSuccessfulSummaryJobCompletionAt, operationsReport?.recoveredEvidenceSummary]
+  );
+  const changedSinceSummaryText = useMemo(
+    () =>
+      describeChangesSinceSummary({
+        freshness: generatedSummaryFreshness,
+        entryCount: day.entries.length,
+        recoveredEntryCount: operationsReport?.recoveredEvidenceSummary?.entryCount,
+        newerEvidenceExists: operationsReport?.exportableViews.some((view) => view.newerEvidenceExists),
+        receiptCount: (operationsReport?.deliveryLedger.items.length ?? 0) + (operationsReport?.verificationCenter.receipts.length ?? 0)
+      }),
+    [day.entries.length, generatedSummaryFreshness, operationsReport?.deliveryLedger.items.length, operationsReport?.exportableViews, operationsReport?.recoveredEvidenceSummary?.entryCount, operationsReport?.verificationCenter.receipts.length]
+  );
   const summaryFreshnessLabel = useMemo(() => {
     if (!day.generatedSummary) return "missing";
     if (generatedSummaryStale) return "stale";
@@ -478,6 +539,7 @@ export function App() {
             evidenceCount: exportable.evidenceCount,
             unresolvedEvidenceCount: exportable.unresolvedEvidenceCount,
             staleSummaryCount: exportable.staleSummaryCount,
+            lastSuccessfulSummaryAt: exportable.lastSuccessfulSummaryAt,
             lintFindings: exportable.lintFindings,
             handoffSummary: exportable.handoffSummary,
             selectedGateId: exportable.selectedGateId ?? view.selectedGateId,
@@ -1680,6 +1742,10 @@ export function App() {
     }
   }
 
+  async function handleCopyApiLink(path: string, label: string): Promise<void> {
+    await copyTextWithNotice(path, `${label} API link copied.`);
+  }
+
   async function handleComparePreviousBundle(): Promise<void> {
     const previousDay = days.find((item) => item.dayKey !== visibleDay.dayKey);
     if (!previousDay) return;
@@ -1905,6 +1971,7 @@ async function handleRetryReceipt(id: string): Promise<void> {
         <>
           <PinnedContextPanel
             activeHelpPopover={activeHelpPopover}
+            changedSinceSummaryText={changedSinceSummaryText}
             collapsed={pinnedContextCollapsed}
             generatedSummary={day.generatedSummary?.summary}
             generatedSummaryCreatedAt={day.generatedSummary?.createdAt}
@@ -1914,6 +1981,7 @@ async function handleRetryReceipt(id: string): Promise<void> {
 	            generatedSummaryStale={generatedSummaryStale}
             generatedSummaryWarning={generatedSummaryWarning}
             generatedSummaryInterval={generatedSummaryInterval}
+            recoveredEvidenceDriftText={recoveredEvidenceDriftText}
             summaryJobDurations={summaryJobDurations}
 	            summaryRefreshActive={summaryRefreshActive}
 	            helpPopoverRef={helpPopoverRef}
@@ -1960,6 +2028,7 @@ async function handleRetryReceipt(id: string): Promise<void> {
       themeIds={selectableThemeIds}
       healthPollAgeLabel={healthPollAgeLabel}
       healthPollLatencyMs={healthPollLatencyMs}
+      shortcutHints={buildShellShortcutHints()}
       verificationTrustSummary={verificationTrustSummary}
       activeIncidentBadgeText={activeIncidentBadgeText ?? undefined}
       collapsedRightRailSummary={collapsedRightRailSummary}
@@ -2002,7 +2071,9 @@ async function handleRetryReceipt(id: string): Promise<void> {
     >
       <DayHeader
         day={visibleDay}
+        changedSinceSummaryText={changedSinceSummaryText ?? undefined}
         lastSuccessfulSummaryJobCompletionAt={lastSuccessfulSummaryJobCompletionAt}
+        recoveredEvidenceDriftText={recoveredEvidenceDriftText ?? undefined}
         recoveredEvidenceSummary={recoveredEvidenceHeaderSummary ?? undefined}
         summaryFreshnessLabel={summaryFreshnessLabel}
         theme={resolvedTheme}
@@ -2119,6 +2190,9 @@ async function handleRetryReceipt(id: string): Promise<void> {
 	        onCopyBundleDigest={(digest) => {
 	          void copyTextWithNotice(digest, "Bundle digest copied with redaction applied.");
 	        }}
+        onCopyApiLink={(path, label) => {
+          void handleCopyApiLink(path, label);
+        }}
 	        onCopyIncidentId={(id) => {
 	          void copyTextWithNotice(id, "Incident id copied.");
 	        }}
@@ -2300,6 +2374,7 @@ function TimelineFiltersCard(props: {
 
 function PinnedContextPanel(props: {
   activeHelpPopover: "pinned-context" | "journal-search" | null;
+  changedSinceSummaryText?: string | null;
   collapsed: boolean;
   generatedSummary?: string;
   generatedSummaryCreatedAt?: string;
@@ -2312,6 +2387,7 @@ function PinnedContextPanel(props: {
   helpPopoverRef: RefObject<HTMLDivElement | null>;
   note: string;
   offline: boolean;
+  recoveredEvidenceDriftText?: string | null;
   summary: string;
   summaryCharactersRemaining: number;
   summaryError: string | null;
@@ -2382,6 +2458,8 @@ function PinnedContextPanel(props: {
             {props.generatedSummaryLatestEntryObservedAt ? <p className="generated-summary">Latest entry observed: {props.generatedSummaryLatestEntryObservedAt}.</p> : null}
             {props.generatedSummaryInterval ? <p className="generated-summary">Stale because: {props.generatedSummaryInterval}.</p> : null}
             {props.generatedSummaryWarning ? <p className="validation-message">{props.generatedSummaryWarning}</p> : null}
+            {props.recoveredEvidenceDriftText ? <p className="validation-message">{props.recoveredEvidenceDriftText}</p> : null}
+            {props.changedSinceSummaryText ? <p className="generated-summary">{props.changedSinceSummaryText}</p> : null}
             {props.generatedSummaryStale ? (
               <div className="validation-message">
                 <p>Generated summary is stale. Regenerate after reviewing the latest entries.</p>
@@ -2505,9 +2583,11 @@ function SearchPanel(props: {
               </button>
               <small>
                 {view.builtIn ? "Built-in" : "User"}
+                {view.rolePreset ? ` · ${view.rolePreset}` : ""}
                 {typeof view.unresolvedEvidenceCount === "number" ? ` · unresolved ${view.unresolvedEvidenceCount}` : ""}
                 {typeof view.evidenceCount === "number" ? ` · evidence ${view.evidenceCount}` : ""}
                 {typeof view.staleSummaryCount === "number" ? ` · stale summaries ${view.staleSummaryCount}` : ""}
+                {view.lastSuccessfulSummaryAt ? ` · last summary ${view.lastSuccessfulSummaryAt}` : ""}
                 {view.persistedAcrossRestarts ? " · restart-persistent" : ""}
                 {view.selectedGateId ? ` · gate ${view.selectedGateId}` : ""}
                 {view.lintFindings?.length ? ` · lint ${view.lintFindings.length}` : ""}
@@ -2624,6 +2704,7 @@ function OperationalPanels(props: {
   onApplyQuickFilter: (query: string, filters?: JournalFilterKey[]) => void;
   onBuildIntegration: () => void;
   onComparePreviousBundle: () => void;
+  onCopyApiLink: (path: string, label: string) => void;
   onCopyApiExample: (route: string, payload: Record<string, unknown>) => void;
   onCopyBundleDigest: (digest: string) => void;
   onCopyIncidentId: (id: string) => void;
@@ -2711,6 +2792,9 @@ function OperationalPanels(props: {
               <button type="button" onClick={() => props.onApplyQuickFilter("delivery receipt failed", ["errors"])}>
                 Failed receipts
               </button>
+              <button type="button" onClick={() => props.onApplyQuickFilter("verification blocked failed gate", ["errors"])}>
+                Failed verification gates
+              </button>
               <button type="button" onClick={() => props.onApplyQuickFilter("route budget regression", ["errors"])}>
                 Route budgets
               </button>
@@ -2723,6 +2807,9 @@ function OperationalPanels(props: {
             </div>
           </div>
           <p>{operationsReport.attentionNowDelta.summary}</p>
+          <p>
+            Summary queue depth {operationsReport.summaryJobHistory.queueDepth}; oldest waiting {operationsReport.summaryJobHistory.oldestWaitingAgeLabel ?? "none"}.
+          </p>
           {operationsReport.attentionNow.length > 0 ? (
             <ul>
               {operationsReport.attentionNow.map((item) => (
@@ -2737,6 +2824,16 @@ function OperationalPanels(props: {
       <section className="workspace-panel">
         <div className="panel-header">
           <h3>Session drilldown</h3>
+        </div>
+        <div className="search-presets">
+          <button type="button" onClick={() => props.onCopyApiLink(`/api/days/${encodeURIComponent(props.visibleDay.dayKey)}`, "Current day")}>
+            Copy day API link
+          </button>
+          {props.selectedIncidentId ? (
+            <button type="button" onClick={() => props.onCopyApiLink(`/api/incidents/${encodeURIComponent(props.selectedIncidentId)}/workspace`, "Incident workspace")}>
+              Copy incident API link
+            </button>
+          ) : null}
         </div>
         <div className="search-presets">
           <button type="button" onClick={() => props.onSessionTabChange("timeline")}>
@@ -2954,6 +3051,19 @@ function OperationalPanels(props: {
         <div className="panel-header">
           <h3>Operations backlog</h3>
         </div>
+        <div className="search-presets">
+          <button
+            type="button"
+            onClick={() =>
+              props.onCopyApiLink(
+                `/api/operations/report?dayKey=${encodeURIComponent(props.visibleDay.dayKey)}${props.selectedIncidentId ? `&incidentId=${encodeURIComponent(props.selectedIncidentId)}` : ""}`,
+                "Operations report"
+              )
+            }
+          >
+            Copy operations report API link
+          </button>
+        </div>
         {operationsReport ? (
           <>
             <p>
@@ -2983,7 +3093,7 @@ function OperationalPanels(props: {
             <ul>
               {operationsReport.readinessHistory.points.slice(0, 3).map((point) => (
                 <li key={point.timestamp}>
-                  {point.timestamp}: backend {point.backendHealthy ? "healthy" : "degraded"}, gateway {point.gatewayStatus}, reconnects {point.reconnectCount}, restart count {point.backendRestartCount}.
+                  {point.timestamp}: backend {point.backendHealthy ? "healthy" : "degraded"}, gateway {point.gatewayStatus}, reconnects {point.reconnectCount}, restart count {point.backendRestartCount}, reasons {point.reasonCodes.join(", ") || "none"}.
                 </li>
               ))}
             </ul>
@@ -3111,6 +3221,7 @@ function OperationalPanels(props: {
                 <li key={bullet}>{bullet}</li>
               ))}
             </ul>
+            {operationsReport.morningBrief.citations.length > 0 ? <p>Morning brief citations: {operationsReport.morningBrief.citations.join(", ")}.</p> : null}
             <label>
               <span>Incident template</span>
               <select aria-label="Incident template" value={props.selectedIncidentTemplateId} onChange={(event) => props.onSelectIncidentTemplate(event.target.value)}>
@@ -3163,7 +3274,8 @@ function OperationalPanels(props: {
               <ul>
                 {operationsReport.activeHypotheses.map((hypothesis) => (
                   <li key={hypothesis.id}>
-                    <strong>{hypothesis.label}</strong>: {hypothesis.hypothesis} Validation: {hypothesis.validationSteps.join(", ") || "none"}.
+                    <strong>{hypothesis.label}</strong>: {hypothesis.hypothesis} Status {hypothesis.status ?? "open"}. Validation: {hypothesis.validationSteps.join(", ") || "none"}.
+                    {hypothesis.evidenceIds?.length ? ` Evidence: ${hypothesis.evidenceIds.join(", ")}.` : ""}
                   </li>
                 ))}
               </ul>
@@ -3727,9 +3839,12 @@ function OperationalPanels(props: {
         )}
         {integrityReports[0] ? <p>Latest integrity report: {integrityReports[0].ok ? "ok" : "issues found"}.</p> : null}
         {props.analyticsSnapshot ? (
-          <p>
-            Analytics: {props.analyticsSnapshot.noisyTools[0]?.toolName ?? "no noisy tool"} / reconnect-heavy days {props.analyticsSnapshot.reconnectHeavyDays.length}.
-          </p>
+          <>
+            <p>
+              Analytics: {props.analyticsSnapshot.noisyTools[0]?.toolName ?? "no noisy tool"} / reconnect-heavy days {props.analyticsSnapshot.reconnectHeavyDays.length}.
+            </p>
+            {props.analyticsSnapshot.provisionalMetrics ? <p className="validation-message">{props.analyticsSnapshot.cacheStateLabel ?? "Recovered evidence is still settling; analytics totals are provisional."}</p> : null}
+          </>
         ) : null}
         {props.sloSnapshot ? (
           <p>

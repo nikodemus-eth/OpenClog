@@ -119,6 +119,49 @@ describe("advanced OpenClog features", () => {
     await app.close();
   });
 
+  test("surfaces recovered OpenClaw evidence summary through the operations report endpoint", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    const app = createApiApp({ repo, gateway: createMemoryGateway({ ready: true }) });
+
+    for (const index of Array.from({ length: 69 }, (_, itemIndex) => itemIndex)) {
+      repo.addEntry({
+        id: `2026-05-20-openclaw-backfill-${index + 1}`,
+        dayKey: "2026-05-20",
+        source: "openclaw",
+        sourceLabel: "Backfilled from OpenClaw",
+        kind: "assistant_message",
+        title: "OpenClaw response",
+        body: `Recovered OpenClaw session message ${index + 1}`,
+        timestamp: `2026-05-20T22:${String(index).padStart(2, "0")}:00.000Z`,
+        status: "info",
+        severity: "info",
+        sessionId: "openclaw:session:real-log",
+        backfilled: true,
+        importedAt: index === 68 ? "2026-05-20T22:30:01.601Z" : "2026-05-20T22:17:21.955Z",
+        redacted: true
+      });
+    }
+
+    const report = await app.inject({ method: "GET", url: "/api/operations/report?dayKey=2026-05-20" });
+
+    expect(report.statusCode).toBe(200);
+    expect(report.json()).toMatchObject({
+      report: {
+        dayKey: "2026-05-20",
+        recoveredEvidenceSummary: {
+          sourceLabel: "Backfilled from OpenClaw",
+          entryCount: 69,
+          dayCount: 1,
+          dayKeys: ["2026-05-20"],
+          latestImportedAt: "2026-05-20T22:30:01.601Z"
+        }
+      }
+    });
+    expect(JSON.stringify(report.json().report.recoveredEvidenceSummary)).not.toContain("Recovered OpenClaw session message");
+    await app.close();
+  });
+
   test("serves drilldowns, integrity, retention previews, incidents, notes, workspaces, alerts, adapters, profiles, integrations, and closeout tools", async () => {
     const repo = createSqliteRepository(":memory:");
     cleanup.push(() => repo.close());
