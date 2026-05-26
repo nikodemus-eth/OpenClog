@@ -13,6 +13,7 @@ import type {
   DeliveryTargetHealth,
   DeliveryLedger,
   DeliveryLedgerItem,
+  EvidenceDriftReport,
   EvidenceQualityScore,
   EscalationPlaybook,
   ExportableOperatorView,
@@ -27,6 +28,7 @@ import type {
   InvestigationBundlePreview,
   JournalDay,
   MorningBriefArtifact,
+  MorningCommandWorkflow,
   NativeCutoverPlan,
   NativeTruthMonitorReport,
   OperationsBacklogReport,
@@ -38,11 +40,15 @@ import type {
   ReadinessAggregate,
   RecommendationRationale,
   RecoveredEvidenceSummary,
+  ReportDiff,
+  ReportFreshness,
+  ReportProvenance,
   ReleaseReadinessGate,
   RoleAwareIncidentSimulation,
   RouteBudgetBurnReport,
   RouteBudgetRegression,
   RoutePerformanceBudget,
+  SavedViewAuditReport,
   SavedViewLintReport,
   SignedIncidentBundleManifest,
   SummaryJob,
@@ -78,6 +84,7 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
   const day = repo.getDay?.(input.dayKey) ?? emptyDay(input.dayKey);
   const incident = resolveIncident(repo, input.incidentId, day);
   const incidentId = input.incidentId ?? incident?.id;
+  const scopeKey = incidentId ? `${input.dayKey}:${incidentId}` : input.dayKey;
   const receipts = repo.listDeliveryReceipts?.() ?? [];
   const summaryJobs = repo.listSummaryJobs?.() ?? [];
   const notes = incidentId ? repo.listInvestigationNotes?.({ incidentId }) ?? [] : repo.listInvestigationNotes?.({ dayKey: input.dayKey }) ?? [];
@@ -88,9 +95,9 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
   const routeBudgets = buildRouteBudgets(repo);
   const deliveryLedger = buildDeliveryLedger(repo, {});
   const verificationReceipts = enrichVerificationReceipts(repo.listVerificationReceipts?.() ?? [], generatedAt);
+  const reportFreshness = buildReportFreshness(generatedAt, verificationReceipts);
   const verificationCenter = buildVerificationCenter(repo, day, receipts, replay.steps.length, routeBudgets, generatedAt, verificationReceipts);
   const recommendationRationales = buildRecommendationRationales(day, receipts, incident);
-  const evidenceQualityScores = buildEvidenceQualityScores(day, incident, checklist, receipts);
   const attentionNow = buildAttentionNow(day, receipts, routeBudgets, verificationCenter, repo);
   const attentionNowDelta = buildAttentionNowDelta(day, receipts, verificationCenter, routeBudgets, repo);
   const readinessAggregates = buildReadinessAggregates(repo, receipts, routeBudgets, verificationReceipts, summaryJobs);
@@ -101,24 +108,53 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
   const verificationReceiptLineage = buildVerificationReceiptLineage(verificationReceipts);
   const exportableViews = buildExportableViews(repo, day, checklist);
   const savedViewLint = buildSavedViewLint(exportableViews);
+  const savedViewAudit = buildSavedViewAudit(repo);
   const incidentTemplates = buildIncidentTemplates();
   const deliveryContractPreviews = buildDeliveryContractPreviews();
   const deliveryTargetHealth = buildDeliveryTargetHealth(receipts);
   const deliveryTargetDrilldowns = buildDeliveryTargetDrilldowns(deliveryTargetHealth, deliveryContractPreviews);
-  const releaseReadinessGate = buildReleaseReadinessGate(verificationCenter, receipts);
-  const operationsLedgerEntries = buildOperationsLedger(summaryJobs, receipts, repo.listIncidentActionRecords?.({ ...(incidentId ? { incidentId } : {}) }) ?? [], verificationReceipts);
+  const recoveredEvidenceSummary = buildRecoveredEvidenceSummary(repo, day);
+  const evidenceDrift = buildEvidenceDrift(repo, scopeKey, day, recoveredEvidenceSummary, verificationCenter);
+  const releaseReadinessGate = buildReleaseReadinessGate(verificationCenter, receipts, reportFreshness, evidenceDrift);
+  const operationsLedgerEntries = buildOperationsLedger(
+    summaryJobs,
+    receipts,
+    repo.listIncidentActionRecords?.({ ...(incidentId ? { incidentId } : {}) }) ?? [],
+    verificationReceipts,
+    generatedAt,
+    scopeKey
+  );
   const closeoutPacketPreview = buildCloseoutPacketPreview(closeoutReadiness, verificationCenter, checklist);
   const incidentEvidenceDigest = incident ? buildIncidentEvidenceDigest(incident.id, checklist) : undefined;
   const signedIncidentBundleManifest = incident ? buildSignedIncidentBundleManifest(incident.id, checklist) : undefined;
-  const recoveredEvidenceSummary = buildRecoveredEvidenceSummary(repo, day);
+  const evidenceQualityScores = buildEvidenceQualityScores(day, incident, checklist, receipts, verificationCenter, reportFreshness, evidenceDrift);
   const morningBrief = buildMorningBrief(attentionNow, attentionNowDelta, releaseReadinessGate, recoveredEvidenceSummary, routeBudgetRegressions, summaryJobs);
+  const morningCommand = buildMorningCommand(attentionNow, verificationCenter, day, receipts, evidenceDrift, releaseReadinessGate);
   const policyPackSummary = buildPolicyPackSummary();
   const retentionImpactSimulation = buildRetentionImpactSimulation(repo);
   const causalityNarrative = buildCausalityNarrative(causalityGraph, verificationCenter, routeBudgetRegressions, receipts);
+  const previousSnapshot = repo.getLatestOperationsReportSnapshot?.(scopeKey);
+  const currentSnapshot = {
+    id: `report-snapshot-${scopeKey}-${generatedAt}`,
+    scopeKey,
+    generatedAt,
+    reportFreshness,
+    deliveryFailureCount: receipts.filter((receipt) => receipt.status === "failed").length,
+    queueDepth: buildSummaryJobHistory(summaryJobs).queueDepth,
+    blockedGateCount: verificationCenter.gates.filter((gate) => gate.status === "blocked").length,
+    recoveredEntryCount: recoveredEvidenceSummary.entryCount
+  };
+  const reportDiff = buildReportDiff(currentSnapshot, previousSnapshot);
+  const storedSnapshot = repo.saveOperationsReportSnapshot?.(currentSnapshot) ?? currentSnapshot;
+  const reportProvenance = buildReportProvenance(storedSnapshot, previousSnapshot, verificationReceipts, summaryJobs, receipts);
   return {
     dayKey: input.dayKey,
     ...(incidentId ? { incidentId } : {}),
     generatedAt,
+    reportFreshness,
+    reportDiff,
+    reportProvenance,
+    evidenceDrift,
     ...(recoveredEvidenceSummary.entryCount > 0 ? { recoveredEvidenceSummary } : {}),
     attentionNow,
     attentionNowDelta,
@@ -156,6 +192,8 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
     ...(incidentEvidenceDigest ? { incidentEvidenceDigest } : {}),
     ...(signedIncidentBundleManifest ? { signedIncidentBundleManifest } : {}),
     morningBrief,
+    savedViewAudit,
+    morningCommand,
     nativeTruthMonitor: buildNativeTruthMonitor(repo, verificationCenter),
     policyRecommendationPacks: buildPolicyRecommendationPacks(recommendationRationales),
     policyPackSummary,
@@ -201,7 +239,7 @@ function buildRecoveredEvidenceSummary(repo: ApplicationRepository, currentDay: 
     dayCount: dayKeys.size,
     dayKeys: Array.from(dayKeys).sort(),
     ...(latestImportedAt ? { latestImportedAt } : {}),
-    ...(provisionalMetrics ? { provisionalMetrics, cacheStateLabel } : {})
+    ...(provisionalMetrics ? { provisionalMetrics, cacheStateLabel, provisionalReason: cacheStateLabel } : {})
   };
 }
 
@@ -370,7 +408,9 @@ function buildRouteBudgets(repo: ApplicationRepository): RoutePerformanceBudget[
   return [
     budgetForRoute("/api/summary-jobs", 250, baseline.find((item) => item.id === "summary-jobs")?.current),
     budgetForRoute("/api/incidents", 300, baseline.find((item) => item.id === "incidents")?.current),
-    budgetForRoute("/api/health", 100, baseline.find((item) => item.id === "health")?.current)
+    budgetForRoute("/api/health", 100, baseline.find((item) => item.id === "health")?.current),
+    budgetForRoute("/api/operations/report", 350, baseline.find((item) => item.id === "operations-report")?.current),
+    budgetForRoute("/api/verification/receipts", 180, baseline.find((item) => item.id === "verification-receipts")?.current)
   ];
 }
 
@@ -421,7 +461,7 @@ function buildVerificationCenter(
     withGateFreshness({ id: "replay_integrity", label: "Replay integrity", status: replaySteps > 0 ? "passed" : "warning", detail: replaySteps > 0 ? "Replay evidence is reconstructable." : "Replay evidence is not available.", evidenceIds: replaySteps > 0 ? ["mission-replay"] : [], blockingReasons: [], nextSafeActions: replaySteps > 0 ? ["Keep replay evidence attached to handoff."] : ["Create a replay workspace before external review."], generatedAt }),
     withGateFreshness({ id: "gateway_readiness", label: "Gateway readiness", status: latestGateway?.status === "passed" ? "passed" : latestGateway?.status === "failed" ? "blocked" : "unknown", detail: latestGateway?.summary ?? "No Gateway verification receipt.", evidenceIds: latestGateway ? [latestGateway.id] : [], blockingReasons: latestGateway?.status === "failed" ? [latestGateway.summary] : latestGateway ? [] : ["No Gateway verification receipt."], nextSafeActions: latestGateway?.status === "passed" ? ["Gateway verification is current enough for review."] : ["Run verify:gateway and record the receipt."], completedAt: latestGateway?.completedAt ?? latestGateway?.startedAt, generatedAt }),
     withGateFreshness({ id: "desktop_self_check", label: "Desktop self-check", status: latestDesktop?.status === "passed" ? "passed" : latestDesktop?.status === "failed" ? "blocked" : "unknown", detail: latestDesktop?.summary ?? "No desktop self-check receipt.", evidenceIds: latestDesktop ? [latestDesktop.id] : [], blockingReasons: latestDesktop?.status === "failed" ? [latestDesktop.summary] : latestDesktop ? [] : ["No desktop self-check receipt."], nextSafeActions: latestDesktop?.status === "passed" ? ["Desktop-native evidence is available."] : ["Run verify:desktop-native and record the receipt."], completedAt: latestDesktop?.completedAt ?? latestDesktop?.startedAt, generatedAt }),
-    withGateFreshness({ id: "route_budgets", label: "Route budgets", status: budgets.some((budget) => budget.status === "breach") ? "blocked" : "passed", detail: "Route performance budgets evaluated for summary jobs, incidents, and health.", evidenceIds: budgets.map((budget) => budget.route), blockingReasons: budgets.filter((budget) => budget.status === "breach").map((budget) => `${budget.route} exceeded ${budget.budgetMs} ms budget with ${budget.observedMs} ms observed.`), nextSafeActions: budgets.some((budget) => budget.status === "breach") ? ["Review route-budget regressions before closeout."] : ["Keep route-budget receipt attached to operations report."], generatedAt })
+    withGateFreshness({ id: "route_budgets", label: "Route budgets", status: budgets.some((budget) => budget.status === "breach") ? "blocked" : "passed", detail: "Route performance budgets evaluated for summary jobs, incidents, health, operations report, and verification receipts.", evidenceIds: budgets.map((budget) => budget.route), blockingReasons: budgets.filter((budget) => budget.status === "breach").map((budget) => `${budget.route} exceeded ${budget.budgetMs} ms budget with ${budget.observedMs} ms observed.`), nextSafeActions: budgets.some((budget) => budget.status === "breach") ? ["Review route-budget regressions before closeout."] : ["Keep route-budget receipt attached to operations report."], generatedAt })
   ];
   const readinessScore = Math.max(
     0,
@@ -450,6 +490,218 @@ function buildVerificationCenter(
     ...(latestDesktop?.status === "passed" && latestDesktop.completedAt ? { lastSuccessfulDesktopVerifyAt: latestDesktop.completedAt } : {}),
     ...(latestDocs?.status === "passed" && latestDocs.completedAt ? { lastSuccessfulDocsCheckAt: latestDocs.completedAt } : {}),
     ...(latestDocs && "commitSha" in latestDocs && latestDocs.commitSha ? { docsCheckedCommitSha: latestDocs.commitSha } : {})
+  };
+}
+
+function buildReportFreshness(generatedAt: string, verificationReceipts: VerificationReceipt[]): ReportFreshness {
+  const latest = latestReceipt(verificationReceipts);
+  if (!latest) {
+    return {
+      status: "no_verification_receipts",
+      summary: "Operations report has no persisted verification receipts to compare against yet.",
+      reportGeneratedAt: generatedAt
+    };
+  }
+  const latestCompletedAt = latest.completedAt ?? latest.startedAt;
+  const newer = generatedAt.localeCompare(latestCompletedAt) >= 0;
+  return {
+    status: newer ? "newer_than_latest_receipt" : "older_than_latest_receipt",
+    summary: newer
+      ? `Operations report is newer than the latest verification receipt (${latest.command} at ${latestCompletedAt}).`
+      : `Operations report is older than the latest verification receipt (${latest.command} at ${latestCompletedAt}).`,
+    reportGeneratedAt: generatedAt,
+    latestVerificationReceiptCompletedAt: latestCompletedAt,
+    latestVerificationReceiptId: latest.id,
+    latestVerificationReceiptCommand: latest.command
+  };
+}
+
+function buildReportDiff(
+  current: {
+    id: string;
+    generatedAt: string;
+    reportFreshness: ReportFreshness;
+    deliveryFailureCount: number;
+    queueDepth: number;
+    blockedGateCount: number;
+    recoveredEntryCount: number;
+  },
+  previous:
+    | {
+        id: string;
+        generatedAt: string;
+        reportFreshness: ReportFreshness;
+        deliveryFailureCount: number;
+        queueDepth: number;
+        blockedGateCount: number;
+        recoveredEntryCount: number;
+      }
+    | undefined
+): ReportDiff {
+  if (!previous) {
+    return {
+      available: false,
+      summary: "No previous operations report snapshot is available yet.",
+      currentSnapshotId: current.id,
+      changedFields: []
+    };
+  }
+  const changedFields = [
+    current.deliveryFailureCount !== previous.deliveryFailureCount ? "delivery failures" : null,
+    current.queueDepth !== previous.queueDepth ? "summary queue depth" : null,
+    current.blockedGateCount !== previous.blockedGateCount ? "blocked verification gates" : null,
+    current.recoveredEntryCount !== previous.recoveredEntryCount ? "recovered evidence count" : null,
+    current.reportFreshness.status !== previous.reportFreshness.status ? "report freshness" : null
+  ].filter((item): item is string => Boolean(item));
+  return {
+    available: true,
+    summary: changedFields.length > 0 ? `Report changed since ${previous.generatedAt}: ${changedFields.join(", ")}.` : `Report is unchanged from snapshot ${previous.generatedAt}.`,
+    currentSnapshotId: current.id,
+    previousSnapshotId: previous.id,
+    previousGeneratedAt: previous.generatedAt,
+    changedFields
+  };
+}
+
+function buildReportProvenance(
+  currentSnapshot: { id: string },
+  previousSnapshot: { id: string } | undefined,
+  verificationReceipts: VerificationReceipt[],
+  summaryJobs: SummaryJob[],
+  receipts: Array<{ id: string; status: string }>
+): ReportProvenance {
+  const sourceVerificationReceiptIds = verificationReceipts.slice(0, 5).map((receipt) => receipt.id);
+  const sourceSummaryJobIds = summaryJobs.slice(0, 5).map((job) => job.id);
+  const sourceDeliveryReceiptIds = receipts.filter((receipt) => receipt.status === "failed").slice(0, 5).map((receipt) => receipt.id);
+  return {
+    currentSnapshotId: currentSnapshot.id,
+    ...(previousSnapshot ? { previousSnapshotId: previousSnapshot.id } : {}),
+    sourceVerificationReceiptIds,
+    sourceSummaryJobIds,
+    sourceDeliveryReceiptIds,
+    lineageSummary:
+      sourceVerificationReceiptIds.length > 0 || sourceSummaryJobIds.length > 0
+        ? `Provenance uses ${sourceVerificationReceiptIds.length} verification receipt(s), ${sourceSummaryJobIds.length} summary job(s), and ${sourceDeliveryReceiptIds.length} failed delivery receipt(s).`
+        : "Provenance is incomplete because no persisted verification or summary evidence is available."
+  };
+}
+
+function buildSavedViewAudit(repo: ApplicationRepository): SavedViewAuditReport {
+  const events = repo.listSavedViewAuditEvents?.() ?? [];
+  return {
+    events: events.slice(0, 12),
+    summary: events.length > 0 ? `${events.length} saved-view audit event(s) are persisted locally.` : "No saved-view audit events are persisted yet."
+  };
+}
+
+function buildEvidenceDrift(
+  repo: ApplicationRepository,
+  scopeKey: string,
+  day: JournalDay,
+  recoveredEvidenceSummary: RecoveredEvidenceSummary,
+  verificationCenter: VerificationCenterReport
+): EvidenceDriftReport {
+  if (recoveredEvidenceSummary.entryCount <= 0) {
+    return {
+      status: "unavailable",
+      summary: "No recovered OpenClaw evidence is currently in scope.",
+      issues: [],
+      observationCount: repo.listEvidenceDriftObservations?.(scopeKey)?.length ?? 0
+    };
+  }
+  const issues = [] as EvidenceDriftReport["issues"];
+  const recoveredEntries = day.entries.filter((entry) => entry.backfilled === true);
+  if (recoveredEntries.length !== recoveredEvidenceSummary.entryCount && recoveredEntries.length > 0) {
+    issues.push({
+      id: "recovered_entry_total",
+      severity: "warning",
+      summary: `Current day shows ${recoveredEntries.length} recovered entries while the report summary cites ${recoveredEvidenceSummary.entryCount}.`
+    });
+  }
+  const recoveredSessionCount = new Set(recoveredEntries.map((entry) => entry.sessionId).filter(Boolean)).size;
+  if (recoveredSessionCount === 0) {
+    issues.push({
+      id: "session_recovered_total",
+      severity: "info",
+      summary: "Recovered evidence is present without session-level drilldown correlation."
+    });
+  }
+  if (recoveredEvidenceSummary.provisionalMetrics || verificationCenter.gates.some((gate) => gate.id === "summary_freshness" && gate.status !== "passed")) {
+    issues.push({
+      id: "report_header_mismatch",
+      severity: "warning",
+      summary: recoveredEvidenceSummary.cacheStateLabel ?? "Recovered evidence may have changed after the latest successful summary."
+    });
+  }
+  const report: EvidenceDriftReport = {
+    status: issues.length > 0 ? "drifting" : "stable",
+    summary:
+      issues.length > 0
+        ? issues.map((issue) => issue.summary).join(" ")
+        : "Recovered evidence totals, session coverage, and report/header summary are aligned.",
+    issues,
+    observationCount: (repo.listEvidenceDriftObservations?.(scopeKey)?.length ?? 0) + (issues.length > 0 ? 1 : 0)
+  };
+  if (issues.length > 0) {
+    repo.saveEvidenceDriftObservation?.({
+      id: `evidence-drift-${scopeKey}-${day.dayKey}-${recoveredEvidenceSummary.latestImportedAt ?? recoveredEvidenceSummary.entryCount}`,
+      scopeKey,
+      report,
+      createdAt: new Date().toISOString()
+    });
+  }
+  return report;
+}
+
+function buildMorningCommand(
+  attentionNow: AttentionNowItem[],
+  verificationCenter: VerificationCenterReport,
+  day: JournalDay,
+  receipts: Array<{ status: string; dryRun?: boolean }>,
+  evidenceDrift: EvidenceDriftReport,
+  releaseReadinessGate: ReleaseReadinessGate
+): MorningCommandWorkflow {
+  const blockedGates = verificationCenter.gates.filter((gate) => gate.status === "blocked").length;
+  return {
+    headline: blockedGates === 0 && attentionNow.length === 0 ? "Morning command is clear for bounded closeout." : "Morning command highlights the next bounded triage sequence.",
+    steps: [
+      {
+        id: "attention_now",
+        title: "Attention now",
+        status: attentionNow.length > 0 ? "ready" : "unavailable",
+        detail: attentionNow.length > 0 ? attentionNow.map((item) => item.label).join(", ") : "No attention-now items are currently active."
+      },
+      {
+        id: "blocked_gates",
+        title: "Blocked gates",
+        status: blockedGates > 0 ? "blocked" : "ready",
+        detail: blockedGates > 0 ? `${blockedGates} Verification Center gate(s) are blocked.` : "Verification gates are clear."
+      },
+      {
+        id: "stale_summaries",
+        title: "Stale summaries",
+        status: generatedSummaryFresh(day) ? "ready" : "blocked",
+        detail: generatedSummaryFresh(day) ? "Summary freshness is current enough for handoff." : "Generated summary still needs refresh before handoff."
+      },
+      {
+        id: "delivery_failures",
+        title: "Delivery failures",
+        status: receipts.some((receipt) => receipt.status === "failed") ? "blocked" : "ready",
+        detail: receipts.some((receipt) => receipt.status === "failed") ? "Failed delivery evidence remains visible and retryable." : "No failed delivery evidence is currently blocking handoff."
+      },
+      {
+        id: "recovered_drift",
+        title: "Recovered evidence drift",
+        status: evidenceDrift.status === "drifting" ? "blocked" : evidenceDrift.status === "stable" ? "ready" : "unavailable",
+        detail: evidenceDrift.summary
+      },
+      {
+        id: "release_gate",
+        title: "Release gate",
+        status: releaseReadinessGate.status === "ready" ? "ready" : "blocked",
+        detail: releaseReadinessGate.narrative
+      }
+    ]
   };
 }
 
@@ -636,6 +888,8 @@ function buildRouteBudgetRegressions(repo: ApplicationRepository, budgets: Route
     if (item.id === "summary-jobs") baselineByRoute.set("/api/summary-jobs", item.baseline);
     if (item.id === "incidents") baselineByRoute.set("/api/incidents", item.baseline);
     if (item.id === "health") baselineByRoute.set("/api/health", item.baseline);
+    if (item.id === "operations-report") baselineByRoute.set("/api/operations/report", item.baseline);
+    if (item.id === "verification-receipts") baselineByRoute.set("/api/verification/receipts", item.baseline);
   }
   return budgets
     .filter((budget) => budget.status === "breach")
@@ -805,6 +1059,7 @@ function buildIncidentTemplates(): IncidentTemplate[] {
     incidentTemplate("reconnect-storm", "Reconnect storm", "Use when Gateway reconnect evidence repeats inside the readiness window.", "Count reconnect events and affected sessions.", "Record whether the listener stabilized.", false, "Reconnect history is informative but not the current strongest blocker.", ["reconnect_history"]),
     incidentTemplate("delivery-dead-letter", "Delivery dead letter", "Use when a delivery receipt fails closed.", "Identify the failed receipt and target.", "Record retry policy, idempotency key, and final receipt.", true, "Failing delivery evidence is present and blocks safe escalation.", ["delivery_receipts"]),
     incidentTemplate("stale-summary", "Stale summary", "Use when newer evidence exists after summary generation.", "Compare latest observed evidence with included evidence.", "Record regenerated summary freshness.", true, "Missing summary freshness evidence is the current trust gap.", ["generated_summary"]),
+    incidentTemplate("recovered-evidence-changed-after-report-generation", "Recovered evidence changed after report generation", "Use when recovered OpenClaw evidence landed after the report or summary snapshot.", "Compare latest import timestamp with the latest successful summary and report snapshot.", "Record the new import timestamp, refreshed report snapshot, and any handoff caveat.", true, "Recovered evidence drift can make the current report or morning brief provisional.", ["generated_summary", "recovered_evidence"]),
     incidentTemplate("route-budget-regression", "Route budget regression", "Use when an operations route exceeds its baseline.", "Identify breached route and observed latency.", "Record mitigation and rerun route-budget evidence.", false, "Route evidence is degraded but may be secondary to fresher blockers.", ["route_budgets"])
   ];
 }
@@ -867,12 +1122,17 @@ function buildDeliveryContractPreviews(): DeliveryContractPreview[] {
   });
 }
 
-function buildReleaseReadinessGate(verificationCenter: VerificationCenterReport, receipts: Array<{ dryRun?: boolean; status: string }>): ReleaseReadinessGate {
-  const requiredCommands = ["verify", "verify:gateway", "docs:check", "verify:desktop-native", "dry-run delivery"];
+function buildReleaseReadinessGate(
+  verificationCenter: VerificationCenterReport,
+  receipts: Array<{ dryRun?: boolean; status: string }>,
+  reportFreshness: ReportFreshness,
+  evidenceDrift: EvidenceDriftReport
+): ReleaseReadinessGate {
+  const requiredCommands = ["verify", "verify:gateway", "docs:check", "verify:desktop-native", "test:smoke", "dry-run delivery"];
   const blockers: string[] = [];
   const whyBlocking: string[] = [];
   const evidenceIds: string[] = [];
-  for (const command of ["verify", "verify:gateway", "docs:check", "verify:desktop-native"]) {
+  for (const command of ["verify", "verify:gateway", "docs:check", "verify:desktop-native", "test:smoke"]) {
     const receipt = latestReceipt(verificationCenter.receipts.filter((item) => item.command === command || item.command === `npm run ${command}`));
     if (receipt) evidenceIds.push(receipt.id);
     if (!receipt || receipt.status !== "passed" || receipt.freshness === "stale") {
@@ -884,7 +1144,19 @@ function buildReleaseReadinessGate(verificationCenter: VerificationCenterReport,
     blockers.push("dry-run delivery evidence is missing or failed");
     whyBlocking.push("At least one passing dry-run receipt is required before live escalation is treated as ready.");
   }
-  return { status: blockers.length === 0 ? "ready" : "blocked", requiredCommands, blockers, whyBlocking, staleAgeThresholdMinutes: 60, evidenceIds };
+  if (reportFreshness.status === "older_than_latest_receipt") {
+    blockers.push("operations report is older than the latest verification receipt");
+    whyBlocking.push("Refresh the operations report so the morning brief and readiness narrative are based on the newest persisted verification evidence.");
+  }
+  if (evidenceDrift.status === "drifting") {
+    blockers.push("recovered evidence drift is present");
+    whyBlocking.push("Recovered OpenClaw evidence changed after the latest report or summary boundary; refresh bounded artifacts before a green claim.");
+  }
+  const narrative =
+    blockers.length === 0
+      ? "Release readiness is grounded in fresh verification receipts, a current operations report, and no unresolved recovered-evidence drift."
+      : `Release readiness is blocked because ${blockers[0]}.`;
+  return { status: blockers.length === 0 ? "ready" : "blocked", requiredCommands, blockers, whyBlocking, staleAgeThresholdMinutes: 60, evidenceIds, narrative };
 }
 
 function buildGovernedSdkManifests(repo: ApplicationRepository): GovernedSdkManifest[] {
@@ -902,10 +1174,13 @@ function buildEvidenceQualityScore(
   incidentId: string,
   checklist: IncidentEvidenceChecklist,
   day: JournalDay,
-  receipts: Array<{ status: string; incidentId?: string }>
+  receipts: Array<{ status: string; incidentId?: string }>,
+  verificationCenter: VerificationCenterReport,
+  reportFreshness: ReportFreshness,
+  evidenceDrift: EvidenceDriftReport
 ): EvidenceQualityScore {
   const completeness = Math.round((checklist.items.filter((item) => item.present).length / checklist.items.length) * 100);
-  const freshness = generatedSummaryFresh(day) ? 100 : 70;
+  const freshness = generatedSummaryFresh(day) && verificationCenter.lastSuccessfulVerifyFreshness !== "stale" ? 100 : 65;
   const provenance = checklist.items.find((item) => item.id === "correlation")?.present ? 90 : 50;
   const actionOutcomeCoverage = receipts.some((receipt) => receipt.incidentId === incidentId) ? 85 : 45;
   const score = Math.round((freshness + completeness + provenance + actionOutcomeCoverage) / 4);
@@ -913,7 +1188,9 @@ function buildEvidenceQualityScore(
     ...(freshness < 100 ? ["summary freshness is below the ready threshold"] : []),
     ...(completeness < 100 ? ["incident evidence checklist is incomplete"] : []),
     ...(provenance < 90 ? ["correlation evidence is missing or weak"] : []),
-    ...(actionOutcomeCoverage < 85 ? ["incident action outcomes are not fully covered by receipts"] : [])
+    ...(actionOutcomeCoverage < 85 ? ["incident action outcomes are not fully covered by receipts"] : []),
+    ...(reportFreshness.status === "older_than_latest_receipt" ? ["operations report is older than the newest verification evidence"] : []),
+    ...(evidenceDrift.status === "drifting" ? ["recovered evidence drift is active"] : [])
   ];
   return {
     incidentId,
@@ -931,20 +1208,24 @@ function buildEvidenceQualityScores(
   day: JournalDay,
   incident: IncidentSummary | undefined,
   checklist: IncidentEvidenceChecklist,
-  receipts: Array<{ status: string; incidentId?: string }>
+  receipts: Array<{ status: string; incidentId?: string }>,
+  verificationCenter: VerificationCenterReport,
+  reportFreshness: ReportFreshness,
+  evidenceDrift: EvidenceDriftReport
 ): EvidenceQualityScore[] {
   const scores: EvidenceQualityScore[] = [];
-  if (incident) scores.push(buildEvidenceQualityScore(incident.id, checklist, day, receipts));
+  if (incident) scores.push(buildEvidenceQualityScore(incident.id, checklist, day, receipts, verificationCenter, reportFreshness, evidenceDrift));
   const completeness = day.evidenceCompleteness ? Math.round((day.evidenceCompleteness.present / Math.max(day.evidenceCompleteness.total, 1)) * 100) : checklist.ready ? 100 : 67;
-  const freshness = generatedSummaryFresh(day) ? 100 : 70;
-  const provenance = receipts.length > 0 ? 85 : 50;
+  const freshness = generatedSummaryFresh(day) && verificationCenter.lastSuccessfulVerifyFreshness !== "stale" ? 100 : 65;
+  const provenance = receipts.length > 0 && reportFreshness.status !== "older_than_latest_receipt" ? 85 : 50;
   const actionOutcomeCoverage = receipts.some((receipt) => receipt.status === "failed") ? 60 : receipts.length > 0 ? 90 : 45;
   const score = Math.round((freshness + completeness + provenance + actionOutcomeCoverage) / 4);
   const reasons = [
     ...(freshness < 100 ? ["day summary freshness needs review"] : []),
     ...(completeness < 100 ? ["day evidence completeness is below the target"] : []),
     ...(provenance < 85 ? ["receipt or provenance coverage is thin"] : []),
-    ...(actionOutcomeCoverage < 90 ? ["recent delivery or action outcomes need more evidence"] : [])
+    ...(actionOutcomeCoverage < 90 ? ["recent delivery or action outcomes need more evidence"] : []),
+    ...(evidenceDrift.status === "drifting" ? ["recovered evidence drift is active"] : [])
   ];
   scores.push({
     dayKey: day.dayKey,
@@ -1039,7 +1320,11 @@ function buildDeliveryTargetDrilldowns(
       paritySummary: preview?.paritySummary ?? "parity unavailable",
       retryHistory: health.retryHistory,
       trendPoints: health.trendPoints ?? [],
-      schemaWarnings: preview?.schemaWarnings ?? []
+      schemaWarnings: preview?.schemaWarnings ?? [],
+      backoffPosture: health.retryHistory.length === 0 ? "stable" : (health.remainingRetries ?? 0) > 0 ? "retrying" : "exhausted",
+      parityDriftState: health.parityDriftState,
+      latestReceiptId: health.latestReceiptId,
+      latestVerifiedAt: health.lastVerifiedAt
     };
   });
 }
@@ -1146,20 +1431,32 @@ function buildOperationsLedger(
   jobs: SummaryJob[],
   receipts: Array<{ id: string; status: string; completedAt: string; correlationId?: string; retryCount?: number }>,
   actionRecords: Array<{ id: string; title: string; status: "completed" | "failed"; createdAt: string; receiptId?: string; metadata?: Record<string, unknown> }>,
-  verificationReceipts: Array<{ id: string; status: "passed" | "failed" | "unknown"; completedAt?: string; startedAt: string; command: string }>
+  verificationReceipts: Array<{ id: string; status: "passed" | "failed" | "unknown"; completedAt?: string; startedAt: string; command: string }>,
+  generatedAt: string,
+  scopeKey: string
 ): OperationsLedgerEntry[] {
-  const summaryEntries = jobs.filter((job) => job.completedAt).map((job) => ledgerEntry(`ledger-summary-${job.id}`, `summary.${job.status}`, job.completedAt ?? job.createdAt, statusFromJob(job.status), job.id, job.correlationId));
-  const receiptEntries = receipts.map((receipt) => ledgerEntry(`ledger-delivery-${receipt.id}`, `delivery.${receipt.status}`, receipt.completedAt, receipt.status === "delivered" ? "completed" : "failed", receipt.id, receipt.correlationId));
+  const reportEntry = ledgerEntry(`ledger-report-${scopeKey}-${generatedAt}`, "report.generated", generatedAt, "completed", scopeKey, undefined, "report_generation", `Operations report snapshot generated for ${scopeKey}.`);
+  const summaryEntries = jobs.filter((job) => job.completedAt).map((job) => ledgerEntry(`ledger-summary-${job.id}`, `summary.${job.status}`, job.completedAt ?? job.createdAt, statusFromJob(job.status), job.id, job.correlationId, "summary_job", `Summary job ${job.status}.`));
+  const receiptEntries = receipts.map((receipt) => ledgerEntry(`ledger-delivery-${receipt.id}`, `delivery.${receipt.status}`, receipt.completedAt, receipt.status === "delivered" ? "completed" : "failed", receipt.id, receipt.correlationId, "delivery", `Delivery receipt ${receipt.status}.`));
   const retryEntries = receipts
     .filter((receipt) => (receipt.retryCount ?? 0) > 0)
-    .map((receipt) => ledgerEntry(`ledger-delivery-retry-${receipt.id}`, "delivery.retry_backoff", receipt.completedAt, "failed", receipt.id, receipt.correlationId));
-  const actionEntries = actionRecords.map((record) => ledgerEntry(`ledger-action-${record.id}`, `incident.action.${record.status}`, record.createdAt, record.status, record.receiptId ?? record.id, typeof record.metadata?.correlationId === "string" ? record.metadata.correlationId : undefined));
-  const verificationEntries = verificationReceipts.map((receipt) => ledgerEntry(`ledger-verification-${receipt.id}`, `verification.${receipt.status}`, receipt.completedAt ?? receipt.startedAt, receipt.status === "passed" ? "completed" : receipt.status === "failed" ? "failed" : "unknown", receipt.id));
-  return [...summaryEntries, ...receiptEntries, ...retryEntries, ...actionEntries, ...verificationEntries].sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+    .map((receipt) => ledgerEntry(`ledger-delivery-retry-${receipt.id}`, "delivery.retry_backoff", receipt.completedAt, "failed", receipt.id, receipt.correlationId, "delivery", "Delivery retry remains bounded by explicit idempotency posture."));
+  const actionEntries = actionRecords.map((record) => ledgerEntry(`ledger-action-${record.id}`, `incident.action.${record.status}`, record.createdAt, record.status, record.receiptId ?? record.id, typeof record.metadata?.correlationId === "string" ? record.metadata.correlationId : undefined, "incident_action", record.title));
+  const verificationEntries = verificationReceipts.map((receipt) => ledgerEntry(`ledger-verification-${receipt.id}`, `verification.${receipt.command}.${receipt.status}`, receipt.completedAt ?? receipt.startedAt, receipt.status === "passed" ? "completed" : receipt.status === "failed" ? "failed" : "unknown", receipt.id, undefined, "verification", `${receipt.command} ${receipt.status}`));
+  return [reportEntry, ...summaryEntries, ...receiptEntries, ...retryEntries, ...actionEntries, ...verificationEntries].sort((left, right) => right.timestamp.localeCompare(left.timestamp));
 }
 
-function ledgerEntry(id: string, action: string, timestamp: string, status: OperationsLedgerEntry["status"], targetId: string, correlationId?: string): OperationsLedgerEntry {
-  return { id, action, timestamp, status, actor: "openclog", targetId, ...(correlationId ? { correlationId } : {}), evidenceIds: [targetId] };
+function ledgerEntry(
+  id: string,
+  action: string,
+  timestamp: string,
+  status: OperationsLedgerEntry["status"],
+  targetId: string,
+  correlationId?: string,
+  kind: OperationsLedgerEntry["kind"] = "delivery",
+  summary?: string
+): OperationsLedgerEntry {
+  return { id, kind, action, timestamp, status, actor: "openclog", targetId, ...(correlationId ? { correlationId } : {}), evidenceIds: [targetId], ...(summary ? { summary } : {}) };
 }
 
 function buildNativeTruthMonitor(repo: ApplicationRepository, verificationCenter: VerificationCenterReport): NativeTruthMonitorReport {
@@ -1175,10 +1472,10 @@ function buildNativeTruthMonitor(repo: ApplicationRepository, verificationCenter
   ];
   const divergenceSummary =
     gatewayGate?.status === "passed" && desktopGate?.status && desktopGate.status !== "passed"
-      ? "Desktop-native self-check and Fastify readiness disagree; investigate native boundary freshness before cutover claims."
+      ? "Fastify cannot hand off authority safely yet because desktop self-check evidence lags behind current Fastify readiness."
       : desktopGate?.status === "passed" && gatewayGate?.status === "blocked"
-        ? "Desktop-native evidence is healthier than Fastify-reported readiness; treat Fastify as authoritative and investigate the divergence."
-        : "Desktop-native and Fastify health are aligned closely enough for current prep-only authority.";
+        ? "Desktop-native evidence is healthier than Fastify-reported readiness; Fastify remains authoritative until the divergence is resolved."
+        : "Fastify remains the active authority and current native-host signals are consistent with prep-only cutover.";
   return { status: worstStatus(checks.map((check) => check.status)), divergenceSummary, checks };
 }
 

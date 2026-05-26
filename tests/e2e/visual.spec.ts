@@ -65,7 +65,7 @@ for (const theme of themes) {
     await installApiFixtures(page, { settingsTheme: theme });
     await page.goto("/");
     await expect(page.getByRole("main")).toHaveAttribute("data-theme", theme);
-    await expect(page.getByText("Verification receipts: 2 published.")).toBeVisible();
+    await expect(page.getByText("Report freshness: older than latest verification receipt").first()).toBeVisible();
     await waitForStableFullPageHeight(page);
     await expect(page).toHaveScreenshot(`${theme}-${viewportName}.png`, {
       fullPage: true,

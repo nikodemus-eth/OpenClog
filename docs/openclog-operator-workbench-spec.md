@@ -16,6 +16,8 @@ The old source framing was stale in these places, and the current Google Doc now
 
 OpenClog is a local-first operator workbench for redacted operational evidence. The browser never talks to Gateway credentials directly. The backend owns Gateway state, local persistence, redaction, audit evidence, delivery receipts, verification receipts, and compatibility routes.
 
+Readiness has two backend surfaces: `/api/health` for richer public diagnostics and `/api/healthz` for cheap smoke/readiness probes. Both surfaces expose sanitized backend and Gateway state only.
+
 The shell is a dense operator surface:
 
 - Left rail: operator console, journal search, recent logs, date jump, theme picker, and system shortcuts.
@@ -75,7 +77,7 @@ Real verification commands publish local `VerificationReceipt` rows into `journa
 
 Verification Center gates now include explicit `fresh`, `aging`, `stale`, or `unknown` stale-age badges, operator-facing blocker reasons, and next-safe-action copy. The collapsed rail and shell header can summarize the latest successful local verify bundle without granting browser-side authority to write verification receipts.
 
-The browser shell also persists the selected center-lane tab and incident panel state per day key in local storage, exposes keyboard jumps for search, incidents, Verification Center, rails, and the next failed Verification Center gate, and keeps blocked delivery/plugin/incident actions explainable through one-click `why blocked` drawers sourced from the operations report and capability gates.
+The browser shell also persists the selected center-lane tab and incident panel state per day key in local storage, exposes keyboard jumps for search, incidents, Verification Center, rails, and the next failed Verification Center gate, and keeps blocked delivery/plugin/incident actions explainable through one-click `why blocked` drawers sourced from the operations report and capability gates. Verification Center and Operations backlog panels show report generation timestamps, and empty report states offer local reload/integrity actions without inventing report evidence.
 
 Release 2 also adds explicit trust and triage affordances to those existing lanes:
 
@@ -94,6 +96,15 @@ The current mega-tranche follow-through expands those same trust surfaces instea
 - Saved operator views now expose persistence and hygiene metadata: selected verification gate, restart persistence, lint findings, and handoff-safe summary text.
 - Delivery-target health now includes retry-history/backoff posture, parity-drift state, trend points, and a drilldown surface that stays bounded to local evidence.
 - The operations report now includes route-budget burn ranking, verification receipt lineage, closeout packet preview, morning brief copy, retention-impact simulation, and a bounded causality narrative.
+
+The current one-pass operations campaign deepens those same seams again without moving authority:
+
+- Report freshness is now explicit and compares the current `/api/operations/report` snapshot against the newest persisted verification receipt, including `test:smoke`.
+- Persisted report snapshots now support report diffing and provenance: the report can cite its current snapshot id, previous snapshot id, source verification receipt ids, source summary-job ids, and source delivery receipt ids.
+- Saved-view hygiene is now first-class report evidence through persisted audit events, while recovered-evidence drift is tracked explicitly rather than being inferred from stale copy.
+- The shell header now exposes report freshness, summary queue depth, latest smoke success, and recovered-evidence provisional state without adding browser mutation authority.
+- Keyboard recovery now includes recovered-evidence and morning-command jumps, and blocked Verification Center gates expose a direct `Copy next safe action` affordance.
+- A fixture-backed local load harness at [`scripts/load-report-routes.ts`](/Users/m4/OpenClog/scripts/load-report-routes.ts) can rehearse or live-check route budgets for `/api/operations/report`, `/api/verification/receipts`, and session drilldowns.
 
 SQLite has prep tables for readiness snapshots, incident templates, settings history, signed bundle manifests, and native runner history. These tables support the roadmap's durable-local direction, but Fastify remains the current authority for Gateway readiness, receipts, operations reporting, incident actions, retention, delivery policy, and verification read paths until a native cutover proof replaces it.
 

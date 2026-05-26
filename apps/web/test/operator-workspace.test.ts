@@ -304,6 +304,7 @@ describe("operator workspace helpers", () => {
       expect.objectContaining({ id: "pending-approvals", builtIn: true, drilldown: { sessionKey: "agent:hugin:main", tab: "actions", scrollTop: 0 } }),
       expect.objectContaining({ id: "delivery-failures", builtIn: true, drilldown: { sessionKey: "agent:hugin:main", tab: "deliveries", scrollTop: 0 } }),
       expect.objectContaining({ id: "stale-summaries", builtIn: true, searchQuery: "summary stale" }),
+      expect.objectContaining({ id: "stale-summaries-failed-deliveries", builtIn: true, searchQuery: "summary stale delivery receipt failed" }),
       expect.objectContaining({ id: "failed-receipts", builtIn: true, searchQuery: "delivery receipt failed" }),
       expect.objectContaining({ id: "stale-backend-fingerprint", builtIn: true, searchQuery: "stale backend fingerprint" }),
       expect.objectContaining({ id: "needs-operator-action-now", builtIn: true, hypothesis: "Needs operator action now highlights blocked, stale, and failed work that should be handled before handoff." }),
@@ -379,6 +380,7 @@ describe("operator workspace helpers", () => {
       expect.objectContaining({ id: "pending-approvals", builtIn: true }),
       expect.objectContaining({ id: "delivery-failures", builtIn: true }),
       expect.objectContaining({ id: "stale-summaries", builtIn: true }),
+      expect.objectContaining({ id: "stale-summaries-failed-deliveries", builtIn: true }),
       expect.objectContaining({ id: "failed-receipts", builtIn: true }),
       expect.objectContaining({ id: "stale-backend-fingerprint", builtIn: true }),
       expect.objectContaining({ id: "needs-operator-action-now", builtIn: true }),
@@ -395,6 +397,7 @@ describe("operator workspace helpers", () => {
       expect.objectContaining({ id: "pending-approvals", drilldown: { sessionKey: undefined, tab: "actions", scrollTop: 0 } }),
       expect.objectContaining({ id: "delivery-failures", drilldown: { sessionKey: undefined, tab: "deliveries", scrollTop: 0 } }),
       expect.objectContaining({ id: "stale-summaries", drilldown: { sessionKey: undefined, tab: "timeline", scrollTop: 0 } }),
+      expect.objectContaining({ id: "stale-summaries-failed-deliveries", drilldown: { sessionKey: undefined, tab: "deliveries", scrollTop: 0 } }),
       expect.objectContaining({ id: "failed-receipts", drilldown: { sessionKey: undefined, tab: "deliveries", scrollTop: 0 } }),
       expect.objectContaining({ id: "stale-backend-fingerprint", drilldown: { sessionKey: undefined, tab: "timeline", scrollTop: 0 } }),
       expect.objectContaining({ id: "needs-operator-action-now", drilldown: { sessionKey: undefined, tab: "actions", scrollTop: 0 } }),
@@ -654,7 +657,7 @@ describe("operator workspace helpers", () => {
       ])
     ).toBe("Recorded at 2026-05-08T12:03:00.000Z.");
     expect(describeIncidentActionRecordingStatus("deliver_email", [])).toBe("Not yet recorded.");
-    expect(buildShellShortcutHints()).toEqual(["[: left rail", "Alt+S: search", "Alt+B: blocked action", "Alt+R: failed receipts", "Alt+M: stale summaries", "]: diagnostics"]);
+    expect(buildShellShortcutHints()).toEqual(["[: left rail", "Alt+S: search", "Alt+B: blocked action", "Alt+R: recovered evidence", "Alt+M: morning command", "]: diagnostics"]);
   });
 
   test("describes active operator views, connectivity, summary job state, and per-view storage", () => {

@@ -738,8 +738,12 @@ export function DayHeader(props: {
   day: JournalDay;
   changedSinceSummaryText?: string;
   lastSuccessfulSummaryJobCompletionAt?: string;
+  latestSmokeCompletedAt?: string;
+  recoveredEvidenceProvisionalLabel?: string;
   recoveredEvidenceDriftText?: string;
   recoveredEvidenceSummary?: string;
+  reportFreshnessSummary?: string;
+  summaryQueueDepth?: number;
   summaryFreshnessLabel: string;
   theme: Theme;
   onExport: () => void;
@@ -753,8 +757,12 @@ export function DayHeader(props: {
         {props.theme.labels.productSubtitle ? <p className="theme-subtitle">{props.theme.labels.productSubtitle}</p> : null}
         <div className="day-header-meta">
           <StatusChip label="Summary freshness" status={props.summaryFreshnessLabel} tone={freshnessTone} />
+          {props.reportFreshnessSummary ? <span>{props.reportFreshnessSummary}</span> : null}
           {props.lastSuccessfulSummaryJobCompletionAt ? <span>Last summary completion {props.lastSuccessfulSummaryJobCompletionAt}</span> : null}
+          {props.latestSmokeCompletedAt ? <span>Last smoke {props.latestSmokeCompletedAt}</span> : null}
+          {typeof props.summaryQueueDepth === "number" ? <span>Summary queue depth {props.summaryQueueDepth}</span> : null}
           {props.recoveredEvidenceSummary ? <span>{props.recoveredEvidenceSummary}</span> : null}
+          {props.recoveredEvidenceProvisionalLabel ? <span>{props.recoveredEvidenceProvisionalLabel}</span> : null}
           {props.recoveredEvidenceDriftText ? <span>{props.recoveredEvidenceDriftText}</span> : null}
           {props.changedSinceSummaryText ? <span>{props.changedSinceSummaryText}</span> : null}
         </div>
@@ -1545,9 +1553,9 @@ export function ShortcutsHelp(props: { open: boolean; onClose: () => void }) {
         <dt>Alt+B</dt>
         <dd>Focus the next blocked action</dd>
         <dt>Alt+R</dt>
-        <dd>Focus the next failed receipt, or open the Failed receipts operator view</dd>
+        <dd>Focus recovered evidence surfaces, or open the Backfilled from OpenClaw operator view</dd>
         <dt>Alt+M</dt>
-        <dd>Open the Stale summaries operator view</dd>
+        <dd>Focus Morning command, or open the Stale summaries operator view</dd>
         <dt>Escape</dt>
         <dd>Close this panel</dd>
       </dl>

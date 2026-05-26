@@ -3,6 +3,20 @@
 ## Purpose
 Record deterministic verification, live Gateway verification, coverage policy, and closeout results.
 
+## 2026-05-25 One-Pass Operations Campaign
+- Added targeted unit/API coverage for persisted report snapshots, saved-view audit events, evidence-drift observations, enriched `/api/healthz` operations metadata, and the expanded operations-report assembly path.
+- Added browser coverage for report freshness copy, persisted report diff/provenance surfaces, saved-view audit visibility, morning-command workflow text, recovered-evidence shortcut focus, and blocked Verification Center `Copy next safe action` affordances.
+- Added a fixture-backed load-harness command with `npm run test:load`; it can rehearse route-budget checks offline by default or hit a live local API when `--base-url` or `OPENCLOG_LOAD_BASE_URL` is provided.
+- Focused verification completed during this tranche with `npm run typecheck`, `npx vitest run packages/app/test/application.test.ts apps/api/test/repository.test.ts apps/api/test/routes.test.ts`, and `npx playwright test tests/e2e/advanced-features.spec.ts --project=chromium`.
+
+## 2026-05-24 Backlog Smoke And Readiness Closeout
+- Added failing-first API coverage for `/api/healthz`, then implemented the sanitized readiness route after the test proved the route returned 404.
+- Added Playwright coverage for operations-report generation timestamps and the Verification Center empty-state reload action before wiring the browser UI.
+- Added and ran the new root smoke gate: `npm run test:smoke` passed with 48 Vitest tests, 1 focused Chromium smoke test, and desktop `cargo check`.
+- Targeted closeout checks passed: `npx vitest run apps/api/test/routes.test.ts -t healthz`, `npx playwright test tests/e2e/advanced-features.spec.ts --project=chromium --grep "operations report empty state|journal quick wins"`, and `npm run typecheck`.
+- The first all-up `npm run verify` exposed intentional mobile visual snapshot drift from the new report timestamp copy; the actual OpenClog Journal mobile render was inspected, and all 27 mobile visual baselines were refreshed with `npx playwright test tests/e2e/visual.spec.ts --project=mobile --update-snapshots`.
+- Final closeout gates passed with `npm run verify`, `npm run verify:desktop-native`, `npm run verify:gateway`, `npm run test:smoke`, and `git diff --check`.
+
 ## 2026-05-20 Mega Tranche Rework
 - Added targeted unit/API coverage for the new report-contract surfaces and helper behavior: attention deltas, saved-view persistence metadata, verification receipt lineage, route-budget burn summaries, release-readiness explanations, delivery-target retry/trend metadata, and summary-job dedupe reporting.
 - Added operator-helper coverage for the new built-in `Backfilled from OpenClaw` view and filter so provenance-focused triage remains a tested default rather than an ad hoc query.

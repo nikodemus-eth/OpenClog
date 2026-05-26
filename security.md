@@ -3,6 +3,12 @@
 ## Purpose
 Track OpenClog security posture, Gateway authority boundaries, redaction, and fail-closed behavior.
 
+## 2026-05-25 One-Pass Operations Campaign
+- Persisted report snapshots, saved-view audit events, and evidence-drift observations stay repository-backed and local-only; no browser-write endpoint was added for report provenance, verification receipts, or readiness narratives.
+- `/api/healthz` now exposes a compact operations summary derived from sanitized local evidence only: report freshness state, smoke timestamp, queue depth, recovered-evidence provisional state, and route-budget regression count.
+- The new blocked-gate `Copy next safe action` control copies bounded operator guidance only; it does not expose delivery secrets, Gateway auth material, device identity, or raw verification logs.
+- The new load harness reads only bounded route URLs and timing data; fixture mode is the default so offline rehearsal does not require live Gateway or secret-bearing runtime state.
+
 ## 2026-05-20 OpenClaw Backfill Search Boundary
 - The live OpenClaw session backfill stayed inside the existing backend-owned SQLite path; no browser write endpoint or browser Gateway access was added.
 - The search fix indexes sanitized browser-visible body text plus provenance metadata (`sourceLabel`, `importedAt`, session id, and the explicit backfill phrase). It does not index raw Gateway frames, tokens, auth headers, device identity, or delivery secrets.
@@ -221,3 +227,8 @@ Track OpenClog security posture, Gateway authority boundaries, redaction, and fa
 - The new `Copy why blocked summary` affordances reuse the existing blocker formatter and browser redaction path, so handoff copy stays bounded to operator-safe explanations instead of leaking config, scope negotiation internals, or secret-bearing payload details.
 - Dry-run/live delivery contract parity stays metadata-only: operators can compare missing fields, exact field-count match, and schema warnings without exposing delivery secrets or inventing a live-send success path.
 - Workstation-local incident-template defaults, stale-summary counters, queue-depth indicators, and collapsed-rail verification copy are presentation/persistence helpers only; none of them grant new Gateway scopes, browser write authority, or direct access to verification receipts.
+
+## 2026-05-24 Backlog Smoke And Readiness Hardening
+- `/api/healthz` returns only sanitized backend fingerprint data and public Gateway state; it does not expose Gateway credentials, device signatures, raw frames, or delivery configuration.
+- Operations-report reload actions refetch the existing bounded report route and leave unavailable reports visibly unavailable rather than deriving browser-side success.
+- Report generation timestamps are read-only payload freshness markers, not verification receipts or green-status claims.

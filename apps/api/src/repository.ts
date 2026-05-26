@@ -8,6 +8,7 @@ import type {
   AlertRule,
   AnalyticsSnapshot,
   BackendFingerprint,
+  EvidenceDriftReport,
   BundleSignature,
   BundleVerificationResult,
   CapabilityManifest,
@@ -44,6 +45,8 @@ import type {
   ProfileConfig,
   RemoteOpsPolicy,
   ReplayWorkspace,
+  ReportFreshness,
+  SavedViewAuditEvent,
   ReplayStep,
   RetentionClass,
   RetentionClassId,
@@ -110,6 +113,39 @@ export interface OpenClogRepository {
   listIntegrityReports(): IntegrityMonitorReport[];
   listInvestigationNotes(filter?: { dayKey?: string; incidentId?: string }): InvestigationNote[];
   listVerificationReceipts(): VerificationReceipt[];
+  listSavedViewAuditEvents(): SavedViewAuditEvent[];
+  saveSavedViewAuditEvent(event: SavedViewAuditEvent): SavedViewAuditEvent;
+  getLatestOperationsReportSnapshot(scopeKey: string): {
+    id: string;
+    scopeKey: string;
+    generatedAt: string;
+    reportFreshness: ReportFreshness;
+    deliveryFailureCount: number;
+    queueDepth: number;
+    blockedGateCount: number;
+    recoveredEntryCount: number;
+  } | undefined;
+  saveOperationsReportSnapshot(snapshot: {
+    id: string;
+    scopeKey: string;
+    generatedAt: string;
+    reportFreshness: ReportFreshness;
+    deliveryFailureCount: number;
+    queueDepth: number;
+    blockedGateCount: number;
+    recoveredEntryCount: number;
+  }): {
+    id: string;
+    scopeKey: string;
+    generatedAt: string;
+    reportFreshness: ReportFreshness;
+    deliveryFailureCount: number;
+    queueDepth: number;
+    blockedGateCount: number;
+    recoveredEntryCount: number;
+  };
+  listEvidenceDriftObservations(scopeKey?: string): Array<{ id: string; scopeKey: string; report: EvidenceDriftReport; createdAt: string }>;
+  saveEvidenceDriftObservation(observation: { id: string; scopeKey: string; report: EvidenceDriftReport; createdAt: string }): { id: string; scopeKey: string; report: EvidenceDriftReport; createdAt: string };
   listPlugins(): PluginManifest[];
   listProfiles(): ProfileConfig[];
   listRetentionClasses(): RetentionClass[];
@@ -975,6 +1011,36 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
         .map((row) => JSON.parse(String(row.receipt_json)) as VerificationReceipt);
       return receipts.length > 0 ? receipts : defaultVerificationReceipts();
     },
+    listSavedViewAuditEvents() {
+      return db
+        .prepare("SELECT event_json FROM journal_saved_view_audit_events ORDER BY created_at DESC, id DESC")
+        .all()
+        .map((row) => JSON.parse(String(row.event_json)) as SavedViewAuditEvent);
+    },
+    getLatestOperationsReportSnapshot(scopeKey) {
+      const row = db
+        .prepare("SELECT snapshot_json FROM journal_operations_report_snapshots WHERE scope_key = ? ORDER BY generated_at DESC, id DESC LIMIT 1")
+        .get(scopeKey) as { snapshot_json?: string } | undefined;
+      return row?.snapshot_json
+        ? (JSON.parse(String(row.snapshot_json)) as {
+            id: string;
+            scopeKey: string;
+            generatedAt: string;
+            reportFreshness: ReportFreshness;
+            deliveryFailureCount: number;
+            queueDepth: number;
+            blockedGateCount: number;
+            recoveredEntryCount: number;
+          })
+        : undefined;
+    },
+    listEvidenceDriftObservations(scopeKey) {
+      return db
+        .prepare("SELECT observation_json FROM journal_evidence_drift_observations ORDER BY created_at DESC, id DESC")
+        .all()
+        .map((row) => JSON.parse(String(row.observation_json)) as { id: string; scopeKey: string; report: EvidenceDriftReport; createdAt: string })
+        .filter((item) => !scopeKey || item.scopeKey === scopeKey);
+    },
     listPlugins() {
       return db.prepare("SELECT plugin_json FROM journal_plugins ORDER BY id ASC").all().map((row) => JSON.parse(String(row.plugin_json)) as PluginManifest);
     },
@@ -1196,6 +1262,24 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       saveVerificationReceiptRow(db, receipt);
       return receipt;
     },
+    saveSavedViewAuditEvent(event) {
+      db.prepare(
+        "INSERT INTO journal_saved_view_audit_events (id, view_id, created_at, event_json) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET view_id = excluded.view_id, created_at = excluded.created_at, event_json = excluded.event_json"
+      ).run(event.id, event.viewId, event.createdAt, JSON.stringify(event));
+      return event;
+    },
+    saveOperationsReportSnapshot(snapshot) {
+      db.prepare(
+        "INSERT INTO journal_operations_report_snapshots (id, scope_key, generated_at, snapshot_json) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET scope_key = excluded.scope_key, generated_at = excluded.generated_at, snapshot_json = excluded.snapshot_json"
+      ).run(snapshot.id, snapshot.scopeKey, snapshot.generatedAt, JSON.stringify(snapshot));
+      return snapshot;
+    },
+    saveEvidenceDriftObservation(observation) {
+      db.prepare(
+        "INSERT INTO journal_evidence_drift_observations (id, scope_key, created_at, observation_json) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET scope_key = excluded.scope_key, created_at = excluded.created_at, observation_json = excluded.observation_json"
+      ).run(observation.id, observation.scopeKey, observation.createdAt, JSON.stringify(observation));
+      return observation;
+    },
     searchEntries(query) {
       const needle = normalizeSearchNeedle(query);
       if (!needle) return [];
@@ -1395,6 +1479,9 @@ function migrate(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS journal_settings_history (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, settings_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_signed_bundle_manifests (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, manifest_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_native_runner_history (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, runner_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_operations_report_snapshots (id TEXT PRIMARY KEY, scope_key TEXT NOT NULL, generated_at TEXT NOT NULL, snapshot_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_saved_view_audit_events (id TEXT PRIMARY KEY, view_id TEXT NOT NULL, created_at TEXT NOT NULL, event_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_evidence_drift_observations (id TEXT PRIMARY KEY, scope_key TEXT NOT NULL, created_at TEXT NOT NULL, observation_json TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS idx_journal_entries_session ON journal_entries(session_id, timestamp);
     CREATE INDEX IF NOT EXISTS idx_journal_entries_status ON journal_entries(status, timestamp);
     CREATE INDEX IF NOT EXISTS idx_journal_entries_tool_name ON journal_entries(tool_name, timestamp);
@@ -1402,6 +1489,9 @@ function migrate(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS idx_journal_delivery_receipts_requested ON journal_delivery_receipts(requested_at, target);
     CREATE INDEX IF NOT EXISTS idx_journal_incident_action_records_created ON journal_incident_action_records(created_at, incident_id);
     CREATE INDEX IF NOT EXISTS idx_journal_handoff_packets_day ON journal_incident_handoff_packets(day_key, created_at);
+    CREATE INDEX IF NOT EXISTS idx_journal_report_snapshots_scope ON journal_operations_report_snapshots(scope_key, generated_at);
+    CREATE INDEX IF NOT EXISTS idx_journal_saved_view_audit_view ON journal_saved_view_audit_events(view_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_journal_evidence_drift_scope ON journal_evidence_drift_observations(scope_key, created_at);
   `);
   migrateVerificationReceipts(db);
 }
@@ -1585,6 +1675,7 @@ function defaultVerificationReceipts(now = new Date()): VerificationReceipt[] {
     { id: "verification-verify", command: "npm run verify", status: "unknown", startedAt, summary: "Repo verification has not published a receipt in this database yet." },
     { id: "verification-gateway", command: "npm run verify:gateway", status: "unknown", startedAt, summary: "Gateway verification has not published a receipt in this database yet." },
     { id: "verification-desktop", command: "npm run verify:desktop-native", status: "unknown", startedAt, summary: "Desktop-native verification has not published a receipt in this database yet." },
+    { id: "verification-smoke", command: "npm run test:smoke", status: "unknown", startedAt, summary: "Smoke verification has not published a receipt in this database yet." },
     { id: "verification-visual", command: "npm run test:visual", status: "unknown", startedAt, summary: "Visual regression verification has not published a receipt in this database yet." }
   ];
 }

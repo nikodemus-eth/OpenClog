@@ -53,7 +53,21 @@ export function getSettings(repo: Partial<SettingsRepository>): OpenClogSettings
   });
 }
 
-export function updateSettings(repo: Partial<SettingsRepository>, input: UpdateSettingsInput): OpenClogSettings {
+export function updateSettings(
+  repo: Partial<
+    SettingsRepository & {
+      saveSavedViewAuditEvent?: (event: {
+        id: string;
+        viewId: string;
+        label: string;
+        action: "created" | "updated" | "used";
+        createdAt: string;
+        detail: string;
+      }) => unknown;
+    }
+  >,
+  input: UpdateSettingsInput
+): OpenClogSettings {
   const getSetting = requireMethod(repo.getSetting, "getSetting");
   const setSetting = requireMethod(repo.setSetting, "setSetting");
   const current = getSettings(repo);
@@ -69,6 +83,23 @@ export function updateSettings(repo: Partial<SettingsRepository>, input: UpdateS
   setSetting("searchPresets", next.searchPresets);
   setSetting("operatorViews", next.operatorViews);
   setSetting("settings.v2", next);
+  const saveSavedViewAuditEvent = "saveSavedViewAuditEvent" in repo && typeof repo.saveSavedViewAuditEvent === "function" ? repo.saveSavedViewAuditEvent.bind(repo) : null;
+  if (saveSavedViewAuditEvent) {
+    const previousById = new Map(current.operatorViews.map((view) => [view.id, view]));
+    for (const view of next.operatorViews.filter((item) => item.builtIn !== true)) {
+      const previous = previousById.get(view.id);
+      const action = !previous ? "created" : JSON.stringify(previous) !== JSON.stringify(view) ? "updated" : null;
+      if (!action) continue;
+      saveSavedViewAuditEvent({
+        id: `saved-view-${action}-${view.id}-${Date.now()}`,
+        viewId: view.id,
+        label: view.label,
+        action,
+        createdAt: new Date().toISOString(),
+        detail: action === "created" ? `Saved view ${view.label} was created.` : `Saved view ${view.label} was updated.`
+      });
+    }
+  }
   return next;
 }
 

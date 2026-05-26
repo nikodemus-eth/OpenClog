@@ -8,6 +8,7 @@ export interface ApiFixtureOptions {
   dayTitle?: string;
   emptyAdvancedState?: boolean;
   extraEntries?: JournalEntry[];
+  failOperationsReport?: boolean;
   healthBackendMode?: "full" | "missing";
   gatewayDetails?: Record<string, unknown>;
   gatewayStatus?: "ready" | "blocked" | "degraded";
@@ -17,6 +18,8 @@ export interface ApiFixtureOptions {
     dayKey: string;
     entryId: string;
     kind: string;
+    matchFieldHints?: string[];
+    matchSnippet?: string;
     status?: string;
     title: string;
   }>;
@@ -724,18 +727,77 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
     });
   });
   await page.route(/.*\/api\/operations\/(center|report)\?.*/, async (route) => {
+    if (options.failOperationsReport) {
+      await route.fulfill({
+        status: 503,
+        json: { error: "operations_report_unavailable" }
+      });
+      return;
+    }
     await route.fulfill({
       json: {
         report: {
           dayKey: "2026-05-03",
           incidentId: incidents[0]?.id,
           generatedAt: "2026-05-04T12:20:00.000Z",
+          reportFreshness: {
+            status: "older_than_latest_receipt",
+            summary: "Report freshness: older than latest verification receipt",
+            reportGeneratedAt: "2026-05-04T12:20:00.000Z",
+            latestVerificationReceiptCompletedAt: "2026-05-04T12:31:30.000Z",
+            latestVerificationReceiptId: "smoke-1",
+            latestVerificationReceiptCommand: "test:smoke"
+          },
+          reportDiff: {
+            available: true,
+            summary: "Current report differs from the previous persisted snapshot.",
+            currentSnapshotId: "ops-snapshot-current",
+            previousSnapshotId: "ops-snapshot-previous",
+            previousGeneratedAt: "2026-05-04T11:20:00.000Z",
+            changedFields: ["verificationCenter", "summaryJobHistory", "recoveredEvidenceSummary"]
+          },
+          reportProvenance: {
+            currentSnapshotId: "ops-snapshot-current",
+            previousSnapshotId: "ops-snapshot-previous",
+            sourceVerificationReceiptIds: ["verify-1", "smoke-1"],
+            sourceSummaryJobIds: ["summary-job-fixture"],
+            sourceDeliveryReceiptIds: ["receipt-1"],
+            lineageSummary: "Report provenance is bounded to persisted receipts, summary jobs, and saved snapshots."
+          },
+          evidenceDrift: {
+            status: "drifting",
+            summary: "Recovered-evidence totals diverged from the last persisted report header and session rollup.",
+            observationCount: 1,
+            issues: [
+              { id: "recovered_entry_total", severity: "warning", summary: "Recovered entry totals changed after the previous report snapshot." },
+              { id: "report_header_mismatch", severity: "warning", summary: "Header totals no longer match the persisted report snapshot." }
+            ]
+          },
+          savedViewAudit: {
+            summary: "Saved-view audit tracks persisted local view creation and reuse.",
+            events: [
+              { id: "view-audit-1", viewId: "scope-missing", label: "Scope missing", action: "used", createdAt: "2026-05-04T12:18:00.000Z", detail: "Last operator reused the built-in scope-missing view during verification triage." }
+            ]
+          },
+          morningCommand: {
+            headline: "Morning command ready: stale summary, blocked dry-run, and evidence drift need review first.",
+            steps: [
+              { id: "attention_now", title: "Attention now", status: "ready", detail: "Review the current attention strip before changing filters." },
+              { id: "blocked_gates", title: "Blocked gates", status: "blocked", detail: "Delivery dry-runs remain blocked until the failed receipt is addressed." },
+              { id: "stale_summaries", title: "Stale summaries", status: "ready", detail: "Refresh the current summary before generating a handoff." },
+              { id: "delivery_failures", title: "Delivery failures", status: "blocked", detail: "Slack remains blocked by a missing-config dry-run failure." },
+              { id: "recovered_drift", title: "Recovered evidence drift", status: "blocked", detail: "Recovered-evidence drift must be reconciled before closeout." },
+              { id: "release_gate", title: "Release gate", status: "blocked", detail: "Release readiness remains blocked until smoke and dry-run freshness are aligned." }
+            ]
+          },
           recoveredEvidenceSummary: {
             sourceLabel: "Backfilled from OpenClaw",
             entryCount: 69,
             dayCount: 1,
             dayKeys: ["2026-05-20"],
-            latestImportedAt: "2026-05-20T22:30:01.601Z"
+            latestImportedAt: "2026-05-20T22:30:01.601Z",
+            provisionalMetrics: true,
+            provisionalReason: "Recovered evidence totals are provisional while cache-backed imports are still being reconciled."
           },
           attentionNow: [
             { id: "stale_summary", severity: "warning", label: "Stale summary", detail: "Generated summary may exclude newer local evidence.", evidenceIds: ["2026-05-03-entry-1"], action: "Refresh the generated summary before handoff." },
@@ -826,7 +888,9 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
           routePerformanceBudgets: [
             { route: "/api/summary-jobs", budgetMs: 250, observedMs: 120, status: "ok" },
             { route: "/api/incidents", budgetMs: 300, observedMs: 150, status: "ok" },
-            { route: "/api/health", budgetMs: 100, observedMs: 60, status: "ok" }
+            { route: "/api/health", budgetMs: 100, observedMs: 60, status: "ok" },
+            { route: "/api/operations/report", budgetMs: 250, observedMs: 150, status: "ok" },
+            { route: "/api/verification/receipts", budgetMs: 200, observedMs: 110, status: "ok" }
           ],
           routeBudgetRegressions: [],
           chaosScenarios: [
@@ -858,6 +922,17 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
                 ageMs: 0,
                 ageLabel: "0m ago",
                 freshness: "unknown"
+              },
+              {
+                id: "smoke-1",
+                command: "test:smoke",
+                status: "passed",
+                startedAt: "2026-05-04T12:31:00.000Z",
+                completedAt: "2026-05-04T12:31:30.000Z",
+                summary: "Smoke route verification passed.",
+                ageMs: 0,
+                ageLabel: "0m ago",
+                freshness: "fresh"
               }
             ],
             readinessScore: gatewayStatus === "ready" ? 5 : 2,
@@ -958,7 +1033,13 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
             { id: "delivery-dead-letter", role: "incident-commander", title: "Delivery dead-letter rehearsal", liveSideEffects: false, expectedValidationSteps: ["Confirm same-key retry"] }
           ],
           causalityGraph: { incidentId: "incident-1", nodes: [{ id: "incident-1", type: "incident", label: "Operational instability narrative" }], edges: [] },
-          operationsLedger: { entries: [{ id: "ledger-delivery-receipt-1", action: "delivery.failed", timestamp: "2026-05-04T12:12:01.000Z", status: "failed", actor: "openclog", targetId: "receipt-1", correlationId: "corr-slack", evidenceIds: ["receipt-1"] }] },
+          operationsLedger: {
+            entries: [
+              { id: "ledger-report-1", kind: "report_generation", action: "operations.report.generated", timestamp: "2026-05-04T12:20:00.000Z", status: "completed", actor: "openclog", targetId: "ops-snapshot-current", summary: "Operations report snapshot persisted.", evidenceIds: ["ops-snapshot-current"] },
+              { id: "ledger-verify-smoke-1", kind: "verification", action: "verification.test:smoke", timestamp: "2026-05-04T12:31:30.000Z", status: "completed", actor: "openclog", targetId: "smoke-1", summary: "Smoke verification receipt recorded.", evidenceIds: ["smoke-1"] },
+              { id: "ledger-delivery-receipt-1", kind: "delivery", action: "delivery.failed", timestamp: "2026-05-04T12:12:01.000Z", status: "failed", actor: "openclog", targetId: "receipt-1", correlationId: "corr-slack", summary: "Slack delivery failed closed.", evidenceIds: ["receipt-1"] }
+            ]
+          },
           nativeTruthMonitor: {
             status: gatewayStatus === "ready" ? "passed" : "blocked",
             checks: [
@@ -1001,7 +1082,15 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
             summary: "Native host cutover remains in truthful-prep mode until the desktop evidence ledger becomes authoritative.",
             nextSteps: ["Keep secure secret handling in the desktop boundary.", "Record machine-local readiness snapshots before cutover."]
           },
-          releaseReadinessGate: { status: "blocked", requiredCommands: ["verify", "verify:gateway", "docs:check", "verify:desktop-native", "dry-run delivery"], blockers: ["failed dry-run"] }
+          releaseReadinessGate: {
+            status: "blocked",
+            requiredCommands: ["verify", "verify:gateway", "test:smoke", "docs:check", "verify:desktop-native", "dry-run delivery"],
+            blockers: ["failed dry-run", "evidence drift", "report older than latest verification receipt"],
+            whyBlocking: ["Slack dry-run is still failing.", "Recovered evidence changed after the previous report snapshot.", "The latest smoke receipt is newer than the current operations report."],
+            staleAgeThresholdMinutes: 30,
+            evidenceIds: ["receipt-1", "smoke-1", "ops-snapshot-current"],
+            narrative: "Release readiness remains blocked because the latest persisted smoke receipt is newer than the current report and recovered evidence drift remains unresolved."
+          }
         }
       }
     });
@@ -1151,6 +1240,17 @@ export async function installApiFixtures(page: Page, options: ApiFixtureOptions 
             ageMs: 0,
             ageLabel: "0m ago",
             freshness: "unknown"
+          },
+          {
+            id: "smoke-1",
+            command: "test:smoke",
+            status: "passed",
+            startedAt: "2026-05-04T12:31:00.000Z",
+            completedAt: "2026-05-04T12:31:30.000Z",
+            summary: "Smoke route verification passed.",
+            ageMs: 0,
+            ageLabel: "0m ago",
+            freshness: "fresh"
           }
         ]
       }

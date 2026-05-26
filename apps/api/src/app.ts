@@ -77,6 +77,24 @@ export function createApiApp(services: ApiServices): FastifyInstance {
     gateway: publicGatewayState(services.gateway.getState())
   }));
 
+  app.get("/api/healthz", async () => {
+    const report = openclog.getOperationsBacklog({ dayKey: todayKey() });
+    const smokeReceipt = report.verificationCenter.receipts.find((receipt) => receipt.command === "test:smoke" || receipt.command === "npm run test:smoke");
+    return {
+      ok: true,
+      service: "openclog-api",
+      backend: buildVersionInfo(backendFingerprint),
+      gateway: publicGatewayState(services.gateway.getState()),
+      operations: {
+        reportFreshness: report.reportFreshness.status,
+        latestSmokeCompletedAt: smokeReceipt?.completedAt ?? smokeReceipt?.startedAt,
+        queueDepth: report.summaryJobHistory.queueDepth,
+        recoveredEvidenceProvisional: report.recoveredEvidenceSummary?.provisionalMetrics === true,
+        routeBudgetRegressionCount: report.routeBudgetRegressions.length
+      }
+    };
+  });
+
   app.get("/api/version", async () => buildVersionInfo(backendFingerprint));
 
   app.get("/api/backend/fingerprint", async () => ({ ok: true, backend: backendFingerprint, fingerprint: backendFingerprint }));

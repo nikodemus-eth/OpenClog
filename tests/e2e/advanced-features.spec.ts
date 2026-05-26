@@ -70,6 +70,7 @@ test("journal quick wins and advanced workbench stay usable together", async ({ 
   await expect(page.getByRole("button", { name: "timeout", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "2026-05-03 timeout", exact: true })).toBeVisible();
   await expect(page.getByLabel("Saved operator views").getByRole("button", { name: "Stale summaries", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Saved operator views").getByRole("button", { name: "Stale summaries + failed deliveries", exact: true })).toBeVisible();
   await expect(page.getByLabel("Saved operator views").getByRole("button", { name: "Failed receipts", exact: true })).toBeVisible();
   await expect(page.getByLabel("Saved operator views").getByRole("button", { name: "Scope missing", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /Tool call Called/i })).toContainText("Called get_repository_status for 2026-05-03.");
@@ -178,11 +179,20 @@ test("journal quick wins and advanced workbench stay usable together", async ({ 
   await expect(page.getByText(/Built-in/i).first()).toBeVisible();
   await expect(page.getByLabel("Verification Center")).toContainText("Last successful verify:gateway 2026-05-04T12:18:00.000Z");
   await expect(page.getByLabel("Verification Center")).toContainText("Last successful verify 2026-05-04T12:17:00.000Z");
+  await expect(page.getByLabel("Verification Center")).toContainText("Last successful test:smoke 2026-05-04T12:31:30.000Z");
   await expect(page.getByLabel("Verification Center")).toContainText("Last successful verify:desktop-native 2026-05-04T12:19:00.000Z");
   await expect(page.getByLabel("Verification Center")).toContainText("Docs-checked commit abc1234");
+  await expect(page.getByLabel("Verification Center")).toContainText("Verification Center report generated at 2026-05-04T12:20:00.000Z");
   await expect(page.getByLabel("Verification Center")).toContainText("Freshness");
   await expect(page.getByLabel("Verification Center")).toContainText("Why blocked");
   await expect(page.getByLabel("Operational workbench")).toContainText("Needs attention now");
+  await expect(page.getByLabel("Operations backlog surfaces")).toContainText("Operations report generated at 2026-05-04T12:20:00.000Z");
+  await expect(page.getByLabel("Operations backlog surfaces")).toContainText("Report freshness: older than latest verification receipt");
+  await expect(page.getByLabel("Operations backlog surfaces")).toContainText("Report diff: Current report differs from the previous persisted snapshot.");
+  await expect(page.getByLabel("Operations backlog surfaces")).toContainText("Report provenance: Snapshot ops-snapshot-current");
+  await expect(page.getByLabel("Operations backlog surfaces")).toContainText("Saved-view audit: Saved-view audit tracks persisted local view creation and reuse.");
+  await expect(page.getByLabel("Operations backlog surfaces")).toContainText("Morning command: Morning command ready");
+  await expect(page.getByLabel("Operations backlog surfaces")).toContainText("Signed closeout packet");
   await expect(page.getByLabel("Operations backlog surfaces")).toContainText("Closeout readiness");
   await expect(page.getByLabel("Operations backlog surfaces")).toContainText("Readiness aggregates");
   await expect(page.getByLabel("Operations backlog surfaces")).toContainText("Exportable saved views");
@@ -209,6 +219,25 @@ test("journal quick wins and advanced workbench stay usable together", async ({ 
   await page.getByRole("button", { name: "Copy receipt id receipt-1", exact: true }).click();
   await expect(page.getByText(/Receipt id copied/i)).toBeVisible();
   await expect(page.getByText(/Verification receipts/i)).toBeVisible();
+  await page.getByRole("button", { name: "Focus Delivery dry-runs" }).click();
+  await page.getByText("Why blocked").nth(0).click();
+  await page.getByLabel("Verification Center").getByRole("button", { name: "Copy next safe action" }).nth(1).click();
+  await expect(page.getByText(/Blocked-state summary copied|redaction applied/i)).toBeVisible();
+});
+
+test("operations report empty state offers local refresh actions", async ({ page }) => {
+  await installApiFixtures(page, {
+    emptyAdvancedState: true,
+    failOperationsReport: true,
+    gatewayStatus: "degraded"
+  });
+
+  await page.goto("/?day=2026-05-03");
+
+  await expect(page.getByLabel("Verification Center")).toContainText("Verification Center is waiting for local operations evidence.");
+  await expect(page.getByLabel("Verification Center").getByRole("button", { name: "Reload local operations report" })).toBeVisible();
+  await expect(page.getByLabel("Operations backlog surfaces")).toContainText("Operations backlog surfaces are waiting for local evidence.");
+  await expect(page.getByLabel("Operations backlog surfaces").getByRole("button", { name: "Run integrity check" })).toBeVisible();
 });
 
 test("shows backend mismatch when stale health still has a reachable Gateway target", async ({ page }) => {
@@ -272,6 +301,10 @@ test("keyboard shortcuts jump to operational entries and the composer", async ({
   await expect(page.getByLabel("Composer input")).toBeFocused();
   await page.keyboard.press("Alt+s");
   await expect(page.getByLabel("Journal search input")).toBeFocused();
+  await page.keyboard.press("Alt+r");
+  await expect(page.getByLabel("Operational workbench")).toContainText("Evidence drift");
+  await page.keyboard.press("Alt+m");
+  await expect(page.getByLabel("Operational workbench")).toContainText("Morning command");
 });
 
 test("shows validation and empty-state guidance for operator panels", async ({ page }) => {

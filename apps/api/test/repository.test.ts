@@ -406,6 +406,55 @@ describe("SQLite repository", () => {
     expect(repo.listVerificationReceipts()).toEqual([receipt]);
   });
 
+  test("persists operations report snapshots, saved-view audit events, and evidence drift observations", () => {
+    const repo = createSqliteRepository(":memory:");
+    repos.push(repo);
+
+    const savedAudit = repo.saveSavedViewAuditEvent({
+      id: "saved-view-created-1",
+      viewId: "failed-deliveries-and-stale-summaries",
+      label: "Stale summaries plus failed deliveries",
+      action: "created",
+      createdAt: "2026-05-25T10:00:00.000Z",
+      detail: "Saved view was created from morning triage."
+    });
+    const snapshot = repo.saveOperationsReportSnapshot({
+      id: "report-snapshot-1",
+      scopeKey: "2026-05-25:incident-1",
+      generatedAt: "2026-05-25T10:01:00.000Z",
+      reportFreshness: {
+        status: "newer_than_latest_receipt",
+        summary: "Operations report is newer than the latest verification receipt.",
+        reportGeneratedAt: "2026-05-25T10:01:00.000Z",
+        latestVerificationReceiptCompletedAt: "2026-05-25T09:59:00.000Z",
+        latestVerificationReceiptId: "verify-1",
+        latestVerificationReceiptCommand: "npm run verify"
+      },
+      deliveryFailureCount: 2,
+      queueDepth: 1,
+      blockedGateCount: 1,
+      recoveredEntryCount: 4
+    });
+    const observation = repo.saveEvidenceDriftObservation({
+      id: "drift-1",
+      scopeKey: "2026-05-25:incident-1",
+      createdAt: "2026-05-25T10:02:00.000Z",
+      report: {
+        status: "drifting",
+        summary: "Recovered evidence changed after the latest summary boundary.",
+        issues: [{ id: "report_header_mismatch", severity: "warning", summary: "Recovered evidence summary is provisional." }],
+        observationCount: 1
+      }
+    });
+
+    expect(savedAudit).toMatchObject({ viewId: "failed-deliveries-and-stale-summaries", action: "created" });
+    expect(repo.listSavedViewAuditEvents()).toEqual([savedAudit]);
+    expect(snapshot).toMatchObject({ scopeKey: "2026-05-25:incident-1", queueDepth: 1, recoveredEntryCount: 4 });
+    expect(repo.getLatestOperationsReportSnapshot("2026-05-25:incident-1")).toEqual(snapshot);
+    expect(observation).toMatchObject({ scopeKey: "2026-05-25:incident-1", report: { status: "drifting" } });
+    expect(repo.listEvidenceDriftObservations("2026-05-25:incident-1")).toEqual([observation]);
+  });
+
   test("records real command receipts through the local verification runner", { timeout: 15000 }, () => {
     const dir = mkdtempSync(join(tmpdir(), "openclog-verify-runner-"));
     tempDirs.push(dir);

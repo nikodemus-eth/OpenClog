@@ -23,6 +23,37 @@ describe("API routes", () => {
     await app.close();
   });
 
+  test("serves a cheap healthz readiness probe with safe backend and Gateway state", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    const app = createApiApp({ repo, gateway: createMemoryGateway({ ready: true }) });
+
+    const response = await app.inject({ method: "GET", url: "/api/healthz" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).not.toMatch(/gateway-token|privateKey|signature|connect"/i);
+    expect(response.json()).toMatchObject({
+      ok: true,
+      service: "openclog-api",
+      backend: {
+        pid: expect.any(Number),
+        runtimeFingerprint: expect.any(String)
+      },
+      gateway: {
+        status: "ready",
+        missingScopes: []
+      },
+      operations: {
+        reportFreshness: expect.any(String),
+        latestSmokeCompletedAt: expect.any(String),
+        queueDepth: expect.any(Number),
+        recoveredEvidenceProvisional: expect.any(Boolean),
+        routeBudgetRegressionCount: expect.any(Number)
+      }
+    });
+    await app.close();
+  });
+
   test("serves safe Gateway reconnect and service-recovery health metadata", async () => {
     const repo = createSqliteRepository(":memory:");
     cleanup.push(() => repo.close());

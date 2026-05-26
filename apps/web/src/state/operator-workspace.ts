@@ -48,7 +48,7 @@ export const DEFAULT_SEARCH_PRESETS: SearchPreset[] = [
 ];
 
 export function buildShellShortcutHints(): string[] {
-  return ["[: left rail", "Alt+S: search", "Alt+B: blocked action", "Alt+R: failed receipts", "Alt+M: stale summaries", "]: diagnostics"];
+  return ["[: left rail", "Alt+S: search", "Alt+B: blocked action", "Alt+R: recovered evidence", "Alt+M: morning command", "]: diagnostics"];
 }
 
 export function buildVerificationTrustSummary(report: OperationsBacklogReport | null): string {
@@ -120,6 +120,20 @@ export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): Op
       builtIn: true,
       rolePreset: "release",
       drilldown: { sessionKey, tab: "timeline", scrollTop: 0 }
+    },
+    {
+      id: "stale-summaries-failed-deliveries",
+      label: "Stale summaries + failed deliveries",
+      dayKey,
+      searchQuery: "summary stale delivery receipt failed",
+      activeFilters: ["errors"],
+      grouped: true,
+      builtIn: true,
+      persistedAcrossRestarts: true,
+      rolePreset: "triage",
+      hypothesis: "Stale summaries and failed deliveries are the highest-friction morning handoff risks.",
+      validationSteps: ["Refresh stale summaries.", "Inspect failed delivery receipts.", "Confirm no newer evidence is missing from handoff views."],
+      drilldown: { sessionKey, tab: "deliveries", scrollTop: 0 }
     },
     {
       id: "failed-receipts",

@@ -3,6 +3,17 @@
 ## Purpose
 Track OpenClog implementation decisions, verification passes, refactors, and closeout evidence.
 
+## 2026-05-25 One-Pass Operations Campaign
+- Deepened the shared operations-report contract across `@openclog/core`, `@openclog/app`, and the SQLite repository instead of layering a second UI-only status model on top of the existing report scaffolding.
+- Added persisted report snapshots, saved-view audit events, and evidence-drift observations so report freshness, diffing, provenance, and saved-view hygiene can fail closed from local evidence rather than inferred browser state.
+- Extended the workbench shell with report freshness/status chips, smoke-receipt visibility, recovered-evidence provisional state, a morning-command panel, summary-job operator timeline copy, richer delivery-target diagnostics, and one-click `Copy next safe action` controls on blocked Verification Center gates.
+- Added a fixture-backed local load harness at [`scripts/load-report-routes.ts`](/Users/m4/OpenClog/scripts/load-report-routes.ts) so report-heavy route budgets can be rehearsed offline or measured against a live local API.
+
+## 2026-05-24 Backlog Smoke And Readiness Closeout
+- Closed the remaining quick backlog tranche by adding a root `npm run test:smoke` gate that exercises API route smoke coverage, workbench helper coverage, the operations-report empty-state browser check, and the desktop `cargo check` smoke command.
+- Added `/api/healthz` as a cheap readiness probe that returns sanitized backend fingerprint metadata and public Gateway state without exposing Gateway credentials or raw transport details.
+- Made operations-report freshness visible in the browser: Verification Center and Operations backlog panels now show report generation timestamps, and empty report states provide local reload and integrity-check actions.
+
 ## 2026-05-20 OpenClaw Session Backfill Live Closeout
 - Re-read the authoritative Google Doc `OpenClog` (`1FUJzFAW1TNgT42JWVeA2PClkyEPAgSt-PQYnCDj9B2Q`) at revision `AFwiY18A9XkufsG9rNVFGcddP3qtqhPRVEd8BOCOEh9Dt-LoZtPnlVJf2j6PiegI62j78yjsj9Bf-bOYW95OeYdaixm5ABOVCm60g5Gko6c` before touching the backfill path.
 - Ran `backfillOpenClawSessions` against the real local OpenClaw session logs at `/Users/m4/.openclaw/agents/main/sessions` and persisted the recovered entries into `openclog.db`.

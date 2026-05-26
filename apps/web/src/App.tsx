@@ -183,6 +183,8 @@ import {
   validateInvestigationNote,
   validatePinnedSummary
 } from "./state/operator-workspace.js";
+import { describeRecoveredEvidenceProvisional, describeReportFreshness, findLatestSmokeReceipt, normalizeOperationsReport } from "./hooks/useOperationsReport.js";
+import { useOperatorKeyboardShortcuts } from "./hooks/useOperatorKeyboardShortcuts.js";
 import { useTimelinePreferences } from "./hooks/useTimelinePreferences.js";
 import "./styles/app.css";
 
@@ -202,146 +204,6 @@ const timelineFilterOptions: Array<{ id: JournalFilterKey; label: string }> = [
   { id: "acks", label: "ACKs and acknowledged" },
   { id: "backfilled_openclaw", label: "Backfilled from OpenClaw" }
 ];
-
-function normalizeOperationsReport(report: OperationsBacklogReport): OperationsBacklogReport {
-  return {
-    ...report,
-    recoveredEvidenceSummary: report.recoveredEvidenceSummary
-      ? {
-          ...report.recoveredEvidenceSummary,
-          dayKeys: report.recoveredEvidenceSummary.dayKeys ?? [],
-          provisionalMetrics: report.recoveredEvidenceSummary.provisionalMetrics ?? false
-        }
-      : report.recoveredEvidenceSummary,
-    summaryJobHistory: {
-      ...report.summaryJobHistory,
-      jobs: report.summaryJobHistory.jobs.map((job) => ({
-        ...job,
-        requestedBy: job.requestedBy ?? "unknown",
-        reusedExistingJob: job.reusedExistingJob ?? false
-      })),
-      dedupedDayKeys: report.summaryJobHistory.dedupedDayKeys ?? []
-    },
-    attentionNowDelta: report.attentionNowDelta ?? {
-      summary: "No attention delta available yet.",
-      metrics: []
-    },
-    routeBudgetBurnReport: report.routeBudgetBurnReport ?? {
-      generatedAt: report.generatedAt,
-      items: []
-    },
-    verificationReceiptLineage: report.verificationReceiptLineage ?? [],
-    readinessHistory: {
-      ...report.readinessHistory,
-      points: report.readinessHistory.points.map((point) => ({
-        ...point,
-        reasonCodes: point.reasonCodes ?? []
-      }))
-    },
-    exportableViews: report.exportableViews.map((view) => ({
-      ...view,
-      lintFindings: view.lintFindings ?? [],
-      lastSuccessfulSummaryAt: view.lastSuccessfulSummaryAt
-    })),
-    savedViewLint: report.savedViewLint ?? {
-      findings: []
-    },
-    incidentTemplates: report.incidentTemplates.map((template) => ({
-      ...template,
-      recommended: template.recommended ?? false,
-      missingEvidenceKinds: template.missingEvidenceKinds ?? []
-    })),
-    deliveryContractPreviews: report.deliveryContractPreviews.map((preview) => ({
-      ...preview,
-      fieldDiffs: preview.fieldDiffs ?? []
-    })),
-    deliveryTargetHealth: report.deliveryTargetHealth.map((item) => ({
-      ...item,
-      retryHistory: item.retryHistory ?? [],
-      trendPoints: item.trendPoints ?? []
-    })),
-    deliveryTargetDrilldowns:
-      report.deliveryTargetDrilldowns ??
-      report.deliveryTargetHealth.map((item) => ({
-        target: item.target,
-        paritySummary: "Dry-run/live parity snapshot unavailable from the current report payload.",
-        retryHistory: item.retryHistory ?? [],
-        trendPoints: item.trendPoints ?? [],
-        schemaWarnings: []
-      })),
-    incidentTimeline: {
-      ...report.incidentTimeline,
-      carriesAcrossDays: report.incidentTimeline.carriesAcrossDays ?? false,
-      events: report.incidentTimeline.events.map((event) => ({
-        ...event,
-        reasonCode: event.reasonCode
-      }))
-    },
-    verificationCenter: {
-      ...report.verificationCenter,
-      gates: report.verificationCenter.gates.map((gate) => ({
-        ...gate,
-        agingSoon: gate.agingSoon ?? false,
-        blockingReasons: gate.blockingReasons ?? [],
-        nextSafeActions: gate.nextSafeActions ?? [],
-        evidenceIds: gate.evidenceIds ?? []
-      }))
-    },
-    closeoutPacketPreview: report.closeoutPacketPreview ?? {
-      summary: "Closeout packet preview unavailable from current local evidence.",
-      blockerSummaries: [],
-      lastPassingReceiptIds: [],
-      unresolvedEvidenceCount: 0,
-      redactionStatus: "bounded"
-    },
-    morningBrief: report.morningBrief ?? {
-      headline: "Morning brief unavailable.",
-      bullets: [],
-      citations: []
-    },
-    governedSdkManifests: report.governedSdkManifests.map((manifest) => ({
-      ...manifest,
-      permissions: manifest.permissions ?? [],
-      failureModes: manifest.failureModes ?? []
-    })),
-    evidenceQualityScores: report.evidenceQualityScores.map((score) => ({
-      ...score,
-      reasons: score.reasons ?? []
-    })),
-    policyPackSummary: report.policyPackSummary ?? {
-      environment: "local",
-      readOnlyBrowserAuthority: true,
-      capabilityRuleCount: 0,
-      deliveryRuleCount: 0
-    },
-    nativeTruthMonitor: {
-      ...report.nativeTruthMonitor,
-      divergenceSummary: report.nativeTruthMonitor.divergenceSummary ?? ""
-    },
-    retentionImpactSimulation: report.retentionImpactSimulation ?? {
-      summary: "Retention impact simulation unavailable.",
-      removedDayCount: 0,
-      removedEntryCount: 0
-    },
-    activeHypotheses: report.activeHypotheses.map((hypothesis) => ({
-      ...hypothesis,
-      status: hypothesis.status ?? "open",
-      validationSteps: hypothesis.validationSteps ?? [],
-      evidenceIds: hypothesis.evidenceIds ?? []
-    })),
-    causalityNarrative: report.causalityNarrative ?? {
-      summary: "Causality narrative unavailable.",
-      citedEvidenceIds: []
-    },
-    releaseReadinessGate: {
-      ...report.releaseReadinessGate,
-      blockers: report.releaseReadinessGate.blockers ?? [],
-      whyBlocking: report.releaseReadinessGate.whyBlocking ?? [],
-      staleAgeThresholdMinutes: report.releaseReadinessGate.staleAgeThresholdMinutes ?? 0,
-      evidenceIds: report.releaseReadinessGate.evidenceIds ?? []
-    }
-  };
-}
 
 export function App() {
   const [themeId, setThemeId] = useState<ThemeId>("openclog-journal");
@@ -584,6 +446,9 @@ export function App() {
     if (!center?.lastSuccessfulVerifyAgeLabel) return "Verify age unavailable";
     return `Verify ${center.lastSuccessfulVerifyFreshness ?? "unknown"} · ${center.lastSuccessfulVerifyAgeLabel}`;
   }, [operationsReport]);
+  const reportFreshnessSummary = useMemo(() => describeReportFreshness(operationsReport), [operationsReport]);
+  const recoveredEvidenceProvisionalLabel = useMemo(() => describeRecoveredEvidenceProvisional(operationsReport), [operationsReport]);
+  const latestSmokeReceipt = useMemo(() => findLatestSmokeReceipt(operationsReport) ?? null, [operationsReport]);
 
   useEffect(() => {
     pinnedContextDirtyRef.current = pinnedContextDirty;
@@ -1074,74 +939,21 @@ export function App() {
     };
   }, [activeHelpPopover]);
 
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.defaultPrevented) return;
-      if (event.altKey && event.key.toLowerCase() === "s") {
-        event.preventDefault();
-        searchInputRef.current?.focus();
-        return;
-      }
-      if (isEditableTarget(event.target)) return;
-      if (event.key === "?" || (event.shiftKey && (event.code === "Slash" || event.key === "/"))) {
-        event.preventDefault();
-        setShortcutsOpen((current) => !current);
-      } else if (event.key === "/" || event.code === "Slash") {
-        event.preventDefault();
-        composerRef.current?.focus();
-      } else if (event.key === "Escape") {
-        setShortcutsOpen(false);
-        setApprovalsOpen(false);
-        setExpandedEntryId(null);
-        setSelectedSessionKey("");
-        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-        mainRef.current?.focus({ preventScroll: true });
-      } else if (event.altKey && event.key.toLowerCase() === "e") {
-        event.preventDefault();
-        jumpToNextMatchingEntry(visibleDay.entries, (entry) => entry.severity === "error" || entry.status === "failed");
-      } else if (event.altKey && event.key.toLowerCase() === "a") {
-        event.preventDefault();
-        jumpToNextMatchingEntry(visibleDay.entries, (entry) => entry.kind === "approval_requested" || entry.kind === "approval_resolved");
-      } else if (event.altKey && event.key.toLowerCase() === "t") {
-        event.preventDefault();
-        jumpToNextMatchingEntry(visibleDay.entries, (entry) => entry.kind === "tool_result" || entry.kind === "tool_call");
-      } else if (event.altKey && event.key.toLowerCase() === "c") {
-        event.preventDefault();
-        composerRef.current?.focus();
-      } else if (event.altKey && event.key.toLowerCase() === "i") {
-        event.preventDefault();
-        focusShellTarget(incidentsPanelRef.current, "Incident workspace focused.");
-      } else if (event.altKey && event.key.toLowerCase() === "l") {
-        event.preventDefault();
-        focusShellTarget(alertsPanelRef.current, "Alert workspace focused.");
-      } else if (event.altKey && event.key.toLowerCase() === "v") {
-        event.preventDefault();
-        const center = document.querySelector<HTMLElement>('[aria-label="Verification Center"]');
-        focusShellTarget(center, "Verification Center focused.");
-      } else if (event.altKey && event.key.toLowerCase() === "f") {
-        event.preventDefault();
-        const blockedGate = document.querySelector<HTMLElement>('[data-verification-gate-status="blocked"]');
-        focusShellTarget(blockedGate, "Verification failure focused.");
-      } else if (event.altKey && event.key.toLowerCase() === "b") {
-        event.preventDefault();
-        const blockedAction = document.querySelector<HTMLElement>('[data-blocked-action="true"]');
-        focusShellTarget(blockedAction, "Blocked action focused.");
-      } else if (event.altKey && event.key.toLowerCase() === "r") {
-        event.preventDefault();
-        const failedReceipt = document.querySelector<HTMLElement>('[data-failed-receipt="true"]');
-        if (failedReceipt) {
-          focusShellTarget(failedReceipt, "Failed receipt focused.");
-          return;
-        }
-        void handleApplyOperatorViewById("failed-receipts");
-      } else if (event.altKey && event.key.toLowerCase() === "m") {
-        event.preventDefault();
-        void handleApplyOperatorViewById("stale-summaries");
-      }
-    }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [enrichedOperatorViews, visibleDay.entries]);
+  useOperatorKeyboardShortcuts({
+    composerRef,
+    entries: visibleDay.entries,
+    incidentsPanelRef,
+    alertsPanelRef,
+    searchInputRef,
+    setApprovalsOpen,
+    setExpandedEntryId,
+    setSelectedSessionKey,
+    setShortcutsOpen,
+    mainRef,
+    jumpToNextMatchingEntry,
+    focusShellTarget,
+    handleApplyOperatorViewById
+  });
 
   function jumpToNextMatchingEntry(entries: JournalEntry[], predicate: (entry: JournalEntry) => boolean): void {
     const matches = entries.filter(predicate);
@@ -1220,6 +1032,18 @@ export function App() {
     }
   }
 
+  async function handleReloadOperationsReport(): Promise<void> {
+    const dayKey = route.selectedDayKey || day.dayKey;
+    try {
+      const report = await fetchOperationsBacklog(dayKey, selectedIncidentId || undefined);
+      setOperationsReport(normalizeOperationsReport(report));
+      setNotice("Reloaded local operations report.");
+    } catch {
+      setOperationsReport(null);
+      setNotice("Operations report reload failed closed.");
+    }
+  }
+
   async function handleArchiveCalendarChange(value: string): Promise<void> {
     setArchiveCalendarValue(value);
     const matchedDay = findDayByCalendarValue(days, value);
@@ -1273,7 +1097,7 @@ export function App() {
     void updateSettings({ showToolCalls: show }).catch(() => setNotice("Gateway degraded: Show Tool Calls preference could not be saved."));
   }
 
-  function focusShellTarget(element: HTMLElement | null, message: string): void {
+  function focusShellTarget(element: HTMLElement | null | undefined, message: string): void {
     element?.scrollIntoView({ block: "center", inline: "nearest" });
     element?.focus({ preventScroll: true });
     setShellActionStatus(message);
@@ -2073,8 +1897,12 @@ async function handleRetryReceipt(id: string): Promise<void> {
         day={visibleDay}
         changedSinceSummaryText={changedSinceSummaryText ?? undefined}
         lastSuccessfulSummaryJobCompletionAt={lastSuccessfulSummaryJobCompletionAt}
+        latestSmokeCompletedAt={latestSmokeReceipt?.completedAt ?? latestSmokeReceipt?.startedAt}
+        recoveredEvidenceProvisionalLabel={recoveredEvidenceProvisionalLabel ?? undefined}
         recoveredEvidenceDriftText={recoveredEvidenceDriftText ?? undefined}
         recoveredEvidenceSummary={recoveredEvidenceHeaderSummary ?? undefined}
+        reportFreshnessSummary={reportFreshnessSummary ?? undefined}
+        summaryQueueDepth={operationsReport?.summaryJobHistory.queueDepth}
         summaryFreshnessLabel={summaryFreshnessLabel}
         theme={resolvedTheme}
         onExport={handleExport}
@@ -2232,6 +2060,7 @@ async function handleRetryReceipt(id: string): Promise<void> {
         onPreviewBundleManifest={() => void handlePreviewBundleManifest()}
         onPreviewRetentionByClass={() => void handlePreviewRetentionByClass()}
         onPreviewRetention={() => void handleRetentionPreview()}
+        onRefreshOperationsReport={() => void handleReloadOperationsReport()}
         onRollbackRetention={() => void handleRollbackRetention()}
         onRetryReceipt={(id) => void handleRetryReceipt(id)}
         onRetryReceiptNewKey={(id) => void handleRetryReceiptNewKey(id)}
@@ -2268,12 +2097,6 @@ function defaultApprovalChoices(approvals: ApprovalView[], current: Record<strin
   const next: Record<string, ApprovalChoice> = {};
   for (const approval of approvals) next[approval.id] = current[approval.id] ?? "defer";
   return next;
-}
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  const tag = target.tagName.toLowerCase();
-  return tag === "input" || tag === "textarea" || tag === "select" || tag === "code" || target.isContentEditable || Boolean(target.closest("[data-editor-control='true']"));
 }
 
 function buildOnboardingItems(gateway: GatewayViewState): string[] {
@@ -2729,6 +2552,7 @@ function OperationalPanels(props: {
   onPreviewBundleManifest: () => void;
   onPreviewRetentionByClass: () => void;
   onPreviewRetention: () => void;
+  onRefreshOperationsReport: () => void;
   onRollbackRetention: () => void;
   onRetryReceipt: (id: string) => void;
   onRetryReceiptNewKey: (id: string) => void;
@@ -2887,6 +2711,7 @@ function OperationalPanels(props: {
             <p>
               Readiness score: {operationsReport.verificationCenter.readinessScore} ({operationsReport.verificationCenter.readinessLabel}).
             </p>
+            <p>Verification Center report generated at {operationsReport.verificationCenter.generatedAt ?? operationsReport.generatedAt}.</p>
             {operationsReport.verificationCenter.firstBlockedGateId ? (
               <button
                 type="button"
@@ -2900,6 +2725,13 @@ function OperationalPanels(props: {
               </button>
             ) : null}
             <p>Last successful verify {operationsReport.verificationCenter.lastSuccessfulVerifyAt ?? "unavailable"}.</p>
+            <p>
+              Last successful test:smoke{" "}
+              {operationsReport.verificationCenter.receipts.find((receipt) => receipt.command === "test:smoke")?.completedAt ??
+                operationsReport.verificationCenter.receipts.find((receipt) => receipt.command === "test:smoke")?.startedAt ??
+                "unavailable"}
+              .
+            </p>
             <p>Last successful verify:gateway {operationsReport.verificationCenter.lastSuccessfulGatewayVerifyAt ?? "unavailable"}.</p>
             <p>Last successful verify:desktop-native {operationsReport.verificationCenter.lastSuccessfulDesktopVerifyAt ?? "unavailable"}.</p>
             <p>Last successful docs:check {operationsReport.verificationCenter.lastSuccessfulDocsCheckAt ?? "unavailable"}.</p>
@@ -2936,6 +2768,11 @@ function OperationalPanels(props: {
                   <button type="button" onClick={() => props.onSelectVerificationGate(gate.id)}>
                     Focus {gate.label}
                   </button>{" "}
+                  {gate.nextSafeActions[0] ? (
+                    <button type="button" onClick={() => props.onCopyWhyBlocked(gate.nextSafeActions[0] ?? "Collect fresh local evidence.")}>
+                      Copy next safe action
+                    </button>
+                  ) : null}{" "}
                   <strong>{gate.label}</strong>: {gate.status}. {gate.detail} Freshness {gate.freshness ?? "unknown"} ({gate.ageLabel ?? "age unavailable"}). Last verified{" "}
                   {gate.lastVerifiedAt ?? "unavailable"}. {gate.agingSoon ? "Aging soon." : ""} Blocker source {gate.blockerSource ?? "unknown"}.
                   {gate.status === "blocked" || gate.blockingReasons.length > 0 ? (
@@ -2968,7 +2805,15 @@ function OperationalPanels(props: {
             </ul>
           </>
         ) : (
-          <p>Verification Center is waiting for local operations evidence.</p>
+          <>
+            <p>Verification Center is waiting for local operations evidence.</p>
+            <button type="button" onClick={props.onRefreshOperationsReport}>
+              Reload local operations report
+            </button>
+            <button type="button" onClick={props.onRunIntegrityCheck}>
+              Run integrity check
+            </button>
+          </>
         )}
       </section>
       <section className="workspace-panel">
@@ -3066,6 +2911,29 @@ function OperationalPanels(props: {
         </div>
         {operationsReport ? (
           <>
+            <p>Operations report generated at {operationsReport.generatedAt}.</p>
+            <p>{describeReportFreshness(operationsReport) ?? "Report freshness is unavailable."}</p>
+            <p>
+              Report diff:{" "}
+              {!operationsReport.reportDiff.available
+                ? operationsReport.reportDiff.summary
+                : `${operationsReport.reportDiff.summary} ${operationsReport.reportDiff.changedFields.length > 0 ? `Changed fields: ${operationsReport.reportDiff.changedFields.join(", ")}.` : ""}`}
+            </p>
+            <p>
+              Report provenance:{" "}
+              Snapshot {operationsReport.reportProvenance.currentSnapshotId ?? "unavailable"} from receipts{" "}
+              {operationsReport.reportProvenance.sourceVerificationReceiptIds.join(", ") || "none"} and summary jobs{" "}
+              {operationsReport.reportProvenance.sourceSummaryJobIds.join(", ") || "none"}. {operationsReport.reportProvenance.lineageSummary}
+            </p>
+            <p data-recovered-evidence-section="true">
+              Evidence drift:{" "}
+              {operationsReport.evidenceDrift.status !== "unavailable"
+                ? operationsReport.evidenceDrift.summary
+                : "Recovered-evidence drift is unavailable until local evidence can be compared."}
+            </p>
+            {operationsReport.recoveredEvidenceSummary?.provisionalMetrics ? (
+              <p>{operationsReport.recoveredEvidenceSummary.provisionalReason ?? operationsReport.recoveredEvidenceSummary.cacheStateLabel}</p>
+            ) : null}
             <p>
               Evidence checklist: {operationsReport.incidentEvidenceChecklist.items.filter((item) => item.present).length}/{operationsReport.incidentEvidenceChecklist.items.length} present.
             </p>
@@ -3078,7 +2946,7 @@ function OperationalPanels(props: {
               ))}
             </ul>
             <p>Investigation bundle preview: {operationsReport.investigationBundlePreview.items.length} redacted item(s) ready.</p>
-            <p>Summary-job history: {operationsReport.summaryJobHistory.jobs.length} job(s) tracked.</p>
+            <p>Summary-job operator timeline: {operationsReport.summaryJobHistory.jobs.length} job(s) tracked.</p>
             <p>
               Queue depth {operationsReport.summaryJobHistory.queueDepth}; oldest waiting {operationsReport.summaryJobHistory.oldestWaitingAgeLabel ?? "none"}.
             </p>
@@ -3101,6 +2969,13 @@ function OperationalPanels(props: {
               Delivery target health:{" "}
               {operationsReport.deliveryTargetHealth.map((item) => `${item.target} ${item.status} (${item.detail})`).join(", ") || "unavailable"}.
             </p>
+            <p>
+              Delivery target diagnostics:{" "}
+              {operationsReport.deliveryTargetDrilldowns
+                .map((drilldown) => `${drilldown.target} backoff ${drilldown.backoffPosture ?? "unknown"}, parity ${drilldown.parityDriftState ?? "unknown"}, latest receipt ${drilldown.latestReceiptId ?? "unavailable"}`)
+                .join("; ") || "unavailable"}
+              .
+            </p>
             <ul>
               {operationsReport.deliveryTargetHealth.map((item) => (
                 <li key={item.target}>
@@ -3111,7 +2986,7 @@ function OperationalPanels(props: {
             <ul>
               {operationsReport.deliveryTargetDrilldowns.map((drilldown) => (
                 <li key={`${drilldown.target}-drilldown`}>
-                  {drilldown.target}: {drilldown.paritySummary}. Retry history {drilldown.retryHistory.map((item) => `${item.delayLabel} (${item.remainingRetries} left)`).join(", ") || "none"}. Trend points {drilldown.trendPoints.length}.
+                  {drilldown.target}: {drilldown.paritySummary}. Retry history {drilldown.retryHistory.map((item) => `${item.delayLabel} (${item.remainingRetries} left)`).join(", ") || "none"}. Trend points {drilldown.trendPoints.length}. Backoff {drilldown.backoffPosture ?? "unknown"}, parity {drilldown.parityDriftState ?? "unknown"}, latest verified {drilldown.latestVerifiedAt ?? "unavailable"}.
                 </li>
               ))}
             </ul>
@@ -3136,6 +3011,18 @@ function OperationalPanels(props: {
               Exportable saved views:{" "}
               {operationsReport.exportableViews.length > 0 ? operationsReport.exportableViews.map(formatExportableOperatorView).join(" | ") : "none"}.
             </p>
+            <p>
+              Saved-view audit: {operationsReport.savedViewAudit.summary} Events {operationsReport.savedViewAudit.events.length}; lint findings {operationsReport.savedViewLint.findings.length}.
+            </p>
+            {operationsReport.savedViewAudit.events.length > 0 ? (
+              <ul>
+                {operationsReport.savedViewAudit.events.slice(0, 3).map((event) => (
+                  <li key={event.id}>
+                    {event.action} {event.viewId} at {event.createdAt}. {event.detail}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             {operationsReport.exportableViews.some((view) => (view.staleSummaryCount ?? 0) > 0) ? (
               <p>Saved-view stale summary counts are shown separately from newer-evidence warnings.</p>
             ) : null}
@@ -3222,6 +3109,20 @@ function OperationalPanels(props: {
               ))}
             </ul>
             {operationsReport.morningBrief.citations.length > 0 ? <p>Morning brief citations: {operationsReport.morningBrief.citations.join(", ")}.</p> : null}
+            <section aria-label="Morning command" tabIndex={-1}>
+              <p>Morning command: {operationsReport.morningCommand.headline}</p>
+              {operationsReport.morningCommand.steps.length > 0 ? (
+                <ul>
+                  {operationsReport.morningCommand.steps.map((step) => (
+                    <li key={step.id}>
+                      {step.title}: {step.detail} {step.status === "blocked" ? "Blocked." : step.status === "ready" ? "Ready." : "Unavailable."}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>Morning command is unavailable until local evidence is complete.</p>
+              )}
+            </section>
             <label>
               <span>Incident template</span>
               <select aria-label="Incident template" value={props.selectedIncidentTemplateId} onChange={(event) => props.onSelectIncidentTemplate(event.target.value)}>
@@ -3261,6 +3162,9 @@ function OperationalPanels(props: {
             <p>{operationsReport.retentionImpactSimulation.summary}</p>
             <p>Closeout packet preview: {operationsReport.closeoutPacketPreview.summary}</p>
             <p>
+              Signed closeout packet: receipts {operationsReport.closeoutPacketPreview.lastPassingReceiptIds.join(", ") || "none"}, unresolved evidence {operationsReport.closeoutPacketPreview.unresolvedEvidenceCount}, redaction {operationsReport.closeoutPacketPreview.redactionStatus}.
+            </p>
+            <p>
               Saved-view lint:{" "}
               {operationsReport.savedViewLint.findings.length > 0
                 ? operationsReport.savedViewLint.findings.map((finding) => `${finding.viewId} ${finding.severity} ${finding.message}`).join(" | ")
@@ -3268,6 +3172,15 @@ function OperationalPanels(props: {
               .
             </p>
             <p>{operationsReport.causalityNarrative.summary}</p>
+            {operationsReport.evidenceDrift.issues.length > 0 ? (
+              <ul>
+                {operationsReport.evidenceDrift.issues.map((issue) => (
+                  <li key={issue.id}>
+                    {issue.id}: {issue.summary}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             {operationsReport.incidentEvidenceDigest ? <p>Incident evidence digest: {operationsReport.incidentEvidenceDigest.digest}</p> : null}
             {operationsReport.signedIncidentBundleManifest ? <p>Signed bundle manifest: {operationsReport.signedIncidentBundleManifest.signature}</p> : null}
             {operationsReport.activeHypotheses.length > 0 ? (
@@ -3284,7 +3197,15 @@ function OperationalPanels(props: {
             <p>Native cutover artifact: {operationsReport.nativeCutoverPlan.artifactPath}.</p>
           </>
         ) : (
-          <p>Operations backlog surfaces are waiting for local evidence.</p>
+          <>
+            <p>Operations backlog surfaces are waiting for local evidence.</p>
+            <button type="button" onClick={props.onRefreshOperationsReport}>
+              Reload local operations report
+            </button>
+            <button type="button" onClick={props.onRunIntegrityCheck}>
+              Run integrity check
+            </button>
+          </>
         )}
       </section>
       <section className="workspace-panel" ref={props.incidentsPanelRef} tabIndex={-1}>

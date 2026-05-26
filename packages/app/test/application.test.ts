@@ -540,6 +540,25 @@ describe("OpenClog application layer", () => {
   test("builds the full 30-item operations backlog report from local evidence", () => {
     const summaryDay: JournalDay = {
       ...buildDay("2026-05-08", ["entry-a", "entry-b", "entry-c"]),
+      entries: [
+        ...buildDay("2026-05-08", ["entry-a", "entry-b", "entry-c"]).entries,
+        {
+          id: "entry-backfilled-openclaw",
+          dayKey: "2026-05-08",
+          source: "openclaw",
+          sourceLabel: "Backfilled from OpenClaw",
+          kind: "assistant_message",
+          title: "Recovered OpenClaw evidence",
+          body: "Recovered session note",
+          timestamp: "2026-05-08T12:05:00.000Z",
+          status: "info",
+          severity: "info",
+          sessionId: "openclaw:session:1",
+          backfilled: true,
+          importedAt: "2026-05-08T12:05:00.000Z",
+          redacted: true
+        }
+      ],
       generatedSummary: {
         summary: "Older summary.",
         createdAt: "2026-05-08T12:00:02.000Z",
@@ -629,6 +648,7 @@ describe("OpenClog application layer", () => {
         ],
         listVerificationReceipts: () => [
           { id: "verify-main", command: "verify", status: "passed", startedAt: "2026-05-08T12:04:00.000Z", completedAt: "2026-05-08T12:04:20.000Z", summary: "Repo verify passed." },
+          { id: "smoke-main", command: "test:smoke", status: "passed", startedAt: "2026-05-08T12:04:21.000Z", completedAt: "2026-05-08T12:04:25.000Z", summary: "Smoke verify passed." },
           { id: "verify-gateway-failed", command: "verify:gateway", status: "failed", startedAt: "2026-05-08T12:04:30.000Z", completedAt: "2026-05-08T12:04:50.000Z", summary: "Gateway missing operator.approvals.", commitSha: "abc1222" },
           { id: "verify-gateway", command: "verify:gateway", status: "passed", startedAt: "2026-05-08T12:05:00.000Z", completedAt: "2026-05-08T12:05:30.000Z", summary: "Gateway ready.", commitSha: "abc1234" },
           { id: "verify-desktop", command: "verify:desktop-native", status: "passed", startedAt: "2026-05-08T12:06:00.000Z", completedAt: "2026-05-08T12:06:10.000Z", summary: "Desktop self-check passed." },
@@ -682,7 +702,37 @@ describe("OpenClog application layer", () => {
         createReplayWorkspace: () => ({ id: "replay-1", sourceDayKey: "2026-05-08", createdAt: "2026-05-08T12:07:00.000Z", entries: summaryDay.entries, notes: [], incidentIds: ["incident-1"], verification: { verified: true, digest: "digest", reasons: [] } }),
         generateOperatorRunbook: () => ({ generatedAt: "2026-05-08T12:07:00.000Z", sections: [{ title: "Delivery failures", items: ["Retry failed delivery with same idempotency key after confirmation."] }] }),
         getRemoteOpsPolicy: () => ({ enabled: false, environmentLabel: "local", allowedOrigins: ["http://127.0.0.1:5173"], secretAccess: "fail-closed" }),
-        evaluateAlertRules: () => [{ ruleId: "stale-summary", title: "Stale summary", triggered: true, detail: "Summary is stale." }]
+        evaluateAlertRules: () => [{ ruleId: "stale-summary", title: "Stale summary", triggered: true, detail: "Summary is stale." }],
+        listSavedViewAuditEvents: () => [
+          {
+            id: "saved-view-created-1",
+            viewId: "saved-scope-review",
+            label: "Saved scope review",
+            action: "created",
+            createdAt: "2026-05-08T12:01:30.000Z",
+            detail: "Saved view was created from triage."
+          }
+        ],
+        getLatestOperationsReportSnapshot: () => ({
+          id: "previous-report-snapshot",
+          scopeKey: "2026-05-08:incident-1",
+          generatedAt: "2026-05-08T12:03:00.000Z",
+          reportFreshness: {
+            status: "older_than_latest_receipt",
+            summary: "Older snapshot.",
+            reportGeneratedAt: "2026-05-08T12:03:00.000Z",
+            latestVerificationReceiptCompletedAt: "2026-05-08T12:04:20.000Z",
+            latestVerificationReceiptId: "verify-main",
+            latestVerificationReceiptCommand: "verify"
+          },
+          deliveryFailureCount: 0,
+          queueDepth: 0,
+          blockedGateCount: 0,
+          recoveredEntryCount: 0
+        }),
+        saveOperationsReportSnapshot: (snapshot) => snapshot,
+        listEvidenceDriftObservations: () => [],
+        saveEvidenceDriftObservation: (observation) => observation
       } as never
     });
 
@@ -719,6 +769,12 @@ describe("OpenClog application layer", () => {
       guidedIncidentCommand: { stages: Array<{ id: string; complete: boolean; blocked: boolean }> };
       escalationPlaybooks: Array<{ id: string; title: string }>;
       operationsLedger: { entries: Array<{ action: string; correlationId?: string }> };
+      reportFreshness: { status: string; summary: string; latestVerificationReceiptId?: string };
+      reportDiff: { available: boolean; summary: string; changedFields: string[]; previousSnapshotId?: string };
+      reportProvenance: { sourceVerificationReceiptIds: string[]; sourceSummaryJobIds: string[]; lineageSummary: string };
+      evidenceDrift: { status: string; summary: string; issues: Array<{ id: string }> };
+      savedViewAudit: { events: Array<{ id: string; action: string }>; summary: string };
+      morningCommand: { headline: string; steps: Array<{ id: string; status: string }> };
       governedSdkManifests: Array<{ id: string; permissions: string[]; supportsDryRun: boolean }>;
       roleAwareSimulations: Array<{ id: string; liveSideEffects: false }>;
       policyRecommendationPacks: Array<{ id: string; recommendations: Array<{ whyThisRecommendation: string }> }>;
@@ -734,7 +790,7 @@ describe("OpenClog application layer", () => {
       exportableViews: Array<{ id: string; label: string; redactedJson: string; evidenceCount: number; unresolvedEvidenceCount: number; staleSummaryCount?: number; newerEvidenceExists?: boolean; lastSuccessfulSummaryAt?: string }>;
       incidentTemplates: Array<{ id: string; title: string; stageNotes: Record<string, string> }>;
       deliveryContractPreviews: Array<{ target: string; dryRunSchema: string[]; liveSchema: string[]; idempotencyFields: string[]; paritySummary: string; missingInDryRun: string[]; missingInLive: string[] }>;
-      releaseReadinessGate: { status: string; blockers: string[]; requiredCommands: string[] };
+      releaseReadinessGate: { status: string; blockers: string[]; requiredCommands: string[]; narrative: string };
       staleSummaryDayKeys: string[];
       readinessHistory: { points: Array<{ backendHealthy: boolean; gatewayStatus: string; reasonCodes?: string[] }> };
       morningBrief: { headline: string; bullets: string[]; citations?: string[] };
@@ -754,6 +810,22 @@ describe("OpenClog application layer", () => {
       ])
     );
     expect(report.summaryJobHistory).toMatchObject({ queueDepth: 0 });
+    expect(report.reportFreshness).toMatchObject({
+      status: "newer_than_latest_receipt",
+      latestVerificationReceiptId: "verify-docs"
+    });
+    expect(report.reportDiff).toMatchObject({
+      available: true,
+      previousSnapshotId: "previous-report-snapshot",
+      changedFields: expect.arrayContaining(["delivery failures", "blocked verification gates", "report freshness"])
+    });
+    expect(report.reportProvenance).toMatchObject({
+      sourceVerificationReceiptIds: expect.arrayContaining(["verify-docs", "smoke-main"]),
+      sourceSummaryJobIds: ["summary-job-1"]
+    });
+    expect(report.savedViewAudit).toMatchObject({
+      events: [expect.objectContaining({ id: "saved-view-created-1", action: "created" })]
+    });
     expect(report.incidentEvidenceChecklist.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "timeline", present: true }),
       expect.objectContaining({ id: "receipts", present: true }),
@@ -844,8 +916,19 @@ describe("OpenClog application layer", () => {
     );
     expect(report.releaseReadinessGate).toMatchObject({
       status: "blocked",
-      requiredCommands: expect.arrayContaining(["verify", "verify:gateway", "docs:check", "verify:desktop-native", "dry-run delivery"])
+      requiredCommands: expect.arrayContaining(["verify", "verify:gateway", "docs:check", "verify:desktop-native", "test:smoke", "dry-run delivery"]),
+      narrative: expect.stringContaining("Release readiness is blocked")
     });
+    expect(report.evidenceDrift).toMatchObject({
+      status: "drifting",
+      issues: expect.arrayContaining([expect.objectContaining({ id: "report_header_mismatch" })])
+    });
+    expect(report.morningCommand.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "blocked_gates", status: "blocked" }),
+        expect.objectContaining({ id: "recovered_drift", status: "blocked" })
+      ])
+    );
     expect(report.evidenceQualityScores).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ incidentId: "incident-1", score: expect.any(Number), grade: "good" }),
@@ -919,7 +1002,7 @@ describe("OpenClog application layer", () => {
       };
     };
 
-    expect(report.recoveredEvidenceSummary).toEqual({
+    expect(report.recoveredEvidenceSummary).toMatchObject({
       entryCount: 69,
       dayCount: 1,
       dayKeys: ["2026-05-20"],

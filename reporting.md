@@ -1,5 +1,16 @@
 # OpenClog Reporting Seed
 
+## 2026-05-25 One-Pass Operations Campaign
+- Daily reporting can now distinguish three freshness layers explicitly: generated-summary freshness, operations-report freshness relative to the newest verification receipt, and the latest successful `test:smoke` timestamp.
+- The operations report now carries persisted diff/provenance evidence, saved-view audit output, evidence-drift summaries, and a guided morning-command workflow so morning handoff copy can stay bounded to stored local evidence.
+- Delivery reporting now has a stronger diagnostics shape: retry history, backoff posture, parity drift, latest verified timing, and route-budget coverage for `/api/operations/report` and `/api/verification/receipts`.
+- Operators now get explicit provisional labeling when recovered-evidence totals are still influenced by cache rebuild or post-summary imports, which keeps backfill-heavy mornings truthful.
+
+## 2026-05-24 Backlog Smoke And Readiness Follow-Through
+- `/api/healthz` is now the cheap readiness probe for smoke checks; `/api/health` remains the richer diagnostic route with full public Gateway state.
+- Daily reports can cite `npm run test:smoke` as the short local gate for API route smoke, workbench helpers, an operations-report fallback browser check, and desktop cargo smoke.
+- Verification Center and Operations backlog panels now show report generation timestamps, so operators can distinguish stale report payloads from stale underlying receipts or summaries.
+
 ## 2026-05-20 Mega Tranche Rework Follow-Through
 - The operations report now carries a stronger morning-triage contract: `attention now` deltas, verification receipt lineage, route-budget burn summaries, closeout packet preview, saved-view lint findings, delivery-target drilldowns, morning brief copy, retention-impact simulation, and a bounded causality narrative.
 - Summary-job pressure is now more truthful for operators and the local queue: duplicate refresh requests for the same day reuse the existing queued/running job instead of silently spawning a parallel one.

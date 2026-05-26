@@ -1,4 +1,5 @@
 import type {
+  EvidenceDriftReport,
   AlertFinding,
   AlertRule,
   AnalyticsSnapshot,
@@ -27,6 +28,7 @@ import type {
   OpenClogSettings,
   OperationsBacklogReport,
   OperatorRunbook,
+  ReportFreshness,
   PinnedDayContext,
   PluginExecutionResult,
   PluginManifest,
@@ -36,6 +38,7 @@ import type {
   RetentionClassPreview,
   RetentionPolicy,
   RetentionPreview,
+  SavedViewAuditEvent,
   SearchPreset,
   ServiceHealthTimelineEntry,
   SessionDrilldown,
@@ -154,6 +157,39 @@ export interface GovernanceRepository {
   generateOperatorRunbook(): OperatorRunbook;
   completeCloseout(dayKey: string, exportTargets: string[]): CloseoutCompletion;
   listVerificationReceipts(): VerificationReceipt[];
+  listSavedViewAuditEvents?(): SavedViewAuditEvent[];
+  saveSavedViewAuditEvent?(event: SavedViewAuditEvent): SavedViewAuditEvent;
+  getLatestOperationsReportSnapshot?(scopeKey: string): {
+    id: string;
+    scopeKey: string;
+    generatedAt: string;
+    reportFreshness: ReportFreshness;
+    deliveryFailureCount: number;
+    queueDepth: number;
+    blockedGateCount: number;
+    recoveredEntryCount: number;
+  } | undefined;
+  saveOperationsReportSnapshot?(snapshot: {
+    id: string;
+    scopeKey: string;
+    generatedAt: string;
+    reportFreshness: ReportFreshness;
+    deliveryFailureCount: number;
+    queueDepth: number;
+    blockedGateCount: number;
+    recoveredEntryCount: number;
+  }): {
+    id: string;
+    scopeKey: string;
+    generatedAt: string;
+    reportFreshness: ReportFreshness;
+    deliveryFailureCount: number;
+    queueDepth: number;
+    blockedGateCount: number;
+    recoveredEntryCount: number;
+  };
+  listEvidenceDriftObservations?(scopeKey?: string): Array<{ id: string; scopeKey: string; report: EvidenceDriftReport; createdAt: string }>;
+  saveEvidenceDriftObservation?(observation: { id: string; scopeKey: string; report: EvidenceDriftReport; createdAt: string }): { id: string; scopeKey: string; report: EvidenceDriftReport; createdAt: string };
   createInvestigationWorkspace(input: { dayKeys: string[]; title?: string }): InvestigationWorkspace;
   getInvestigationWorkspace(id: string): InvestigationWorkspace | undefined;
   getRemoteOpsPolicy(): RemoteOpsPolicy;

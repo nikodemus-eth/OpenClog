@@ -945,7 +945,7 @@ export interface OperatorRunbook {
 
 export interface VerificationReceipt {
   id: string;
-  command: "verify" | "verify:gateway" | "verify:desktop-native" | "test:visual" | string;
+  command: "verify" | "verify:gateway" | "verify:desktop-native" | "test:visual" | "test:smoke" | string;
   status: "passed" | "failed" | "unknown";
   startedAt: string;
   completedAt?: string;
@@ -1074,6 +1074,10 @@ export interface DeliveryTargetDrilldown {
   retryHistory: DeliveryRetryBackoffEvent[];
   trendPoints: DeliveryTrendPoint[];
   schemaWarnings: string[];
+  backoffPosture?: "stable" | "retrying" | "exhausted";
+  parityDriftState?: "match" | "drift";
+  latestReceiptId?: string;
+  latestVerifiedAt?: string;
 }
 
 export interface CloseoutPacketPreview {
@@ -1101,6 +1105,60 @@ export interface MorningBriefArtifact {
   headline: string;
   bullets: string[];
   citations: string[];
+}
+
+export interface ReportFreshness {
+  status: "newer_than_latest_receipt" | "older_than_latest_receipt" | "no_verification_receipts";
+  summary: string;
+  reportGeneratedAt: string;
+  latestVerificationReceiptCompletedAt?: string;
+  latestVerificationReceiptId?: string;
+  latestVerificationReceiptCommand?: string;
+}
+
+export interface ReportDiff {
+  available: boolean;
+  summary: string;
+  currentSnapshotId?: string;
+  previousSnapshotId?: string;
+  previousGeneratedAt?: string;
+  changedFields: string[];
+}
+
+export interface ReportProvenance {
+  currentSnapshotId?: string;
+  previousSnapshotId?: string;
+  sourceVerificationReceiptIds: string[];
+  sourceSummaryJobIds: string[];
+  sourceDeliveryReceiptIds: string[];
+  lineageSummary: string;
+}
+
+export interface EvidenceDriftIssue {
+  id: "recovered_entry_total" | "session_recovered_total" | "report_header_mismatch";
+  severity: "info" | "warning";
+  summary: string;
+}
+
+export interface EvidenceDriftReport {
+  status: "stable" | "drifting" | "unavailable";
+  summary: string;
+  issues: EvidenceDriftIssue[];
+  observationCount: number;
+}
+
+export interface SavedViewAuditEvent {
+  id: string;
+  viewId: string;
+  label: string;
+  action: "created" | "updated" | "used";
+  createdAt: string;
+  detail: string;
+}
+
+export interface SavedViewAuditReport {
+  events: SavedViewAuditEvent[];
+  summary: string;
 }
 
 export interface PolicyPackSummary {
@@ -1174,7 +1232,7 @@ export interface DeliveryLedger {
 }
 
 export interface RoutePerformanceBudget {
-  route: "/api/summary-jobs" | "/api/incidents" | "/api/health";
+  route: "/api/summary-jobs" | "/api/incidents" | "/api/health" | "/api/operations/report" | "/api/verification/receipts";
   budgetMs: number;
   observedMs: number;
   status: "ok" | "breach";
@@ -1307,7 +1365,7 @@ export interface ExportableOperatorView {
 }
 
 export interface IncidentTemplate {
-  id: "missing-scopes" | "reconnect-storm" | "delivery-dead-letter" | "stale-summary" | "route-budget-regression";
+  id: "missing-scopes" | "reconnect-storm" | "delivery-dead-letter" | "stale-summary" | "route-budget-regression" | "recovered-evidence-changed-after-report-generation";
   title: string;
   summary: string;
   stageNotes: Record<keyof IncidentLoopProgress, string>;
@@ -1336,6 +1394,7 @@ export interface ReleaseReadinessGate {
   whyBlocking: string[];
   staleAgeThresholdMinutes: number;
   evidenceIds: string[];
+  narrative: string;
 }
 
 export interface GovernedSdkManifest {
@@ -1429,6 +1488,18 @@ export interface GuidedIncidentCommand {
   stages: GuidedIncidentCommandStage[];
 }
 
+export interface MorningCommandStep {
+  id: "attention_now" | "blocked_gates" | "stale_summaries" | "delivery_failures" | "recovered_drift" | "release_gate";
+  title: string;
+  status: "ready" | "blocked" | "unavailable";
+  detail: string;
+}
+
+export interface MorningCommandWorkflow {
+  headline: string;
+  steps: MorningCommandStep[];
+}
+
 export interface EscalationPlaybook {
   id: "missing-scopes" | "stale-summary" | "failed-dry-run" | "readiness-blocked";
   title: string;
@@ -1445,6 +1516,7 @@ export interface RoleAwareIncidentSimulation {
 
 export interface OperationsLedgerEntry {
   id: string;
+  kind: "report_generation" | "verification" | "delivery" | "incident_action" | "summary_job";
   action: string;
   timestamp: string;
   status: "completed" | "failed" | "blocked" | "unknown";
@@ -1452,6 +1524,7 @@ export interface OperationsLedgerEntry {
   targetId?: string;
   correlationId?: string;
   evidenceIds: string[];
+  summary?: string;
 }
 
 export interface NativeTruthMonitorReport {
@@ -1472,6 +1545,7 @@ export interface RecoveredEvidenceSummary {
   latestImportedAt?: string;
   provisionalMetrics?: boolean;
   cacheStateLabel?: string;
+  provisionalReason?: string;
 }
 
 export interface PolicyRecommendationPack {
@@ -1484,6 +1558,10 @@ export interface OperationsBacklogReport {
   dayKey: string;
   incidentId?: string;
   generatedAt: string;
+  reportFreshness: ReportFreshness;
+  reportDiff: ReportDiff;
+  reportProvenance: ReportProvenance;
+  evidenceDrift: EvidenceDriftReport;
   recoveredEvidenceSummary?: RecoveredEvidenceSummary;
   attentionNow: AttentionNowItem[];
   attentionNowDelta: AttentionNowDelta;
@@ -1521,6 +1599,8 @@ export interface OperationsBacklogReport {
   incidentEvidenceDigest?: IncidentEvidenceDigest;
   signedIncidentBundleManifest?: SignedIncidentBundleManifest;
   morningBrief: MorningBriefArtifact;
+  savedViewAudit: SavedViewAuditReport;
+  morningCommand: MorningCommandWorkflow;
   nativeTruthMonitor: NativeTruthMonitorReport;
   policyRecommendationPacks: PolicyRecommendationPack[];
   policyPackSummary: PolicyPackSummary;
