@@ -1,5 +1,5 @@
-import { execFileSync } from "node:child_process";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
@@ -7,7 +7,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { createSqliteRepository } from "../src/repository.js";
 import { journalTableNames } from "../src/schema.js";
 import { buildVerificationReceiptId, runAndRecordVerification } from "../src/verification-receipts.js";
-import { sampleJournalDay, toPersistableRedactedEvent, type JournalDay, type VerificationReceipt } from "@openclog/core";
+import { sampleJournalDay, toPersistableRedactedEvent, type JournalDay, type NativeRunnerHistoryItem, type VerificationReceipt } from "@openclog/core";
 
 describe("SQLite repository", () => {
   const repos: Array<{ close: () => void }> = [];
@@ -406,6 +406,71 @@ describe("SQLite repository", () => {
     expect(repo.listVerificationReceipts()).toEqual([receipt]);
   });
 
+  test("persists native runner history for desktop-owned self-check evidence", () => {
+    const repo = createSqliteRepository(":memory:");
+    repos.push(repo);
+    const runner: NativeRunnerHistoryItem = {
+      id: "desktop-self-check-localhost-20260526T120000000Z",
+      receiptId: "desktop-self-check:localhost:20260526T120000000Z",
+      createdAt: "2026-05-26T12:00:00.000Z",
+      generatedAt: "2026-05-26T12:00:00.000Z",
+      observedApiBase: "http://127.0.0.1:3000",
+      divergenceSummary: "Desktop self-check agrees with public Gateway readiness.",
+      status: "passed",
+      source: "desktop",
+      checks: [
+        { id: "api_liveness", status: "ok", detail: "API health responded." },
+        { id: "gateway_readiness", status: "ok", detail: "Gateway readiness is ready." },
+        { id: "launch_agent", status: "ok", detail: "LaunchAgent com.m4.openclog-api is loaded." },
+        { id: "sqlite_integrity", status: "ok", detail: "SQLite repository path is present." },
+        { id: "secret_store", status: "ok", detail: "macOS Keychain backend is available." }
+      ]
+    };
+
+    expect(repo.saveNativeRunnerHistory(runner)).toEqual(runner);
+    expect(repo.listNativeRunnerHistory()).toEqual([runner]);
+  });
+
+  test("waits out transient SQLite locks when recording verification receipts", { timeout: 15000 }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), "openclog-receipt-lock-"));
+    tempDirs.push(dir);
+    const filename = join(dir, "openclog.db");
+    const repo = createSqliteRepository(filename);
+    repos.push(repo);
+    const lockScript = join(dir, "hold-lock.mjs");
+    writeFileSync(
+      lockScript,
+      `import { DatabaseSync } from "node:sqlite";
+import { writeFileSync } from "node:fs";
+const db = new DatabaseSync(process.argv[2]);
+db.exec("PRAGMA busy_timeout = 5000; BEGIN EXCLUSIVE;");
+writeFileSync(process.argv[3], "locked");
+setTimeout(() => {
+  db.exec("COMMIT;");
+  db.close();
+}, 350);
+`
+    );
+    const lockReady = join(dir, "locked");
+    const child = spawn(process.execPath, [lockScript, filename, lockReady], { stdio: "ignore" });
+    await waitForFile(lockReady);
+    const receipt: VerificationReceipt = {
+      id: "verify-locked-1",
+      command: "npm run verify",
+      status: "passed",
+      startedAt: "2026-05-26T12:01:00.000Z",
+      completedAt: "2026-05-26T12:02:00.000Z",
+      summary: "verify passed after transient lock"
+    };
+
+    expect(repo.saveVerificationReceipt(receipt)).toEqual(receipt);
+    await new Promise<void>((resolve, reject) => {
+      child.once("exit", (code) => (code === 0 ? resolve() : reject(new Error(`lock child exited ${String(code)}`))));
+      child.once("error", reject);
+    });
+    expect(repo.listVerificationReceipts()).toEqual([receipt]);
+  });
+
   test("persists operations report snapshots, saved-view audit events, and evidence drift observations", () => {
     const repo = createSqliteRepository(":memory:");
     repos.push(repo);
@@ -682,4 +747,15 @@ describe("SQLite repository", () => {
 function dates(...values: string[]): () => Date {
   let index = 0;
   return () => new Date(values[Math.min(index++, values.length - 1)]!);
+}
+
+async function waitForFile(path: string): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 2000) {
+    if (existsSync(path)) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`timed out waiting for ${path}`);
 }

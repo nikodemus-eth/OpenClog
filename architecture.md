@@ -3,6 +3,11 @@
 ## Purpose
 Track OpenClog architecture, component ownership, and authority boundaries.
 
+## 2026-05-26 Native Runner Evidence Cutover Prep
+- Tauri now owns the scheduled desktop self-check evidence path: startup/interval checks inspect API liveness, public Gateway readiness, `com.m4.openclog-api` LaunchAgent state, SQLite path presence, and secure-store availability.
+- SQLite `journal_native_runner_history` is now an active machine-local evidence table rather than only prep schema; `@openclog/app` reads it into the Native Truth Monitor and Operations Ledger as `native_runner` entries.
+- Fastify plus `@openclog/app` still own policy/report authority, delivery governance, command verification receipts, retention, and incident behavior; the browser remains a read-only consumer and gained no receipt/secret write path.
+
 ## 2026-05-20 Mega Tranche Rework
 - Fastify plus `@openclog/app` still own report assembly, policy interpretation, delivery governance, incident logic, and verification truth; the browser remains a read-only consumer of bounded report data.
 - `@openclog/core` now models richer operator-trust shapes: attention deltas, verification lineage, saved-view lint metadata, route-budget burn summaries, delivery drilldowns, closeout packet preview, morning brief, policy-pack summary, retention-impact simulation, and bounded causality narrative.

@@ -38,6 +38,8 @@ import type {
   JournalSearchResult,
   LineageRecord,
   MissionReplay,
+  NativeRunnerCheck,
+  NativeRunnerHistoryItem,
   PersistableRedactedEvent,
   PinnedDayContext,
   PluginExecutionResult,
@@ -112,6 +114,7 @@ export interface OpenClogRepository {
   listIncidentRulePacks(): IncidentRulePack[];
   listIntegrityReports(): IntegrityMonitorReport[];
   listInvestigationNotes(filter?: { dayKey?: string; incidentId?: string }): InvestigationNote[];
+  listNativeRunnerHistory(): NativeRunnerHistoryItem[];
   listVerificationReceipts(): VerificationReceipt[];
   listSavedViewAuditEvents(): SavedViewAuditEvent[];
   saveSavedViewAuditEvent(event: SavedViewAuditEvent): SavedViewAuditEvent;
@@ -166,6 +169,7 @@ export interface OpenClogRepository {
   saveInvestigationNote(note: InvestigationNote): InvestigationNote;
   saveRetentionClass(retentionClass: RetentionClass): RetentionClass;
   saveRetentionSnapshot(snapshot: RetentionSnapshotRecord): RetentionSnapshotRecord;
+  saveNativeRunnerHistory(runner: NativeRunnerHistoryItem): NativeRunnerHistoryItem;
   saveVerificationReceipt(receipt: VerificationReceipt): VerificationReceipt;
   searchEntries(query: string): JournalSearchResult[];
   setAlertState(ruleId: string, state: AlertStateRecord): AlertStateRecord;
@@ -236,6 +240,7 @@ const repositoryBootedAt = new Date().toISOString();
 
 export function createSqliteRepository(filename: string): OpenClogRepository {
   const db = new DatabaseSync(filename);
+  db.exec(`PRAGMA busy_timeout = ${sqliteBusyTimeoutMs()}`);
   migrate(db);
   seedDefaults(db);
   const backendFingerprint = persistBackendFingerprint(db, buildBackendFingerprint());
@@ -1004,6 +1009,12 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
         .map((row) => JSON.parse(String(row.note_json)) as InvestigationNote)
         .filter((note) => (!filter?.dayKey || note.dayKey === filter.dayKey) && (!filter?.incidentId || note.incidentId === filter.incidentId));
     },
+    listNativeRunnerHistory() {
+      return db
+        .prepare("SELECT runner_json FROM journal_native_runner_history ORDER BY created_at DESC, id DESC")
+        .all()
+        .map((row) => normalizeNativeRunnerHistory(JSON.parse(String(row.runner_json))));
+    },
     listVerificationReceipts() {
       const receipts = db
         .prepare("SELECT receipt_json FROM journal_verification_receipts ORDER BY id ASC")
@@ -1258,6 +1269,10 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       saveJsonRow(db, "journal_retention_snapshots", snapshot.id, JSON.stringify(snapshot));
       return snapshot;
     },
+    saveNativeRunnerHistory(runner) {
+      saveNativeRunnerHistoryRow(db, runner);
+      return runner;
+    },
     saveVerificationReceipt(receipt) {
       saveVerificationReceiptRow(db, receipt);
       return receipt;
@@ -1492,6 +1507,7 @@ function migrate(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS idx_journal_report_snapshots_scope ON journal_operations_report_snapshots(scope_key, generated_at);
     CREATE INDEX IF NOT EXISTS idx_journal_saved_view_audit_view ON journal_saved_view_audit_events(view_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_journal_evidence_drift_scope ON journal_evidence_drift_observations(scope_key, created_at);
+    CREATE INDEX IF NOT EXISTS idx_journal_native_runner_created ON journal_native_runner_history(created_at);
   `);
   migrateVerificationReceipts(db);
 }
@@ -1574,9 +1590,116 @@ function migrateVerificationReceipts(db: DatabaseSync): void {
 }
 
 function saveVerificationReceiptRow(db: DatabaseSync, receipt: VerificationReceipt): void {
-  db.prepare(
-    "INSERT INTO journal_verification_receipts (id, command, status, completed_at, receipt_json) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET command = excluded.command, status = excluded.status, completed_at = excluded.completed_at, receipt_json = excluded.receipt_json"
-  ).run(receipt.id, receipt.command, receipt.status, receipt.completedAt ?? receipt.startedAt, JSON.stringify(receipt));
+  runSqliteWrite(() => {
+    db.prepare(
+      "INSERT INTO journal_verification_receipts (id, command, status, completed_at, receipt_json) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET command = excluded.command, status = excluded.status, completed_at = excluded.completed_at, receipt_json = excluded.receipt_json"
+    ).run(receipt.id, receipt.command, receipt.status, receipt.completedAt ?? receipt.startedAt, JSON.stringify(receipt));
+  });
+}
+
+function saveNativeRunnerHistoryRow(db: DatabaseSync, runner: NativeRunnerHistoryItem): void {
+  runSqliteWrite(() => {
+    db.prepare(
+      "INSERT INTO journal_native_runner_history (id, created_at, runner_json) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET created_at = excluded.created_at, runner_json = excluded.runner_json"
+    ).run(runner.id, runner.createdAt, JSON.stringify(runner));
+  });
+}
+
+function normalizeNativeRunnerHistory(raw: unknown): NativeRunnerHistoryItem {
+  const record = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
+  const createdAt = stringField(record.createdAt) ?? stringField(record.created_at) ?? stringField(record.generatedAt) ?? stringField(record.generated_at) ?? new Date(0).toISOString();
+  const receiptId = stringField(record.receiptId) ?? stringField(record.receipt_id) ?? stringField(record.id) ?? `desktop-self-check:${createdAt}`;
+  const checks = Array.isArray(record.checks) ? record.checks.map(normalizeNativeRunnerCheck) : [];
+  return {
+    id: stringField(record.id) ?? receiptId,
+    receiptId,
+    createdAt,
+    generatedAt: stringField(record.generatedAt) ?? stringField(record.generated_at) ?? createdAt,
+    observedApiBase: stringField(record.observedApiBase) ?? stringField(record.observed_api_base) ?? "unknown",
+    divergenceSummary: stringField(record.divergenceSummary) ?? stringField(record.divergence_summary) ?? "Desktop self-check evidence is unavailable.",
+    status: normalizeOperationsGateStatus(stringField(record.status) ?? statusFromNativeChecks(checks)),
+    checks,
+    source: "desktop"
+  };
+}
+
+function normalizeNativeRunnerCheck(raw: unknown): NativeRunnerCheck {
+  const record = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
+  const id = normalizeNativeRunnerCheckId(stringField(record.id));
+  return {
+    id,
+    status: normalizeNativeRunnerCheckStatus(stringField(record.status)),
+    detail: stringField(record.detail) ?? `${id} status unavailable.`
+  };
+}
+
+function normalizeNativeRunnerCheckId(id: string | undefined): NativeRunnerCheck["id"] {
+  if (id === "api_liveness" || id === "gateway_readiness" || id === "launch_agent" || id === "sqlite_integrity" || id === "secret_store" || id === "native_runner_history") return id;
+  return "native_runner_history";
+}
+
+function normalizeNativeRunnerCheckStatus(status: string | undefined): NativeRunnerCheck["status"] {
+  if (status === "ok" || status === "degraded" || status === "failed" || status === "unknown") return status;
+  if (status === "passed") return "ok";
+  if (status === "warning" || status === "blocked") return status === "warning" ? "degraded" : "failed";
+  return "unknown";
+}
+
+function normalizeOperationsGateStatus(status: string): NativeRunnerHistoryItem["status"] {
+  if (status === "passed" || status === "warning" || status === "blocked" || status === "unknown") return status;
+  if (status === "ok") return "passed";
+  if (status === "degraded") return "warning";
+  if (status === "failed") return "blocked";
+  return "unknown";
+}
+
+function statusFromNativeChecks(checks: NativeRunnerCheck[]): NativeRunnerHistoryItem["status"] {
+  if (checks.some((check) => check.status === "failed")) return "blocked";
+  if (checks.some((check) => check.status === "degraded")) return "warning";
+  if (checks.length > 0 && checks.every((check) => check.status === "ok")) return "passed";
+  return "unknown";
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function runSqliteWrite<T>(operation: () => T): T {
+  const attempts = sqliteBusyRetryCount();
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= attempts; attempt += 1) {
+    try {
+      return operation();
+    } catch (error) {
+      lastError = error;
+      if (!isSqliteBusy(error) || attempt === attempts) throw error;
+      sleepSync(sqliteBusyRetryDelayMs(attempt));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+function isSqliteBusy(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return message.includes("sqlite_busy") || message.includes("database is locked") || message.includes("database is busy");
+}
+
+function sqliteBusyTimeoutMs(): number {
+  const parsed = Number(process.env.OPENCLOG_SQLITE_BUSY_TIMEOUT_MS ?? 5000);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 5000;
+}
+
+function sqliteBusyRetryCount(): number {
+  const parsed = Number(process.env.OPENCLOG_SQLITE_BUSY_RETRY_COUNT ?? 5);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 5;
+}
+
+function sqliteBusyRetryDelayMs(attempt: number): number {
+  return Math.min(1000, 50 * (attempt + 1));
+}
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 function upsertEntry(db: DatabaseSync, entry: JournalEntry): void {

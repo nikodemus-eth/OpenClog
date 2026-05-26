@@ -30,6 +30,8 @@ import type {
   MorningBriefArtifact,
   MorningCommandWorkflow,
   NativeCutoverPlan,
+  NativeRunnerCheck,
+  NativeRunnerHistoryItem,
   NativeTruthMonitorReport,
   OperationsBacklogReport,
   OperationsGateStatus,
@@ -95,8 +97,9 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
   const routeBudgets = buildRouteBudgets(repo);
   const deliveryLedger = buildDeliveryLedger(repo, {});
   const verificationReceipts = enrichVerificationReceipts(repo.listVerificationReceipts?.() ?? [], generatedAt);
+  const nativeRunnerHistory = repo.listNativeRunnerHistory?.() ?? [];
   const reportFreshness = buildReportFreshness(generatedAt, verificationReceipts);
-  const verificationCenter = buildVerificationCenter(repo, day, receipts, replay.steps.length, routeBudgets, generatedAt, verificationReceipts);
+  const verificationCenter = buildVerificationCenter(repo, day, receipts, replay.steps.length, routeBudgets, generatedAt, verificationReceipts, nativeRunnerHistory);
   const recommendationRationales = buildRecommendationRationales(day, receipts, incident);
   const attentionNow = buildAttentionNow(day, receipts, routeBudgets, verificationCenter, repo);
   const attentionNowDelta = buildAttentionNowDelta(day, receipts, verificationCenter, routeBudgets, repo);
@@ -121,6 +124,7 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
     receipts,
     repo.listIncidentActionRecords?.({ ...(incidentId ? { incidentId } : {}) }) ?? [],
     verificationReceipts,
+    nativeRunnerHistory,
     generatedAt,
     scopeKey
   );
@@ -194,7 +198,7 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
     morningBrief,
     savedViewAudit,
     morningCommand,
-    nativeTruthMonitor: buildNativeTruthMonitor(repo, verificationCenter),
+    nativeTruthMonitor: buildNativeTruthMonitor(repo, verificationCenter, nativeRunnerHistory),
     policyRecommendationPacks: buildPolicyRecommendationPacks(recommendationRationales),
     policyPackSummary,
     escalationPlaybooks: buildEscalationPlaybooks(day, verificationCenter, receipts),
@@ -426,12 +430,14 @@ function buildVerificationCenter(
   replaySteps: number,
   budgets: RoutePerformanceBudget[],
   generatedAt: string,
-  verificationReceipts = enrichVerificationReceipts(repo.listVerificationReceipts?.() ?? [], generatedAt)
+  verificationReceipts = enrichVerificationReceipts(repo.listVerificationReceipts?.() ?? [], generatedAt),
+  nativeRunnerHistory = repo.listNativeRunnerHistory?.() ?? []
 ): VerificationCenterReport {
   const latestVerify = latestReceipt(verificationReceipts.filter((receipt) => /(^verify$)|npm run verify/.test(receipt.command)));
   const latestGateway = latestReceipt(verificationReceipts.filter((receipt) => /verify:gateway|npm run verify:gateway/.test(receipt.command)));
   const latestDesktop = latestReceipt(verificationReceipts.filter((receipt) => /verify:desktop-native|npm run verify:desktop-native/.test(receipt.command)));
   const latestDocs = latestReceipt(verificationReceipts.filter((receipt) => /docs:check|npm run docs:check/.test(receipt.command)));
+  const latestNativeRunner = nativeRunnerHistory[0];
   const summaryFresh = generatedSummaryFresh(day);
   const failedDryRunReceipts = receipts.filter((receipt) => receipt.dryRun && receipt.status === "failed");
   const anyDryRunReceipts = receipts.filter((receipt) => receipt.dryRun);
@@ -460,7 +466,7 @@ function buildVerificationCenter(
     }),
     withGateFreshness({ id: "replay_integrity", label: "Replay integrity", status: replaySteps > 0 ? "passed" : "warning", detail: replaySteps > 0 ? "Replay evidence is reconstructable." : "Replay evidence is not available.", evidenceIds: replaySteps > 0 ? ["mission-replay"] : [], blockingReasons: [], nextSafeActions: replaySteps > 0 ? ["Keep replay evidence attached to handoff."] : ["Create a replay workspace before external review."], generatedAt }),
     withGateFreshness({ id: "gateway_readiness", label: "Gateway readiness", status: latestGateway?.status === "passed" ? "passed" : latestGateway?.status === "failed" ? "blocked" : "unknown", detail: latestGateway?.summary ?? "No Gateway verification receipt.", evidenceIds: latestGateway ? [latestGateway.id] : [], blockingReasons: latestGateway?.status === "failed" ? [latestGateway.summary] : latestGateway ? [] : ["No Gateway verification receipt."], nextSafeActions: latestGateway?.status === "passed" ? ["Gateway verification is current enough for review."] : ["Run verify:gateway and record the receipt."], completedAt: latestGateway?.completedAt ?? latestGateway?.startedAt, generatedAt }),
-    withGateFreshness({ id: "desktop_self_check", label: "Desktop self-check", status: latestDesktop?.status === "passed" ? "passed" : latestDesktop?.status === "failed" ? "blocked" : "unknown", detail: latestDesktop?.summary ?? "No desktop self-check receipt.", evidenceIds: latestDesktop ? [latestDesktop.id] : [], blockingReasons: latestDesktop?.status === "failed" ? [latestDesktop.summary] : latestDesktop ? [] : ["No desktop self-check receipt."], nextSafeActions: latestDesktop?.status === "passed" ? ["Desktop-native evidence is available."] : ["Run verify:desktop-native and record the receipt."], completedAt: latestDesktop?.completedAt ?? latestDesktop?.startedAt, generatedAt }),
+    withGateFreshness(buildDesktopSelfCheckGate(latestDesktop, latestNativeRunner, generatedAt)),
     withGateFreshness({ id: "route_budgets", label: "Route budgets", status: budgets.some((budget) => budget.status === "breach") ? "blocked" : "passed", detail: "Route performance budgets evaluated for summary jobs, incidents, health, operations report, and verification receipts.", evidenceIds: budgets.map((budget) => budget.route), blockingReasons: budgets.filter((budget) => budget.status === "breach").map((budget) => `${budget.route} exceeded ${budget.budgetMs} ms budget with ${budget.observedMs} ms observed.`), nextSafeActions: budgets.some((budget) => budget.status === "breach") ? ["Review route-budget regressions before closeout."] : ["Keep route-budget receipt attached to operations report."], generatedAt })
   ];
   const readinessScore = Math.max(
@@ -721,6 +727,39 @@ function latestCompletedAt(items: Array<{ completedAt?: string }>): string | und
     .map((item) => item.completedAt)
     .filter((timestamp): timestamp is string => Boolean(timestamp))
     .sort((left, right) => Date.parse(right) - Date.parse(left))[0];
+}
+
+function buildDesktopSelfCheckGate(latestDesktop: VerificationReceipt | undefined, latestNativeRunner: NativeRunnerHistoryItem | undefined, generatedAt: string): Omit<VerificationCenterGate, "ageMs" | "ageLabel" | "freshness"> & { completedAt?: string; generatedAt: string } {
+  const receiptStatus = latestDesktop?.status === "passed" ? "passed" : latestDesktop?.status === "failed" ? "blocked" : "unknown";
+  const nativeStatus = latestNativeRunner?.status ?? "unknown";
+  const status = worstStatus([receiptStatus, nativeStatus]);
+  const evidenceIds = [
+    ...(latestDesktop ? [latestDesktop.id] : []),
+    ...(latestNativeRunner ? [latestNativeRunner.receiptId] : [])
+  ];
+  const blockingReasons = [
+    ...(latestDesktop?.status === "failed" ? [latestDesktop.summary] : []),
+    ...(!latestDesktop ? ["No desktop-native verification receipt."] : []),
+    ...(latestNativeRunner?.status === "blocked" ? [latestNativeRunner.divergenceSummary] : []),
+    ...(!latestNativeRunner ? ["No native runner self-check history has been persisted."] : [])
+  ];
+  const completedAt = latestNativeRunner?.generatedAt ?? latestDesktop?.completedAt ?? latestDesktop?.startedAt;
+  return {
+    id: "desktop_self_check",
+    label: "Desktop self-check",
+    status,
+    detail: latestNativeRunner
+      ? `Native runner ${latestNativeRunner.status}; ${latestNativeRunner.divergenceSummary}`
+      : latestDesktop?.summary ?? "No desktop self-check receipt.",
+    evidenceIds,
+    blockingReasons,
+    nextSafeActions:
+      status === "passed"
+        ? ["Desktop-native receipt and native runner evidence are available."]
+        : ["Run verify:desktop-native and ensure the desktop scheduled self-check persists native runner history."],
+    completedAt,
+    generatedAt
+  };
 }
 
 function withGateFreshness(input: Omit<VerificationCenterGate, "ageMs" | "ageLabel" | "freshness"> & { completedAt?: string; generatedAt: string }): VerificationCenterGate {
@@ -1432,6 +1471,7 @@ function buildOperationsLedger(
   receipts: Array<{ id: string; status: string; completedAt: string; correlationId?: string; retryCount?: number }>,
   actionRecords: Array<{ id: string; title: string; status: "completed" | "failed"; createdAt: string; receiptId?: string; metadata?: Record<string, unknown> }>,
   verificationReceipts: Array<{ id: string; status: "passed" | "failed" | "unknown"; completedAt?: string; startedAt: string; command: string }>,
+  nativeRunnerHistory: NativeRunnerHistoryItem[],
   generatedAt: string,
   scopeKey: string
 ): OperationsLedgerEntry[] {
@@ -1443,7 +1483,19 @@ function buildOperationsLedger(
     .map((receipt) => ledgerEntry(`ledger-delivery-retry-${receipt.id}`, "delivery.retry_backoff", receipt.completedAt, "failed", receipt.id, receipt.correlationId, "delivery", "Delivery retry remains bounded by explicit idempotency posture."));
   const actionEntries = actionRecords.map((record) => ledgerEntry(`ledger-action-${record.id}`, `incident.action.${record.status}`, record.createdAt, record.status, record.receiptId ?? record.id, typeof record.metadata?.correlationId === "string" ? record.metadata.correlationId : undefined, "incident_action", record.title));
   const verificationEntries = verificationReceipts.map((receipt) => ledgerEntry(`ledger-verification-${receipt.id}`, `verification.${receipt.command}.${receipt.status}`, receipt.completedAt ?? receipt.startedAt, receipt.status === "passed" ? "completed" : receipt.status === "failed" ? "failed" : "unknown", receipt.id, undefined, "verification", `${receipt.command} ${receipt.status}`));
-  return [reportEntry, ...summaryEntries, ...receiptEntries, ...retryEntries, ...actionEntries, ...verificationEntries].sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+  const nativeRunnerEntries = nativeRunnerHistory.map((runner) =>
+    ledgerEntry(
+      `ledger-native-runner-${runner.id}`,
+      `native.self_check.${runner.status}`,
+      runner.generatedAt,
+      runner.status === "passed" ? "completed" : runner.status === "blocked" ? "failed" : runner.status === "warning" ? "blocked" : "unknown",
+      runner.receiptId,
+      undefined,
+      "native_runner",
+      `Desktop self-check persisted for ${runner.observedApiBase}.`
+    )
+  );
+  return [reportEntry, ...summaryEntries, ...receiptEntries, ...retryEntries, ...actionEntries, ...verificationEntries, ...nativeRunnerEntries].sort((left, right) => right.timestamp.localeCompare(left.timestamp));
 }
 
 function ledgerEntry(
@@ -1459,30 +1511,46 @@ function ledgerEntry(
   return { id, kind, action, timestamp, status, actor: "openclog", targetId, ...(correlationId ? { correlationId } : {}), evidenceIds: [targetId], ...(summary ? { summary } : {}) };
 }
 
-function buildNativeTruthMonitor(repo: ApplicationRepository, verificationCenter: VerificationCenterReport): NativeTruthMonitorReport {
+function buildNativeTruthMonitor(repo: ApplicationRepository, verificationCenter: VerificationCenterReport, nativeRunnerHistory: NativeRunnerHistoryItem[] = repo.listNativeRunnerHistory?.() ?? []): NativeTruthMonitorReport {
   const hasBackend = Boolean(repo.getBackendFingerprint?.());
   const gatewayGate = verificationCenter.gates.find((gate) => gate.id === "gateway_readiness");
   const desktopGate = verificationCenter.gates.find((gate) => gate.id === "desktop_self_check");
+  const latestRunner = nativeRunnerHistory[0];
+  const nativeChecks = latestRunner?.checks.map((check) => ({
+    id: check.id,
+    status: nativeRunnerCheckStatus(check.status),
+    detail: check.detail
+  })) ?? [];
+  const launchAgentCheck = nativeChecks.find((check) => check.id === "launch_agent");
   const checks = [
     { id: "api_health" as const, status: "passed" as const, detail: "API health route is represented in local diagnostics." },
     { id: "gateway_readiness" as const, status: gatewayGate?.status ?? "unknown", detail: gatewayGate?.detail ?? "Gateway readiness unknown." },
-    { id: "launch_agent" as const, status: "unknown" as const, detail: "LaunchAgent status requires native host inspection." },
+    launchAgentCheck ?? { id: "launch_agent" as const, status: "unknown" as const, detail: "LaunchAgent status requires native host inspection." },
     { id: "backend_fingerprint" as const, status: hasBackend ? ("passed" as const) : ("warning" as const), detail: hasBackend ? "Backend fingerprint is present." : "Backend fingerprint is unavailable." },
-    { id: "desktop_self_check" as const, status: desktopGate?.status ?? "unknown", detail: desktopGate?.detail ?? "Desktop self-check receipt unavailable." }
+    { id: "desktop_self_check" as const, status: desktopGate?.status ?? "unknown", detail: desktopGate?.detail ?? "Desktop self-check receipt unavailable." },
+    ...nativeChecks.filter((check) => check.id !== "gateway_readiness" && check.id !== "launch_agent")
   ];
   const divergenceSummary =
-    gatewayGate?.status === "passed" && desktopGate?.status && desktopGate.status !== "passed"
+    latestRunner?.divergenceSummary ??
+    (gatewayGate?.status === "passed" && desktopGate?.status && desktopGate.status !== "passed"
       ? "Fastify cannot hand off authority safely yet because desktop self-check evidence lags behind current Fastify readiness."
       : desktopGate?.status === "passed" && gatewayGate?.status === "blocked"
         ? "Desktop-native evidence is healthier than Fastify-reported readiness; Fastify remains authoritative until the divergence is resolved."
-        : "Fastify remains the active authority and current native-host signals are consistent with prep-only cutover.";
-  return { status: worstStatus(checks.map((check) => check.status)), divergenceSummary, checks };
+        : "Fastify remains the active authority and current native-host signals are consistent with prep-only cutover.");
+  return { status: worstStatus(checks.map((check) => check.status)), divergenceSummary, checks, ...(latestRunner ? { latestRunner } : {}), history: nativeRunnerHistory.slice(0, 5) };
 }
 
 function buildRetentionImpact(repo: ApplicationRepository) {
   return repo.previewRetention
     ? repo.previewRetention({ keepDays: 1, includeAudit: true, includeRedactedEvents: true, includeSummaries: true })
     : { keepDays: 1, removedDayKeys: [], removedEntryCount: 0, removedSummaryCount: 0, removedAuditCount: 0 };
+}
+
+function nativeRunnerCheckStatus(status: NativeRunnerCheck["status"]): OperationsGateStatus {
+  if (status === "ok") return "passed";
+  if (status === "degraded") return "warning";
+  if (status === "failed") return "blocked";
+  return "unknown";
 }
 
 function buildActiveHypotheses(repo: ApplicationRepository): ActiveHypothesis[] {
@@ -1504,11 +1572,11 @@ function buildNativeCutoverPlan(): NativeCutoverPlan {
   return {
     status: "prep",
     artifactPath: "docs/openclog-native-cutover.md",
-    summary: "Truthful prep only: document the desktop-boundary cutover without moving Fastify-owned authority in this campaign.",
+    summary: "Truthful prep advanced: the desktop boundary can now persist scheduled self-check evidence, while Fastify still owns policy and report authority.",
     nextSteps: [
-      "Move scheduled self-check ownership into the desktop boundary without duplicating Fastify policy.",
       "Keep secure-secret handling native-only and fail closed when the desktop boundary is unavailable.",
-      "Promote launch-health evidence into the machine-local operations ledger before any larger cutover."
+      "Keep Fastify as policy/report authority until native policy parity is proven with fresh receipts.",
+      "Add mutation-enabled Gateway proof before any live-send or authority handoff claim."
     ]
   };
 }

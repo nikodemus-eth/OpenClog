@@ -2,7 +2,7 @@
 
 ## Source Comparison
 
-Compared against the Google Doc titled `OpenClog` (`1FUJzFAW1TNgT42JWVeA2PClkyEPAgSt-PQYnCDj9B2Q`, re-read on 2026-05-20 at revision `AFwiY18A9XkufsG9rNVFGcddP3qtqhPRVEd8BOCOEh9Dt-LoZtPnlVJf2j6PiegI62j78yjsj9Bf-bOYW95OeYdaixm5ABOVCm60g5Gko6c`). The live doc is updated 2026-05-19 and is the current authority for the operator workbench shape, Fastify authority boundary, and OpenClaw session backfill provenance.
+Compared against the Google Doc titled `OpenClog` (`1FUJzFAW1TNgT42JWVeA2PClkyEPAgSt-PQYnCDj9B2Q`, tab `t.0`, re-read on 2026-05-26 at revision `AFwiY1-3yHoYHFrQocVuEiNEr7BuZ-6Bvhf_e0J2WTt-WtLV_6ev1Jur9CPKHN8sEbCttMD1UrH-i5Zg5UYeuD1396z2ZQ7CtOqkqCFCvLA`). The live doc was current through the `53b761f` one-pass operations campaign before this native-runner evidence pass and needed the active native self-check evidence boundary added.
 
 The old source framing was stale in these places, and the current Google Doc now replaces that framing:
 
@@ -75,6 +75,8 @@ The report includes:
 
 Real verification commands publish local `VerificationReceipt` rows into `journal_verification_receipts`. The API reads those receipts through `/api/verification/receipts`, and the operations report uses them to populate Verification Center timestamps, docs-check commit evidence, Gateway readiness, desktop self-check, and operations ledger entries.
 
+The native desktop boundary now also produces machine-local self-check evidence. Tauri runs a scheduled self-check on startup and on `OPENCLOG_DESKTOP_SELF_CHECK_INTERVAL_MS` unless the interval is `0`; it observes the API base, public Gateway readiness, the `com.m4.openclog-api` LaunchAgent, SQLite path presence, and secure-store availability, then persists the normalized row into `journal_native_runner_history`. The shared operations report reads that table into `nativeTruthMonitor.latestRunner`, the native-truth history list, and `operationsLedger` entries with `kind: "native_runner"`.
+
 Verification Center gates now include explicit `fresh`, `aging`, `stale`, or `unknown` stale-age badges, operator-facing blocker reasons, and next-safe-action copy. The collapsed rail and shell header can summarize the latest successful local verify bundle without granting browser-side authority to write verification receipts.
 
 The browser shell also persists the selected center-lane tab and incident panel state per day key in local storage, exposes keyboard jumps for search, incidents, Verification Center, rails, and the next failed Verification Center gate, and keeps blocked delivery/plugin/incident actions explainable through one-click `why blocked` drawers sourced from the operations report and capability gates. Verification Center and Operations backlog panels show report generation timestamps, and empty report states offer local reload/integrity actions without inventing report evidence.
@@ -106,9 +108,9 @@ The current one-pass operations campaign deepens those same seams again without 
 - Keyboard recovery now includes recovered-evidence and morning-command jumps, and blocked Verification Center gates expose a direct `Copy next safe action` affordance.
 - A fixture-backed local load harness at [`scripts/load-report-routes.ts`](/Users/m4/OpenClog/scripts/load-report-routes.ts) can rehearse or live-check route budgets for `/api/operations/report`, `/api/verification/receipts`, and session drilldowns.
 
-SQLite has prep tables for readiness snapshots, incident templates, settings history, signed bundle manifests, and native runner history. These tables support the roadmap's durable-local direction, but Fastify remains the current authority for Gateway readiness, receipts, operations reporting, incident actions, retention, delivery policy, and verification read paths until a native cutover proof replaces it.
+SQLite has prep tables for readiness snapshots, incident templates, settings history, signed bundle manifests, and native runner history. Native-runner history is now written by the desktop host and surfaced as local evidence, but Fastify remains the current authority for Gateway readiness, command receipts, operations reporting, incident actions, retention, delivery policy, and verification read paths until a native policy-parity proof replaces it.
 
-Native cutover remains truthful prep in the current repo state. The artifact at [`docs/openclog-native-cutover.md`](/Users/m4/OpenClog/docs/openclog-native-cutover.md) defines the intended desktop-boundary move without changing current Fastify authority for operator policy.
+Native cutover remains truthful prep in the current repo state. The artifact at [`docs/openclog-native-cutover.md`](/Users/m4/OpenClog/docs/openclog-native-cutover.md) defines the active desktop self-check evidence boundary without changing current Fastify authority for operator policy.
 
 ## Verification And Safety
 
@@ -117,5 +119,6 @@ OpenClog remains local and fail-closed:
 - Gateway tokens, device identity, auth headers, raw frames, and delivery secrets stay backend-only.
 - Browser surfaces render sanitized view models and redacted copy.
 - Verification receipt publishing is CLI/local SQLite behavior, not a browser write endpoint.
+- Native-runner history publishing is desktop-host/local SQLite behavior, not a browser write endpoint or proof of full native authority.
 - Remote operations remain disabled by default, and secret access remains fail-closed.
 - Verification closeout uses typecheck, lint, unit coverage, integration/API tests, Playwright interaction tests, visual snapshots, red-team tests, desktop-native verification, Gateway verification, docs check, and full `npm run verify`.

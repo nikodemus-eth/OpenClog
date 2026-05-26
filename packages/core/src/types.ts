@@ -977,6 +977,26 @@ export interface RemoteOpsPolicy {
 
 export type OperationsGateStatus = "passed" | "warning" | "blocked" | "unknown";
 
+export type NativeRunnerCheckStatus = "ok" | "degraded" | "failed" | "unknown";
+
+export interface NativeRunnerCheck {
+  id: "api_liveness" | "gateway_readiness" | "launch_agent" | "sqlite_integrity" | "secret_store" | "native_runner_history";
+  status: NativeRunnerCheckStatus;
+  detail: string;
+}
+
+export interface NativeRunnerHistoryItem {
+  id: string;
+  receiptId: string;
+  createdAt: string;
+  generatedAt: string;
+  observedApiBase: string;
+  divergenceSummary: string;
+  status: OperationsGateStatus;
+  checks: NativeRunnerCheck[];
+  source: "desktop";
+}
+
 export interface SummaryJobHistoryItem extends SummaryJob {
   queuedForMs: number;
   runningForMs: number;
@@ -1516,7 +1536,7 @@ export interface RoleAwareIncidentSimulation {
 
 export interface OperationsLedgerEntry {
   id: string;
-  kind: "report_generation" | "verification" | "delivery" | "incident_action" | "summary_job";
+  kind: "report_generation" | "verification" | "delivery" | "incident_action" | "summary_job" | "native_runner";
   action: string;
   timestamp: string;
   status: "completed" | "failed" | "blocked" | "unknown";
@@ -1530,8 +1550,10 @@ export interface OperationsLedgerEntry {
 export interface NativeTruthMonitorReport {
   status: OperationsGateStatus;
   divergenceSummary?: string;
+  latestRunner?: NativeRunnerHistoryItem;
+  history?: NativeRunnerHistoryItem[];
   checks: Array<{
-    id: "api_health" | "gateway_readiness" | "launch_agent" | "backend_fingerprint" | "desktop_self_check";
+    id: "api_health" | "gateway_readiness" | "launch_agent" | "backend_fingerprint" | "desktop_self_check" | NativeRunnerCheck["id"];
     status: OperationsGateStatus;
     detail: string;
   }>;

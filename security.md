@@ -3,6 +3,11 @@
 ## Purpose
 Track OpenClog security posture, Gateway authority boundaries, redaction, and fail-closed behavior.
 
+## 2026-05-26 Native Runner Evidence Cutover Prep
+- Native-runner history is written by the desktop host into local SQLite and surfaced as bounded evidence only; no browser route was added for writing verification receipts, native history, Gateway secrets, or readiness claims.
+- The desktop self-check records public API/Gateway readiness, LaunchAgent state, SQLite path presence, and secure-store availability, but it does not expose Gateway tokens, device identity, raw frames, auth headers, or delivery secrets to the browser.
+- Full native authority is still explicitly out of scope: Fastify remains the policy/report authority until a separate native policy-parity and mutation-enabled Gateway proof exists.
+
 ## 2026-05-25 One-Pass Operations Campaign
 - Persisted report snapshots, saved-view audit events, and evidence-drift observations stay repository-backed and local-only; no browser-write endpoint was added for report provenance, verification receipts, or readiness narratives.
 - `/api/healthz` now exposes a compact operations summary derived from sanitized local evidence only: report freshness state, smoke timestamp, queue depth, recovered-evidence provisional state, and route-budget regression count.

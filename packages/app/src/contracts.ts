@@ -25,6 +25,7 @@ import type {
   JournalSearchResult,
   LineageRecord,
   MissionReplay,
+  NativeRunnerHistoryItem,
   OpenClogSettings,
   OperationsBacklogReport,
   OperatorRunbook,
@@ -157,6 +158,8 @@ export interface GovernanceRepository {
   generateOperatorRunbook(): OperatorRunbook;
   completeCloseout(dayKey: string, exportTargets: string[]): CloseoutCompletion;
   listVerificationReceipts(): VerificationReceipt[];
+  listNativeRunnerHistory?(): NativeRunnerHistoryItem[];
+  saveNativeRunnerHistory?(runner: NativeRunnerHistoryItem): NativeRunnerHistoryItem;
   listSavedViewAuditEvents?(): SavedViewAuditEvent[];
   saveSavedViewAuditEvent?(event: SavedViewAuditEvent): SavedViewAuditEvent;
   getLatestOperationsReportSnapshot?(scopeKey: string): {

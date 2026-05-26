@@ -188,6 +188,12 @@ export const journalVerificationReceipts = sqliteTable("journal_verification_rec
   receiptJson: text("receipt_json").notNull()
 });
 
+export const journalNativeRunnerHistory = sqliteTable("journal_native_runner_history", {
+  id: text("id").primaryKey(),
+  createdAt: text("created_at").notNull(),
+  runnerJson: text("runner_json").notNull()
+});
+
 export const journalInvestigationWorkspaces = sqliteTable("journal_investigation_workspaces", {
   id: text("id").primaryKey(),
   workspaceJson: text("workspace_json").notNull()

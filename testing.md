@@ -3,6 +3,11 @@
 ## Purpose
 Record deterministic verification, live Gateway verification, coverage policy, and closeout results.
 
+## 2026-05-26 Native Runner Evidence Cutover Prep
+- Added failing-first coverage for native-runner persistence, operations-report ledger promotion, Native Truth Monitor readback, desktop self-check SQLite persistence, and receipt recording through a transient SQLite lock.
+- Focused verification passed during implementation with `npx vitest run packages/app/test/application.test.ts apps/api/test/repository.test.ts apps/api/test/advanced-features.test.ts apps/web/test/operator-workspace.test.ts`, `npm run typecheck`, and `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml`.
+- Final closeout still requires fresh recorded receipts for `npm run verify`, `npm run docs:check`, `npm run test:smoke`, `npm run verify:gateway`, and `npm run verify:desktop-native` against the final local HEAD.
+
 ## 2026-05-25 One-Pass Operations Campaign
 - Added targeted unit/API coverage for persisted report snapshots, saved-view audit events, evidence-drift observations, enriched `/api/healthz` operations metadata, and the expanded operations-report assembly path.
 - Added browser coverage for report freshness copy, persisted report diff/provenance surfaces, saved-view audit visibility, morning-command workflow text, recovered-evidence shortcut focus, and blocked Verification Center `Copy next safe action` affordances.

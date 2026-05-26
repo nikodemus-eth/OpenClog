@@ -2796,6 +2796,14 @@ function OperationalPanels(props: {
             </ul>
             <p>Native truth monitor: {operationsReport.nativeTruthMonitor.status}.</p>
             {operationsReport.nativeTruthMonitor.divergenceSummary ? <p>{operationsReport.nativeTruthMonitor.divergenceSummary}</p> : null}
+            {operationsReport.nativeTruthMonitor.latestRunner ? (
+              <p>
+                Latest native self-check {operationsReport.nativeTruthMonitor.latestRunner.receiptId} at {operationsReport.nativeTruthMonitor.latestRunner.generatedAt}; API{" "}
+                {operationsReport.nativeTruthMonitor.latestRunner.observedApiBase}; persisted history {operationsReport.nativeTruthMonitor.history?.length ?? 1} run(s).
+              </p>
+            ) : (
+              <p>Native self-check history has not been persisted yet.</p>
+            )}
             <ul>
               {operationsReport.nativeTruthMonitor.checks.map((check) => (
                 <li key={check.id}>
@@ -3096,6 +3104,11 @@ function OperationalPanels(props: {
                 </li>
               ))}
             </ul>
+            {operationsReport.operationsLedger.entries.some((entry) => entry.kind === "native_runner") ? (
+              <p>Native runner evidence is present in the operations ledger.</p>
+            ) : (
+              <p>Native runner evidence is absent from the operations ledger.</p>
+            )}
             <p>Policy packs: {operationsReport.policyRecommendationPacks.map((pack) => pack.label).join(", ")}.</p>
             <p>Policy-pack summary: {operationsReport.policyPackSummary.environment}, browser authority {operationsReport.policyPackSummary.readOnlyBrowserAuthority ? "read-only" : "mutable"}.</p>
             <p>

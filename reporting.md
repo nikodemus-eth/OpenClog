@@ -1,5 +1,10 @@
 # OpenClog Reporting Seed
 
+## 2026-05-26 Native Runner Evidence Cutover Prep
+- Daily reporting can now cite native-runner evidence separately from command verification receipts: latest desktop self-check receipt id, observed API base, LaunchAgent state, and persisted history count come from `journal_native_runner_history`.
+- The Operations Ledger now distinguishes `native_runner` entries from `verification` entries, so desktop-boundary health evidence does not masquerade as a CLI verification receipt.
+- Native cutover reporting should still say prep: Fastify remains policy/report authority, and browser receipt writes, browser-visible secrets, Gateway mutation proof, raw playback/import-queue control, broad remote ops, and admin/config editing remain non-complete.
+
 ## 2026-05-25 One-Pass Operations Campaign
 - Daily reporting can now distinguish three freshness layers explicitly: generated-summary freshness, operations-report freshness relative to the newest verification receipt, and the latest successful `test:smoke` timestamp.
 - The operations report now carries persisted diff/provenance evidence, saved-view audit output, evidence-drift summaries, and a guided morning-command workflow so morning handoff copy can stay bounded to stored local evidence.

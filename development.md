@@ -3,6 +3,11 @@
 ## Purpose
 Track OpenClog implementation decisions, verification passes, refactors, and closeout evidence.
 
+## 2026-05-26 Native Runner Evidence Cutover Prep
+- Added shared native-runner evidence contracts, repository read/write methods, a Drizzle schema export, and bounded SQLite busy handling so command receipts and native self-check rows wait through transient local locks instead of being silently lost.
+- Promoted the Tauri scheduled self-check into a persisted desktop evidence producer: it writes normalized native-runner history to `journal_native_runner_history`, runs once on startup, and repeats on `OPENCLOG_DESKTOP_SELF_CHECK_INTERVAL_MS` unless the interval is `0`.
+- Wired native-runner evidence into the operations report, Native Truth Monitor, Operations Ledger, and workbench copy while keeping Fastify as policy/report authority and the browser read-only for verification evidence.
+
 ## 2026-05-25 One-Pass Operations Campaign
 - Deepened the shared operations-report contract across `@openclog/core`, `@openclog/app`, and the SQLite repository instead of layering a second UI-only status model on top of the existing report scaffolding.
 - Added persisted report snapshots, saved-view audit events, and evidence-drift observations so report freshness, diffing, provenance, and saved-view hygiene can fail closed from local evidence rather than inferred browser state.

@@ -654,6 +654,25 @@ describe("OpenClog application layer", () => {
           { id: "verify-desktop", command: "verify:desktop-native", status: "passed", startedAt: "2026-05-08T12:06:00.000Z", completedAt: "2026-05-08T12:06:10.000Z", summary: "Desktop self-check passed." },
           { id: "verify-docs", command: "docs:check", status: "passed", startedAt: "2026-05-08T12:06:30.000Z", completedAt: "2026-05-08T12:06:40.000Z", summary: "Docs check passed.", commitSha: "abc1234" }
         ],
+        listNativeRunnerHistory: () => [
+          {
+            id: "desktop-self-check-local-20260508T120700000Z",
+            receiptId: "desktop-self-check:http_127_0_0_1_3000:20260508T120700000Z",
+            createdAt: "2026-05-08T12:07:00.000Z",
+            generatedAt: "2026-05-08T12:07:00.000Z",
+            observedApiBase: "http://127.0.0.1:3000",
+            divergenceSummary: "Desktop self-check agrees with public Gateway readiness.",
+            status: "passed",
+            source: "desktop",
+            checks: [
+              { id: "api_liveness", status: "ok", detail: "API health responded at http://127.0.0.1:3000/api/health." },
+              { id: "gateway_readiness", status: "ok", detail: "Gateway readiness is ready in public health." },
+              { id: "launch_agent", status: "ok", detail: "LaunchAgent com.m4.openclog-api is loaded." },
+              { id: "sqlite_integrity", status: "ok", detail: "SQLite repository path is present at /Users/m4/OpenClog/openclog.db." },
+              { id: "secret_store", status: "ok", detail: "macOS Keychain backend is available for configured delivery secrets." }
+            ]
+          }
+        ],
         listHealthTimeline: () => [
           { id: "health-1", timestamp: "2026-05-08T12:01:00.000Z", category: "stale", title: "Backend fingerprint changed", detail: "Runtime drift observed." },
           { id: "health-2", timestamp: "2026-05-08T12:02:00.000Z", category: "reconnect", title: "Gateway reconnected", detail: "Reconnect attempt completed." }
@@ -768,7 +787,7 @@ describe("OpenClog application layer", () => {
       readinessHistory: { points: Array<{ backendHealthy: boolean; gatewayStatus: string }> };
       guidedIncidentCommand: { stages: Array<{ id: string; complete: boolean; blocked: boolean }> };
       escalationPlaybooks: Array<{ id: string; title: string }>;
-      operationsLedger: { entries: Array<{ action: string; correlationId?: string }> };
+      operationsLedger: { entries: Array<{ action: string; correlationId?: string; kind?: string; evidenceIds?: string[] }> };
       reportFreshness: { status: string; summary: string; latestVerificationReceiptId?: string };
       reportDiff: { available: boolean; summary: string; changedFields: string[]; previousSnapshotId?: string };
       reportProvenance: { sourceVerificationReceiptIds: string[]; sourceSummaryJobIds: string[]; lineageSummary: string };
@@ -778,7 +797,7 @@ describe("OpenClog application layer", () => {
       governedSdkManifests: Array<{ id: string; permissions: string[]; supportsDryRun: boolean }>;
       roleAwareSimulations: Array<{ id: string; liveSideEffects: false }>;
       policyRecommendationPacks: Array<{ id: string; recommendations: Array<{ whyThisRecommendation: string }> }>;
-      nativeTruthMonitor: { status: string; checks: Array<{ id: string; status: string }> };
+      nativeTruthMonitor: { status: string; checks: Array<{ id: string; status: string }>; latestRunner?: { receiptId: string; observedApiBase: string }; history?: unknown[]; divergenceSummary?: string };
       retentionImpact: { removedEntryCount: number; removedDayKeys: string[] };
       activeHypotheses: Array<{ label: string; hypothesis: string; validationSteps: string[] }>;
       nativeCutoverPlan: { status: string; artifactPath: string; nextSteps: string[] };
@@ -952,18 +971,34 @@ describe("OpenClog application layer", () => {
     expect(report.escalationPlaybooks).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: "stale-summary" }), expect.objectContaining({ id: "failed-dry-run" })])
     );
-    expect(report.operationsLedger.entries.map((entry) => entry.action)).toEqual(expect.arrayContaining(["summary.completed", "delivery.failed", "incident.action.failed"]));
+    expect(report.operationsLedger.entries.map((entry) => entry.action)).toEqual(expect.arrayContaining(["summary.completed", "delivery.failed", "incident.action.failed", "native.self_check.passed"]));
+    expect(report.operationsLedger.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "native_runner",
+          evidenceIds: ["desktop-self-check:http_127_0_0_1_3000:20260508T120700000Z"]
+        })
+      ])
+    );
     expect(report.governedSdkManifests).toEqual(expect.arrayContaining([expect.objectContaining({ id: "slack", permissions: ["delivery:slack"], supportsDryRun: true })]));
     expect(report.roleAwareSimulations.every((simulation) => simulation.liveSideEffects === false)).toBe(true);
     expect(report.policyRecommendationPacks.find((pack) => pack.id === "failed-summaries")?.recommendations[0].whyThisRecommendation).toContain("evidence");
-    expect(report.nativeTruthMonitor.checks).toEqual(expect.arrayContaining([expect.objectContaining({ id: "backend_fingerprint", status: "passed" })]));
+    expect(report.nativeTruthMonitor).toMatchObject({
+      latestRunner: {
+        receiptId: "desktop-self-check:http_127_0_0_1_3000:20260508T120700000Z",
+        observedApiBase: "http://127.0.0.1:3000"
+      },
+      history: expect.any(Array),
+      divergenceSummary: "Desktop self-check agrees with public Gateway readiness."
+    });
+    expect(report.nativeTruthMonitor.checks).toEqual(expect.arrayContaining([expect.objectContaining({ id: "backend_fingerprint", status: "passed" }), expect.objectContaining({ id: "launch_agent", status: "passed" })]));
     expect(report.retentionImpact).toMatchObject({ removedEntryCount: 0, removedDayKeys: [] });
     expect(report.activeHypotheses).toEqual([expect.objectContaining({ label: "Saved scope review", hypothesis: "Gateway scope grant is stale." })]);
     expect(report.morningBrief.citations).toEqual(expect.arrayContaining(["stale_summary", "receipt-slack-failed"]));
     expect(report.nativeCutoverPlan).toMatchObject({
       status: "prep",
       artifactPath: "docs/openclog-native-cutover.md",
-      nextSteps: expect.arrayContaining(["Move scheduled self-check ownership into the desktop boundary without duplicating Fastify policy."])
+      nextSteps: expect.arrayContaining(["Keep Fastify as policy/report authority until native policy parity is proven with fresh receipts."])
     });
   });
 
