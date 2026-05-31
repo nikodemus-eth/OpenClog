@@ -45,9 +45,11 @@ import type {
   PluginExecutionResult,
   PluginManifest,
   ProfileConfig,
+  RecoveredEvidenceSummary,
   RemoteOpsPolicy,
   ReplayWorkspace,
   ReportFreshness,
+  RouteBudgetHistoryObservation,
   SavedViewAuditEvent,
   ReplayStep,
   RetentionClass,
@@ -117,7 +119,11 @@ export interface OpenClogRepository {
   listNativeRunnerHistory(): NativeRunnerHistoryItem[];
   listVerificationReceipts(): VerificationReceipt[];
   listSavedViewAuditEvents(): SavedViewAuditEvent[];
+  listRouteBudgetObservations(route?: RouteBudgetHistoryObservation["route"]): RouteBudgetHistoryObservation[];
+  listStaleSummaryDayKeys(): string[];
+  getRecoveredEvidenceSummary(currentDayKey: string): RecoveredEvidenceSummary | undefined;
   saveSavedViewAuditEvent(event: SavedViewAuditEvent): SavedViewAuditEvent;
+  saveRouteBudgetObservation(observation: RouteBudgetHistoryObservation): RouteBudgetHistoryObservation;
   getLatestOperationsReportSnapshot(scopeKey: string): {
     id: string;
     scopeKey: string;
@@ -920,15 +926,38 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       return db.prepare("SELECT receipt_json FROM journal_delivery_receipts ORDER BY requested_at DESC, id DESC").all().map((row) => JSON.parse(String(row.receipt_json)) as DeliveryReceipt);
     },
     listHealthHistory(limit) {
-      return listAllEntries(db)
-        .reverse()
-        .map((entry) => {
-          const category = classifyHealthHistoryCategory(entry);
+      const rowLimit = Math.max(1, limit);
+      return db
+        .prepare(
+          `SELECT id, day_key, title, body, kind, status, severity, timestamp, entry_json
+           FROM journal_entries
+           WHERE lower(title || ' ' || coalesce(body, '')) LIKE '%reconnect%'
+              OR lower(title || ' ' || coalesce(body, '')) LIKE '%sequence gap%'
+              OR kind IN ('approval_requested', 'approval_resolved', 'error')
+              OR (kind IN ('tool_call', 'tool_result') AND (status = 'failed' OR severity = 'error'))
+           ORDER BY timestamp DESC
+           LIMIT ?`
+        )
+        .all(rowLimit)
+        .map((row) => {
+          const category = classifyHealthHistoryCategoryFromColumns({
+            title: String(row.title),
+            body: typeof row.body === "string" ? row.body : undefined,
+            kind: String(row.kind),
+            status: typeof row.status === "string" ? row.status : undefined,
+            severity: typeof row.severity === "string" ? row.severity : undefined
+          });
           if (!category) return null;
-          return { id: `health-${entry.id}`, entryId: entry.id, dayKey: entry.dayKey, title: entry.title, timestamp: entry.timestamp, category } satisfies HealthHistoryEntry;
+          return {
+            id: `health-${String(row.id)}`,
+            entryId: String(row.id),
+            dayKey: String(row.day_key),
+            title: String(row.title),
+            timestamp: String(row.timestamp),
+            category
+          } satisfies HealthHistoryEntry;
         })
-        .filter((entry): entry is HealthHistoryEntry => entry !== null)
-        .slice(0, Math.max(1, limit));
+        .filter((entry): entry is HealthHistoryEntry => entry !== null);
     },
     listHealthTimeline(limit = 10) {
       const historyEntries = repo.listHealthHistory(limit).map((entry) => ({
@@ -1028,6 +1057,29 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
         .all()
         .map((row) => JSON.parse(String(row.event_json)) as SavedViewAuditEvent);
     },
+    listRouteBudgetObservations(route) {
+      return db
+        .prepare("SELECT observation_json FROM journal_route_budget_observations ORDER BY recorded_at DESC, id DESC")
+        .all()
+        .map((row) => JSON.parse(String(row.observation_json)) as RouteBudgetHistoryObservation)
+        .filter((item) => !route || item.route === route);
+    },
+    listStaleSummaryDayKeys() {
+      return db
+        .prepare(
+          `SELECT days.day_key AS day_key
+           FROM journal_days days
+           LEFT JOIN journal_daily_summaries summaries ON summaries.day_key = days.day_key
+           WHERE summaries.day_key IS NULL
+              OR coalesce((SELECT MAX(timestamp) FROM journal_entries entries WHERE entries.day_key = days.day_key), '') > summaries.created_at
+           ORDER BY days.day_key ASC`
+        )
+        .all()
+        .map((row) => String(row.day_key));
+    },
+    getRecoveredEvidenceSummary(currentDayKey) {
+      return buildRecoveredEvidenceSummaryFromRows(db, currentDayKey);
+    },
     getLatestOperationsReportSnapshot(scopeKey) {
       const row = db
         .prepare("SELECT snapshot_json FROM journal_operations_report_snapshots WHERE scope_key = ? ORDER BY generated_at DESC, id DESC LIMIT 1")
@@ -1068,17 +1120,24 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       return db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'journal_%' ORDER BY name ASC").all().map((row) => String(row.name));
     },
     previewRetention(policy) {
-      const days = repo.listDays();
-      const kept = days.slice(0, Math.max(policy.keepDays, 0));
-      const removed = days.slice(kept.length);
-      const removedDayKeys = removed.map((day) => day.dayKey);
-      const removedEntryCount = removedDayKeys.reduce((count, dayKey) => count + (repo.getDay(dayKey)?.entries.length ?? 0), 0);
+      const dayKeys = db
+        .prepare("SELECT day_key FROM journal_days ORDER BY day_key DESC")
+        .all()
+        .map((row) => String(row.day_key));
+      const keptDayCount = Math.max(policy.keepDays, 0);
+      const removedDayKeys = dayKeys.slice(keptDayCount);
+      const placeholders = removedDayKeys.map(() => "?").join(", ");
+      const removedEntryCount =
+        removedDayKeys.length > 0 ? countRows(db, `SELECT COUNT(*) AS count FROM journal_entries WHERE day_key IN (${placeholders})`, ...removedDayKeys) : 0;
       return {
         keepDays: policy.keepDays,
         removedDayKeys,
         removedEntryCount,
-        removedSummaryCount: policy.includeSummaries ? removedDayKeys.filter((dayKey) => Boolean(getGeneratedSummary(db, dayKey))).length : 0,
-        removedAuditCount: policy.includeAudit ? Math.max(removedEntryCount - kept.length, 0) : 0,
+        removedSummaryCount:
+          policy.includeSummaries && removedDayKeys.length > 0
+            ? countRows(db, `SELECT COUNT(*) AS count FROM journal_daily_summaries WHERE day_key IN (${placeholders})`, ...removedDayKeys)
+            : 0,
+        removedAuditCount: policy.includeAudit ? Math.max(removedEntryCount - keptDayCount, 0) : 0,
         removedIncidentCount: repo.listIncidents().filter((incident) => incident.dayKeys.some((dayKey) => removedDayKeys.includes(dayKey))).length,
         removedAlertCount: repo.listAlertRules().length,
         removedBundleCount: removedDayKeys.length
@@ -1183,11 +1242,18 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       return report;
     },
     getSloSnapshot() {
-      const days = repo.listDays().map((day) => repo.getDay(day.dayKey)).filter((day): day is JournalDay => day !== null);
       const failedDeliveryCount = repo.listDeliveryReceipts().filter((receipt) => receipt.status === "failed").length;
-      const staleSummaryCount = days.filter((day) => day.generatedSummary && latestTimestampForEntries(day.entries) > day.generatedSummary.createdAt).length;
+      const staleSummaryCount = countRows(
+        db,
+        `SELECT COUNT(*) AS count
+         FROM journal_daily_summaries summaries
+         WHERE (SELECT MAX(timestamp) FROM journal_entries entries WHERE entries.day_key = summaries.day_key) > summaries.created_at`
+      );
       const retryBacklogCount = repo.listDeliveryReceipts().filter((receipt) => receipt.status === "failed" && receipt.retryCount > 0).length;
-      const reconnectHeavyDayCount = days.filter((day) => day.entries.some((entry) => /reconnect/i.test(`${entry.title} ${entry.body ?? ""}`))).length;
+      const reconnectHeavyDayCount = countRows(
+        db,
+        "SELECT COUNT(DISTINCT day_key) AS count FROM journal_entries WHERE lower(title || ' ' || coalesce(body, '')) LIKE '%reconnect%'"
+      );
       return {
         createdAt: new Date().toISOString(),
         gatewayFreshnessOk: repo.getHealthAggregate(10).staleCount === 0,
@@ -1282,6 +1348,12 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
         "INSERT INTO journal_saved_view_audit_events (id, view_id, created_at, event_json) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET view_id = excluded.view_id, created_at = excluded.created_at, event_json = excluded.event_json"
       ).run(event.id, event.viewId, event.createdAt, JSON.stringify(event));
       return event;
+    },
+    saveRouteBudgetObservation(observation) {
+      db.prepare(
+        "INSERT INTO journal_route_budget_observations (id, route, recorded_at, observation_json) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET route = excluded.route, recorded_at = excluded.recorded_at, observation_json = excluded.observation_json"
+      ).run(observation.id, observation.route, observation.recordedAt, JSON.stringify(observation));
+      return observation;
     },
     saveOperationsReportSnapshot(snapshot) {
       db.prepare(
@@ -1497,6 +1569,7 @@ function migrate(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS journal_operations_report_snapshots (id TEXT PRIMARY KEY, scope_key TEXT NOT NULL, generated_at TEXT NOT NULL, snapshot_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_saved_view_audit_events (id TEXT PRIMARY KEY, view_id TEXT NOT NULL, created_at TEXT NOT NULL, event_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_evidence_drift_observations (id TEXT PRIMARY KEY, scope_key TEXT NOT NULL, created_at TEXT NOT NULL, observation_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_route_budget_observations (id TEXT PRIMARY KEY, route TEXT NOT NULL, recorded_at TEXT NOT NULL, observation_json TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS idx_journal_entries_session ON journal_entries(session_id, timestamp);
     CREATE INDEX IF NOT EXISTS idx_journal_entries_status ON journal_entries(status, timestamp);
     CREATE INDEX IF NOT EXISTS idx_journal_entries_tool_name ON journal_entries(tool_name, timestamp);
@@ -1508,6 +1581,7 @@ function migrate(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS idx_journal_saved_view_audit_view ON journal_saved_view_audit_events(view_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_journal_evidence_drift_scope ON journal_evidence_drift_observations(scope_key, created_at);
     CREATE INDEX IF NOT EXISTS idx_journal_native_runner_created ON journal_native_runner_history(created_at);
+    CREATE INDEX IF NOT EXISTS idx_journal_route_budget_route ON journal_route_budget_observations(route, recorded_at);
   `);
   migrateVerificationReceipts(db);
 }
@@ -2001,7 +2075,13 @@ function buildRetentionClassImpact(
   };
 }
 
-function classifyHealthHistoryCategory(entry: JournalEntry): HealthHistoryEntry["category"] | null {
+function classifyHealthHistoryCategoryFromColumns(entry: {
+  title: string;
+  body?: string;
+  kind: string;
+  status?: string;
+  severity?: string;
+}): HealthHistoryEntry["category"] | null {
   const haystack = `${entry.title} ${entry.body ?? ""}`.toLocaleLowerCase();
   if (haystack.includes("reconnect")) return "reconnect";
   if (haystack.includes("sequence gap")) return "sequence_gap";
@@ -2009,6 +2089,45 @@ function classifyHealthHistoryCategory(entry: JournalEntry): HealthHistoryEntry[
   if ((entry.kind === "tool_call" || entry.kind === "tool_result") && (entry.status === "failed" || entry.severity === "error")) return "tool_failure";
   if (entry.kind === "error") return "gateway_error";
   return null;
+}
+
+function buildRecoveredEvidenceSummaryFromRows(db: DatabaseSync, _currentDayKey: string): RecoveredEvidenceSummary {
+  const rows = db
+    .prepare(
+      `SELECT day_key, entry_json
+       FROM journal_entries
+       WHERE entry_json LIKE '%"backfilled":true%'
+          OR source IN ('openclaw', 'openclaw-session-jsonl')
+       ORDER BY timestamp ASC`
+    )
+    .all();
+  const entries = rows
+    .map((row) => JSON.parse(String(row.entry_json)) as JournalEntry)
+    .filter((entry) => entry.backfilled === true);
+  const dayKeys = new Set<string>();
+  const summariesByDay = new Map<string, GeneratedSummary | undefined>();
+  let latestImportedAt: string | undefined;
+  let provisionalMetrics = false;
+  for (const entry of entries) {
+    dayKeys.add(entry.dayKey);
+    if (entry.importedAt && (!latestImportedAt || entry.importedAt > latestImportedAt)) latestImportedAt = entry.importedAt;
+    if (!summariesByDay.has(entry.dayKey)) summariesByDay.set(entry.dayKey, getGeneratedSummary(db, entry.dayKey));
+    const summary = summariesByDay.get(entry.dayKey);
+    if (summary?.lastEntryIncludedAt && entry.importedAt && summary.lastEntryIncludedAt.localeCompare(entry.importedAt) < 0) {
+      provisionalMetrics = true;
+    }
+  }
+  const cacheStateLabel = provisionalMetrics
+    ? "Recovered evidence changed after the last successful summary; usage totals are provisional."
+    : "Recovered evidence aligns with the latest available summary window.";
+  return {
+    sourceLabel: entries[0]?.sourceLabel ?? "Backfilled from OpenClaw",
+    entryCount: entries.length,
+    dayCount: dayKeys.size,
+    dayKeys: Array.from(dayKeys).sort(),
+    ...(latestImportedAt ? { latestImportedAt } : {}),
+    ...(provisionalMetrics ? { provisionalMetrics, cacheStateLabel, provisionalReason: cacheStateLabel } : {})
+  };
 }
 
 function buildEvidenceCompleteness(
@@ -2088,8 +2207,8 @@ function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function countRows(db: DatabaseSync, sql: string, value: string): number {
-  const row = db.prepare(sql).get(value) as { count?: number } | undefined;
+function countRows(db: DatabaseSync, sql: string, ...values: string[]): number {
+  const row = db.prepare(sql).get(...values) as { count?: number } | undefined;
   return typeof row?.count === "number" ? row.count : 0;
 }
 

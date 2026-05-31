@@ -1,8 +1,33 @@
 import type { OperationsBacklogReport } from "@openclog/core";
 
+function formatFreshnessDelta(staleByMs: number | undefined): string | null {
+  if (!Number.isFinite(staleByMs) || !staleByMs || staleByMs <= 0) return null;
+  if (staleByMs < 1000) return `${staleByMs}ms`;
+  const seconds = Math.round(staleByMs / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.round(seconds / 60);
+  return `${minutes}m`;
+}
+
 export function normalizeOperationsReport(report: OperationsBacklogReport): OperationsBacklogReport {
   return {
     ...report,
+    reportAssemblyTiming: report.reportAssemblyTiming ?? {
+      totalDurationMs: 0,
+      sections: [],
+      slowestSections: []
+    },
+    healthzEvidence: report.healthzEvidence ?? {
+      reportFreshness: report.reportFreshness.status,
+      latestVerificationReceiptCommand: report.reportFreshness.latestVerificationReceiptCommand,
+      freshnessThresholdMs: report.reportFreshness.freshnessThresholdMs,
+      staleByMs: report.reportFreshness.staleByMs,
+      thresholdBreached: report.reportFreshness.thresholdBreached,
+      queueDepth: report.summaryJobHistory.queueDepth,
+      oldestWaitingAgeLabel: report.summaryJobHistory.oldestWaitingAgeLabel,
+      recoveredEvidenceProvisional: report.recoveredEvidenceSummary?.provisionalMetrics ?? false,
+      routeBudgetRegressionCount: report.routeBudgetRegressions.length
+    },
     recoveredEvidenceSummary: report.recoveredEvidenceSummary
       ? {
           ...report.recoveredEvidenceSummary,
@@ -151,8 +176,19 @@ export function normalizeOperationsReport(report: OperationsBacklogReport): Oper
 
 export function describeReportFreshness(report: OperationsBacklogReport | null): string | null {
   if (!report) return null;
-  if (report.reportFreshness.status === "newer_than_latest_receipt") return "Report freshness: newer than latest verification receipt";
-  if (report.reportFreshness.status === "older_than_latest_receipt") return "Report freshness: older than latest verification receipt";
+  if (report.reportFreshness.status === "newer_than_latest_receipt") {
+    return report.reportFreshness.latestSuccessfulVerifyPredatesHead
+      ? "Report freshness: newer than latest verification receipt, but the latest verify bundle predates current HEAD"
+      : "Report freshness: newer than latest verification receipt";
+  }
+  if (report.reportFreshness.status === "older_than_latest_receipt") {
+    const thresholdMs = report.reportFreshness.freshnessThresholdMs;
+    const staleBy = formatFreshnessDelta(report.reportFreshness.staleByMs);
+    const threshold = report.reportFreshness.thresholdBreached ? " beyond threshold" : "";
+    const delta = staleBy ? `; stale by ${staleBy}` : "";
+    const configuredThreshold = thresholdMs ? `; threshold ${formatFreshnessDelta(thresholdMs) ?? `${thresholdMs}ms`}` : "";
+    return `Report freshness: older than latest verification receipt${threshold}${delta}${configuredThreshold}`;
+  }
   return "Report freshness: no verification receipts yet";
 }
 

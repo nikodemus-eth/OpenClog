@@ -520,6 +520,29 @@ setTimeout(() => {
     expect(repo.listEvidenceDriftObservations("2026-05-25:incident-1")).toEqual([observation]);
   });
 
+  test("persists bounded route-budget observations for trend history", () => {
+    const repo = createSqliteRepository(":memory:");
+    repos.push(repo);
+
+    const observation = repo.saveRouteBudgetObservation?.({
+      id: "route-budget-1",
+      route: "/api/operations/report",
+      observedMs: 412,
+      budgetMs: 350,
+      recordedAt: "2026-05-26T12:00:00.000Z",
+      source: "live"
+    });
+
+    expect(observation).toMatchObject({
+      route: "/api/operations/report",
+      observedMs: 412,
+      budgetMs: 350,
+      source: "live"
+    });
+    expect(repo.listRouteBudgetObservations?.()).toEqual([observation]);
+    expect(repo.listRouteBudgetObservations?.("/api/operations/report")).toEqual([observation]);
+  });
+
   test("records real command receipts through the local verification runner", { timeout: 15000 }, () => {
     const dir = mkdtempSync(join(tmpdir(), "openclog-verify-runner-"));
     tempDirs.push(dir);

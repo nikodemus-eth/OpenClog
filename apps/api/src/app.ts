@@ -87,8 +87,12 @@ export function createApiApp(services: ApiServices): FastifyInstance {
       gateway: publicGatewayState(services.gateway.getState()),
       operations: {
         reportFreshness: report.reportFreshness.status,
+        latestVerificationReceiptCommand: report.reportFreshness.latestVerificationReceiptCommand,
+        freshnessThresholdMs: report.reportFreshness.freshnessThresholdMs,
+        reportFreshnessThresholdBreached: report.reportFreshness.thresholdBreached === true,
         latestSmokeCompletedAt: smokeReceipt?.completedAt ?? smokeReceipt?.startedAt,
         queueDepth: report.summaryJobHistory.queueDepth,
+        oldestWaitingAgeLabel: report.summaryJobHistory.oldestWaitingAgeLabel ?? "none",
         recoveredEvidenceProvisional: report.recoveredEvidenceSummary?.provisionalMetrics === true,
         routeBudgetRegressionCount: report.routeBudgetRegressions.length
       }
@@ -183,6 +187,23 @@ export function createApiApp(services: ApiServices): FastifyInstance {
       gateway: publicGatewayState(services.gateway.getState())
     }
   }));
+
+  app.post<{ Params: { id: string }; Body: { label?: string; detail?: string } }>("/api/settings/operator-views/:id/used", async (request, reply) => {
+    const viewId = cleanPublicText(request.params.id).trim().slice(0, 120);
+    if (!viewId) return reply.code(400).send({ error: "operator_view_id_required" });
+    const label = cleanPublicText(request.body?.label ?? viewId).trim().slice(0, 160) || viewId;
+    const detail = cleanPublicText(request.body?.detail ?? `Operator view ${label} was loaded from the workbench.`).trim().slice(0, 240);
+    const createdAt = new Date().toISOString();
+    const event = services.repo.saveSavedViewAuditEvent({
+      id: `saved-view-used-${viewId}-${createdAt}`,
+      viewId,
+      label,
+      action: "used",
+      createdAt,
+      detail
+    });
+    return { ok: true, event };
+  });
 
   app.get("/api/approvals", async () => {
     const result = await services.gateway.request("exec.approval.list", {});
@@ -619,6 +640,18 @@ export function createApiApp(services: ApiServices): FastifyInstance {
       dayKey: request.query.dayKey ?? todayKey(),
       incidentId: request.query.incidentId
     })
+  }));
+
+  app.get<{ Querystring: { route?: string } }>("/api/operations/route-budget-history", async (request) => ({
+    history: services.repo.listRouteBudgetObservations?.(
+      request.query.route === "/api/summary-jobs" ||
+        request.query.route === "/api/incidents" ||
+        request.query.route === "/api/health" ||
+        request.query.route === "/api/operations/report" ||
+        request.query.route === "/api/verification/receipts"
+        ? request.query.route
+        : undefined
+    ) ?? []
   }));
 
   app.get<{ Querystring: { q?: string; status?: string; target?: string; requestFingerprint?: string } }>("/api/operations/delivery-ledger", async (request) => ({

@@ -44,6 +44,7 @@ import type {
   RetentionClassPreview,
   RetentionPreview,
   ReplayBundleDiff,
+  SavedViewAuditEvent,
   ServiceHealthTimelineEntry,
   SessionDrilldown,
   SloSnapshot,
@@ -206,6 +207,20 @@ export async function updateSettings(settings: Partial<OpenClogSettings> & { ope
     searchPresets: result.settings?.searchPresets ?? [],
     operatorViews: result.settings?.operatorViews ?? []
   };
+}
+
+export async function recordOperatorViewUsed(view: Pick<OperatorViewPreset, "id" | "label"> & { detail?: string }): Promise<SavedViewAuditEvent> {
+  const response = await fetch(`/api/settings/operator-views/${encodeURIComponent(view.id)}/used`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      label: view.label,
+      detail: view.detail ?? `Operator view ${view.label} was loaded from the workbench.`
+    })
+  });
+  if (!response.ok) throw new Error("Operator view audit failed");
+  const result = (await response.json()) as { event: SavedViewAuditEvent };
+  return result.event;
 }
 
 export async function fetchSessions(dayKey: string): Promise<AgentActivity[]> {

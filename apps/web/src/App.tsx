@@ -78,6 +78,7 @@ import {
   pollSummaryJobUntilSettled,
   previewRetention,
   previewRetentionByClass,
+  recordOperatorViewUsed,
   registerPlugin,
   resolveApproval,
   rollbackRetention,
@@ -444,7 +445,8 @@ export function App() {
   const collapsedRightRailSummary = useMemo(() => {
     const center = operationsReport?.verificationCenter;
     if (!center?.lastSuccessfulVerifyAgeLabel) return "Verify age unavailable";
-    return `Verify ${center.lastSuccessfulVerifyFreshness ?? "unknown"} · ${center.lastSuccessfulVerifyAgeLabel}`;
+    const blockedSummary = center.firstBlockedGateId ? ` · blocked ${center.firstBlockedGateId}` : "";
+    return `Verify ${center.lastSuccessfulVerifyFreshness ?? "unknown"} · ${center.lastSuccessfulVerifyAgeLabel}${blockedSummary}`;
   }, [operationsReport]);
   const reportFreshnessSummary = useMemo(() => describeReportFreshness(operationsReport), [operationsReport]);
   const recoveredEvidenceProvisionalLabel = useMemo(() => describeRecoveredEvidenceProvisional(operationsReport), [operationsReport]);
@@ -1277,7 +1279,16 @@ export function App() {
       setSearchResults(result.results);
       setSearchNextCursor(result.nextCursor);
     }
-    setNotice(`${view.label} loaded.`);
+    try {
+      await recordOperatorViewUsed({
+        id: view.id,
+        label: view.label,
+        detail: `${view.label} loaded for ${view.dayKey ?? visibleDay.dayKey}.`
+      });
+      setNotice(`${view.label} loaded.`);
+    } catch {
+      setNotice(`${view.label} loaded; audit evidence failed closed.`);
+    }
   }
 
   async function handleApplyOperatorViewById(viewId: string): Promise<void> {
@@ -1898,6 +1909,9 @@ async function handleRetryReceipt(id: string): Promise<void> {
         changedSinceSummaryText={changedSinceSummaryText ?? undefined}
         lastSuccessfulSummaryJobCompletionAt={lastSuccessfulSummaryJobCompletionAt}
         latestSmokeCompletedAt={latestSmokeReceipt?.completedAt ?? latestSmokeReceipt?.startedAt}
+        onCopyRecoveredEvidenceProvisional={
+          recoveredEvidenceProvisionalLabel ? () => void copyTextWithNotice(recoveredEvidenceProvisionalLabel, "Recovered-evidence provisional note copied.") : undefined
+        }
         recoveredEvidenceProvisionalLabel={recoveredEvidenceProvisionalLabel ?? undefined}
         recoveredEvidenceDriftText={recoveredEvidenceDriftText ?? undefined}
         recoveredEvidenceSummary={recoveredEvidenceHeaderSummary ?? undefined}
@@ -2595,6 +2609,14 @@ function OperationalPanels(props: {
   const healthRouteRegression = operationsReport?.routeBudgetRegressions.find((regression) => regression.route === "/api/health");
   const selectedIncidentTemplate = operationsReport?.incidentTemplates.find((template) => template.id === props.selectedIncidentTemplateId) ?? null;
   const recoveredEvidenceReportSummary = formatRecoveredEvidenceSummary(operationsReport?.recoveredEvidenceSummary, { latestSeparator: ";" });
+  const savedViewAuditEvents =
+    operationsReport?.savedViewAudit.events.filter((event) => event.action === "used" || event.action === "applied") ?? [];
+  const routeBudgetHistorySummary = operationsReport?.routeBudgetHistory?.routes
+    .map((route) => {
+      const sources = Array.from(new Set(route.observations.map((observation) => observation.source))).join("/");
+      return `${route.route} ${route.trendDirection} (${route.baselineObservedMs} -> ${route.latestObservedMs} ms; sources ${sources || "none"})`;
+    })
+    .join(", ");
   const deliveryTargets: Array<{ label: string; target: VerifiableIntegrationTarget }> = [
     { label: "Slack", target: "slack" },
     { label: "Webhook", target: "generic-webhook" },
@@ -2620,13 +2642,19 @@ function OperationalPanels(props: {
                 Failed verification gates
               </button>
               <button type="button" onClick={() => props.onApplyQuickFilter("route budget regression", ["errors"])}>
-                Route budgets
+                Route-budget regressions
               </button>
               <button type="button" onClick={() => props.onApplyQuickFilter("gateway reconnect", ["errors"])}>
                 Reconnect storms
               </button>
               <button type="button" onClick={() => props.onApplyQuickFilter("\"Backfilled from OpenClaw\"", ["backfilled_openclaw"])}>
                 Backfilled
+              </button>
+              <button type="button" onClick={() => props.onApplyQuickFilter("saved view audit used", [])}>
+                Saved-view usage
+              </button>
+              <button type="button" onClick={() => props.onApplyQuickFilter("newer evidence", ["errors"])}>
+                New since snapshot
               </button>
             </div>
           </div>
@@ -3008,6 +3036,20 @@ function OperationalPanels(props: {
               ))}
             </ul>
             <p>Route budgets: {operationsReport.routePerformanceBudgets.map((budget) => `${budget.route} ${budget.status}`).join(", ")}.</p>
+            <p>
+              Healthz evidence: freshness {operationsReport.healthzEvidence.reportFreshness}, latest verify{" "}
+              {operationsReport.healthzEvidence.latestVerificationReceiptCommand ?? "unavailable"}, smoke{" "}
+              {operationsReport.healthzEvidence.latestSmokeCompletedAt ?? "unavailable"}, queue depth {operationsReport.healthzEvidence.queueDepth}, oldest waiting{" "}
+              {operationsReport.healthzEvidence.oldestWaitingAgeLabel ?? "none"}, route regressions {operationsReport.healthzEvidence.routeBudgetRegressionCount},
+              recovered provisional {operationsReport.healthzEvidence.recoveredEvidenceProvisional ? "yes" : "no"}.
+            </p>
+            <p>
+              Report assembly timing: total {operationsReport.reportAssemblyTiming.totalDurationMs} ms; slowest{" "}
+              {operationsReport.reportAssemblyTiming.slowestSections
+                .map((section) => `${section.label} ${section.durationMs} ms`)
+                .join(", ") || "none"}
+              .
+            </p>
             <p>Closeout readiness: {formatCloseoutReadiness(operationsReport.closeoutReadiness)}</p>
             <p>
               Readiness aggregates:{" "}
@@ -3022,9 +3064,9 @@ function OperationalPanels(props: {
             <p>
               Saved-view audit: {operationsReport.savedViewAudit.summary} Events {operationsReport.savedViewAudit.events.length}; lint findings {operationsReport.savedViewLint.findings.length}.
             </p>
-            {operationsReport.savedViewAudit.events.length > 0 ? (
+            {savedViewAuditEvents.length > 0 ? (
               <ul>
-                {operationsReport.savedViewAudit.events.slice(0, 3).map((event) => (
+                {savedViewAuditEvents.slice(0, 3).map((event) => (
                   <li key={event.id}>
                     {event.action} {event.viewId} at {event.createdAt}. {event.detail}
                   </li>
@@ -3052,6 +3094,7 @@ function OperationalPanels(props: {
                 .
               </p>
             ) : null}
+            {routeBudgetHistorySummary ? <p>Route-budget history: {routeBudgetHistorySummary}.</p> : null}
             {operationsReport.verificationReceiptDiffs.length > 0 ? (
               <p>
                 Verification receipt diffs:{" "}
@@ -3105,7 +3148,9 @@ function OperationalPanels(props: {
               ))}
             </ul>
             {operationsReport.operationsLedger.entries.some((entry) => entry.kind === "native_runner") ? (
-              <p>Native runner evidence is present in the operations ledger.</p>
+              <p>
+                Native runner evidence is present in the operations ledger. {operationsReport.nativeTruthMonitor.prepOnlyLabel ?? ""}
+              </p>
             ) : (
               <p>Native runner evidence is absent from the operations ledger.</p>
             )}
@@ -3177,6 +3222,12 @@ function OperationalPanels(props: {
             <p>
               Signed closeout packet: receipts {operationsReport.closeoutPacketPreview.lastPassingReceiptIds.join(", ") || "none"}, unresolved evidence {operationsReport.closeoutPacketPreview.unresolvedEvidenceCount}, redaction {operationsReport.closeoutPacketPreview.redactionStatus}.
             </p>
+            {operationsReport.closeoutPacketPreview.sourceSnapshotId || operationsReport.closeoutPacketPreview.sourceViewLabel ? (
+              <p>
+                Closeout packet provenance: snapshot {operationsReport.closeoutPacketPreview.sourceSnapshotId ?? "unavailable"}, saved view{" "}
+                {operationsReport.closeoutPacketPreview.sourceViewLabel ?? "unavailable"}.
+              </p>
+            ) : null}
             <p>
               Saved-view lint:{" "}
               {operationsReport.savedViewLint.findings.length > 0
@@ -3208,6 +3259,7 @@ function OperationalPanels(props: {
             ) : null}
             <p>{operationsReport.nativeCutoverPlan.summary}</p>
             <p>Native cutover artifact: {operationsReport.nativeCutoverPlan.artifactPath}.</p>
+            {operationsReport.nativeTruthMonitor.prepOnlyLabel ? <p>{operationsReport.nativeTruthMonitor.prepOnlyLabel}</p> : null}
           </>
         ) : (
           <>

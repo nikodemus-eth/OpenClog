@@ -3,6 +3,12 @@
 ## Purpose
 Track OpenClog security posture, Gateway authority boundaries, redaction, and fail-closed behavior.
 
+## 2026-05-30 Saved-View And Runtime Proof Boundary
+- Saved-view audit writes remain backend-owned local evidence. The browser can request a bounded `used` event when an operator applies a view, but it still cannot write verification receipts, report provenance, native history, Gateway state, or secrets.
+- Supported saved-view lifecycle evidence is now explicit: create, update, delete, and use are auditable; export and broad handoff distribution remain report/render surfaces, not mutation authority.
+- The route-budget rebaseline narrows a performance contract; it does not widen data exposure. The full operations report is bounded by count caps and totals, while `/api/healthz` continues to expose only compact sanitized readiness metadata.
+- Runtime drift proof stays local: backend fingerprint, PID, LaunchAgent label, SQLite path, and secure-store availability are safe operational metadata and do not expose Gateway tokens, device identity, raw frames, auth headers, or delivery secrets.
+
 ## 2026-05-26 Native Runner Evidence Cutover Prep
 - Native-runner history is written by the desktop host into local SQLite and surfaced as bounded evidence only; no browser route was added for writing verification receipts, native history, Gateway secrets, or readiness claims.
 - The desktop self-check records public API/Gateway readiness, LaunchAgent state, SQLite path presence, and secure-store availability, but it does not expose Gateway tokens, device identity, raw frames, auth headers, or delivery secrets to the browser.

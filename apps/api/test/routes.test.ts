@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, test } from "vitest";
+import { execFile } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
 import { createApiApp } from "../src/app.js";
 import { createMemoryGateway } from "../src/memory-gateway.js";
 import { createSqliteRepository } from "../src/repository.js";
+
+const execFileAsync = promisify(execFile);
 
 describe("API routes", () => {
   const cleanup: Array<() => void> = [];
@@ -47,10 +54,180 @@ describe("API routes", () => {
         reportFreshness: expect.any(String),
         latestSmokeCompletedAt: expect.any(String),
         queueDepth: expect.any(Number),
+        oldestWaitingAgeLabel: expect.any(String),
         recoveredEvidenceProvisional: expect.any(Boolean),
-        routeBudgetRegressionCount: expect.any(Number)
+        routeBudgetRegressionCount: expect.any(Number),
+        freshnessThresholdMs: expect.any(Number),
+        reportFreshnessThresholdBreached: expect.any(Boolean),
+        latestVerificationReceiptCommand: expect.any(String)
       }
     });
+    await app.close();
+  });
+
+  test("serves bounded route-budget history for operations routes", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    repo.saveRouteBudgetObservation?.({
+      id: "route-budget-1",
+      route: "/api/operations/report",
+      observedMs: 412,
+      budgetMs: 350,
+      recordedAt: "2026-05-26T12:00:00.000Z",
+      source: "live"
+    });
+    const app = createApiApp({ repo, gateway: createMemoryGateway({ ready: true }) });
+
+    const response = await app.inject({ method: "GET", url: "/api/operations/route-budget-history" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      history: [
+        {
+          id: "route-budget-1",
+          route: "/api/operations/report",
+          observedMs: 412,
+          budgetMs: 350,
+          recordedAt: "2026-05-26T12:00:00.000Z",
+          source: "live"
+        }
+      ]
+    });
+    await app.close();
+  });
+
+  test("load harness live mode persists live route-budget rows", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "openclog-live-load-"));
+    cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
+    const dbPath = join(dir, "openclog.db");
+    const repo = createSqliteRepository(dbPath);
+    cleanup.push(() => repo.close());
+    repo.saveRouteBudgetObservation?.({
+      id: "fixture-baseline",
+      route: "/api/operations/report",
+      observedMs: 1,
+      budgetMs: 750,
+      recordedAt: "2026-05-27T11:55:00.000Z",
+      source: "fixture"
+    });
+    const app = createApiApp({ repo, gateway: createMemoryGateway({ ready: true }) });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    try {
+      const address = app.server.address();
+      if (!address || typeof address === "string") throw new Error("test_server_address_unavailable");
+      const result = await execFileAsync(
+        "npx",
+        [
+          "tsx",
+          "scripts/load-report-routes.ts",
+          "--base-url",
+          `http://127.0.0.1:${address.port}`,
+          "--day-key",
+          "2026-05-27",
+          "--session-key",
+          "agent:hugin:main",
+          "--db",
+          dbPath
+        ],
+        { cwd: process.cwd(), encoding: "utf8", maxBuffer: 1024 * 1024 }
+      );
+      const summary = JSON.parse(result.stdout) as { mode: string; checks: Array<{ route: string; mode: string; budgetMs: number; trendDirection: string; baselineObservedMs?: number }> };
+
+      expect(summary.mode).toBe("live");
+      expect(summary.checks).toEqual(expect.arrayContaining([expect.objectContaining({ route: "/api/operations/report", mode: "live", budgetMs: 750 })]));
+      const liveReportCheck = summary.checks.find((check) => check.route === "/api/operations/report");
+      expect(liveReportCheck).toMatchObject({ trendDirection: "new" });
+      expect(liveReportCheck).not.toHaveProperty("baselineObservedMs");
+      expect(repo.listRouteBudgetObservations?.()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ route: "/api/operations/report", source: "live" }),
+          expect.objectContaining({ route: "/api/verification/receipts", source: "live" })
+        ])
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("persists operations report snapshots and recovered-evidence drift through the report API", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "openclog-report-evidence-"));
+    cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
+    const dbPath = join(dir, "openclog.db");
+    const repo = createSqliteRepository(dbPath);
+    cleanup.push(() => repo.close());
+    repo.upsertDay({
+      dayKey: "2026-05-25",
+      title: "May 25 operations",
+      dateLabel: "Monday, May 25, 2026",
+      summary: "Recovered evidence is under review.",
+      entries: [
+        {
+          id: "recovered-entry-1",
+          dayKey: "2026-05-25",
+          source: "openclaw-session-jsonl",
+          sourceLabel: "Backfilled from OpenClaw",
+          kind: "message",
+          title: "Recovered OpenClaw event",
+          body: "Recovered evidence should stay provisional until a fresh summary includes it.",
+          timestamp: "2026-05-25T09:00:00.000Z",
+          importedAt: "2026-05-25T10:00:00.000Z",
+          sessionId: "agent:hugin:main",
+          status: "info",
+          severity: "info",
+          redacted: true,
+          backfilled: true
+        }
+      ],
+      metrics: {
+        sessionCount: 1,
+        messageCount: 1,
+        toolCallCount: 0,
+        approvalCount: 0,
+        errorCount: 0
+      }
+    });
+    const app = createApiApp({ repo, gateway: createMemoryGateway({ ready: true }) });
+
+    const response = await app.inject({ method: "GET", url: "/api/operations/report?dayKey=2026-05-25" });
+
+    expect(response.statusCode).toBe(200);
+    expect(repo.getLatestOperationsReportSnapshot("2026-05-25")).toMatchObject({
+      scopeKey: "2026-05-25",
+      recoveredEntryCount: 1
+    });
+    expect(repo.listEvidenceDriftObservations("2026-05-25")).toEqual([
+      expect.objectContaining({
+        scopeKey: "2026-05-25",
+        report: expect.objectContaining({ status: "drifting" })
+      })
+    ]);
+    await app.close();
+  });
+
+  test("persists workbench saved-view use audit events through the API", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "openclog-saved-view-audit-"));
+    cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
+    const dbPath = join(dir, "openclog.db");
+    const repo = createSqliteRepository(dbPath);
+    cleanup.push(() => repo.close());
+    const app = createApiApp({ repo, gateway: createMemoryGateway({ ready: true }) });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/settings/operator-views/recovered-openclaw/used",
+      payload: { label: "Recovered OpenClaw", detail: "Loaded from the operator workbench." }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ ok: true, event: { viewId: "recovered-openclaw", action: "used" } });
+    expect(repo.listSavedViewAuditEvents()).toEqual([
+      expect.objectContaining({
+        viewId: "recovered-openclaw",
+        label: "Recovered OpenClaw",
+        action: "used",
+        detail: "Loaded from the operator workbench."
+      })
+    ]);
     await app.close();
   });
 

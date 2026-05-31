@@ -3,6 +3,12 @@
 ## Purpose
 Track OpenClog architecture, component ownership, and authority boundaries.
 
+## 2026-05-30 Saved-View Audit And Report-Budget Refactor
+- Saved-view evidence now has a complete backend-mediated lifecycle for the supported actions: settings updates persist `created`, `updated`, and `deleted`, while workbench application persists `used` through `/api/settings/operator-views/:id/used`.
+- The full operations report now carries bounded list payloads with explicit totals: recent summary jobs and ledger entries are capped for route-budget safety, while `totalJobCount`, `totalEntryCount`, and truncation metadata keep the operator truth visible.
+- Report assembly now uses repository-level aggregate reads for health, SLO, retention, stale-summary, and recovered-evidence summaries instead of repeatedly hydrating every day and entry.
+- The desktop self-check default is aligned with the LaunchAgent-backed Fastify service on `127.0.0.1:8787`; Fastify remains policy/report authority and the native host remains evidence-producing prep.
+
 ## 2026-05-26 Native Runner Evidence Cutover Prep
 - Tauri now owns the scheduled desktop self-check evidence path: startup/interval checks inspect API liveness, public Gateway readiness, `com.m4.openclog-api` LaunchAgent state, SQLite path presence, and secure-store availability.
 - SQLite `journal_native_runner_history` is now an active machine-local evidence table rather than only prep schema; `@openclog/app` reads it into the Native Truth Monitor and Operations Ledger as `native_runner` entries.

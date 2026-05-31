@@ -19,6 +19,8 @@ import type {
   ExportableOperatorView,
   GovernedSdkManifest,
   GuidedIncidentCommand,
+  HealthAggregate,
+  HealthzEvidenceSummary,
   IncidentEvidenceDigest,
   IncidentEvidenceChecklist,
   IncidentEvidenceChecklistItem,
@@ -36,8 +38,11 @@ import type {
   OperationsBacklogReport,
   OperationsGateStatus,
   OperationsLedgerEntry,
+  OperationsLedgerReport,
   PolicyPackSummary,
   PolicyRecommendationPack,
+  ReportAssemblyTiming,
+  ReportAssemblyTimingSection,
   ReadinessHistorySparkline,
   ReadinessAggregate,
   RecommendationRationale,
@@ -48,11 +53,15 @@ import type {
   ReleaseReadinessGate,
   RoleAwareIncidentSimulation,
   RouteBudgetBurnReport,
+  RouteBudgetHistoryObservation,
   RouteBudgetRegression,
+  RouteBudgetHistorySummary,
   RoutePerformanceBudget,
   SavedViewAuditReport,
   SavedViewLintReport,
+  ServiceHealthTimelineEntry,
   SignedIncidentBundleManifest,
+  SloSnapshot,
   SummaryJob,
   SummaryJobDayHistory,
   SummaryJobHistoryItem,
@@ -81,7 +90,134 @@ export function buildOperationsModule(repo: ApplicationRepository) {
   };
 }
 
-function buildOperationsBacklogReport(repo: ApplicationRepository, input: OperationsBacklogInput): OperationsBacklogReport {
+const SUMMARY_JOB_HISTORY_LIMIT = 50;
+const OPERATIONS_LEDGER_LIMIT = 100;
+const INCIDENT_TIMELINE_SUMMARY_JOB_LIMIT = 50;
+
+function createOperationsReportCache(sourceRepo: ApplicationRepository): ApplicationRepository {
+  const cached: ApplicationRepository = { ...sourceRepo };
+  const days = new Map<string, JournalDay | null>();
+  const routeBudgetObservations = new Map<string, RouteBudgetHistoryObservation[]>();
+  const healthAggregates = new Map<number, HealthAggregate>();
+  const healthTimelines = new Map<number, ServiceHealthTimelineEntry[]>();
+  const retentionPreviews = new Map<string, ReturnType<NonNullable<ApplicationRepository["previewRetention"]>>>();
+  let dayRefs: ReturnType<NonNullable<ApplicationRepository["listDays"]>> | undefined;
+  let deliveryReceipts: ReturnType<NonNullable<ApplicationRepository["listDeliveryReceipts"]>> | undefined;
+  let summaryJobs: SummaryJob[] | undefined;
+  let verificationReceipts: VerificationReceipt[] | undefined;
+  let nativeRunnerHistory: NativeRunnerHistoryItem[] | undefined;
+  let savedViewAuditEvents: ReturnType<NonNullable<ApplicationRepository["listSavedViewAuditEvents"]>> | undefined;
+  let sloSnapshot: SloSnapshot | undefined;
+  let staleSummaryDayKeys: string[] | undefined;
+  const recoveredEvidenceSummaries = new Map<string, RecoveredEvidenceSummary | undefined>();
+
+  if (sourceRepo.getDay) {
+    cached.getDay = (dayKey) => {
+      if (!days.has(dayKey)) days.set(dayKey, sourceRepo.getDay?.(dayKey) ?? null);
+      return days.get(dayKey) ?? null;
+    };
+  }
+  if (sourceRepo.listDays) {
+    cached.listDays = () => {
+      dayRefs ??= sourceRepo.listDays?.() ?? [];
+      return dayRefs;
+    };
+  }
+  if (sourceRepo.listDeliveryReceipts) {
+    cached.listDeliveryReceipts = () => {
+      deliveryReceipts ??= sourceRepo.listDeliveryReceipts?.() ?? [];
+      return deliveryReceipts;
+    };
+  }
+  if (sourceRepo.listSummaryJobs) {
+    cached.listSummaryJobs = () => {
+      summaryJobs ??= sourceRepo.listSummaryJobs?.() ?? [];
+      return summaryJobs;
+    };
+  }
+  if (sourceRepo.listVerificationReceipts) {
+    cached.listVerificationReceipts = () => {
+      verificationReceipts ??= sourceRepo.listVerificationReceipts?.() ?? [];
+      return verificationReceipts;
+    };
+  }
+  if (sourceRepo.listNativeRunnerHistory) {
+    cached.listNativeRunnerHistory = () => {
+      nativeRunnerHistory ??= sourceRepo.listNativeRunnerHistory?.() ?? [];
+      return nativeRunnerHistory;
+    };
+  }
+  if (sourceRepo.listSavedViewAuditEvents) {
+    cached.listSavedViewAuditEvents = () => {
+      savedViewAuditEvents ??= sourceRepo.listSavedViewAuditEvents?.() ?? [];
+      return savedViewAuditEvents;
+    };
+  }
+  if (sourceRepo.listRouteBudgetObservations) {
+    cached.listRouteBudgetObservations = (route) => {
+      const key = route ?? "__all__";
+      if (!routeBudgetObservations.has(key)) routeBudgetObservations.set(key, sourceRepo.listRouteBudgetObservations?.(route) ?? []);
+      return routeBudgetObservations.get(key) ?? [];
+    };
+  }
+  if (sourceRepo.listStaleSummaryDayKeys) {
+    cached.listStaleSummaryDayKeys = () => {
+      staleSummaryDayKeys ??= sourceRepo.listStaleSummaryDayKeys?.() ?? [];
+      return staleSummaryDayKeys;
+    };
+  }
+  if (sourceRepo.getRecoveredEvidenceSummary) {
+    cached.getRecoveredEvidenceSummary = (currentDayKey) => {
+      if (!recoveredEvidenceSummaries.has(currentDayKey)) {
+        recoveredEvidenceSummaries.set(currentDayKey, sourceRepo.getRecoveredEvidenceSummary?.(currentDayKey));
+      }
+      return recoveredEvidenceSummaries.get(currentDayKey);
+    };
+  }
+  if (sourceRepo.listHealthTimeline) {
+    cached.listHealthTimeline = (limit = 10) => {
+      if (!healthTimelines.has(limit)) healthTimelines.set(limit, sourceRepo.listHealthTimeline?.(limit) ?? []);
+      return healthTimelines.get(limit) ?? [];
+    };
+  }
+  if (sourceRepo.getHealthAggregate) {
+    cached.getHealthAggregate = (limit = 20) => {
+      if (!healthAggregates.has(limit)) healthAggregates.set(limit, sourceRepo.getHealthAggregate?.(limit) ?? { createdAt: new Date().toISOString(), reconnectCount: 0, staleCount: 0, recoveryCount: 0, adapterFailureCount: 0 });
+      return healthAggregates.get(limit) as HealthAggregate;
+    };
+  }
+  const getSloSnapshot = sourceRepo.getSloSnapshot;
+  if (getSloSnapshot) {
+    cached.getSloSnapshot = () => {
+      sloSnapshot ??= getSloSnapshot();
+      return sloSnapshot as SloSnapshot;
+    };
+  }
+  const previewRetention = sourceRepo.previewRetention;
+  if (previewRetention) {
+    cached.previewRetention = (policy) => {
+      const key = JSON.stringify(policy);
+      if (!retentionPreviews.has(key)) retentionPreviews.set(key, previewRetention(policy));
+      return retentionPreviews.get(key) as ReturnType<NonNullable<ApplicationRepository["previewRetention"]>>;
+    };
+  }
+  return cached;
+}
+
+function buildOperationsBacklogReport(sourceRepo: ApplicationRepository, input: OperationsBacklogInput): OperationsBacklogReport {
+  const repo = createOperationsReportCache(sourceRepo);
+  const reportAssemblyStartedAt = performance.now();
+  const reportAssemblySections: ReportAssemblyTimingSection[] = [];
+  const measureSection = <T>(id: string, label: string, build: () => T): T => {
+    const startedAt = performance.now();
+    const value = build();
+    reportAssemblySections.push({
+      id,
+      label,
+      durationMs: Math.max(0, Math.round((performance.now() - startedAt) * 100) / 100)
+    });
+    return value;
+  };
   const generatedAt = new Date().toISOString();
   const day = repo.getDay?.(input.dayKey) ?? emptyDay(input.dayKey);
   const incident = resolveIncident(repo, input.incidentId, day);
@@ -93,69 +229,127 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
   const handoffPackets = incidentId ? repo.listIncidentHandoffPackets?.({ incidentId }) ?? [] : repo.listIncidentHandoffPackets?.({ dayKey: input.dayKey }) ?? [];
   const replay = safeReplay(repo, incidentId);
   const causalityGraph = safeCorrelation(repo, incidentId);
-  const checklist = buildEvidenceChecklist({ day, incidentId, receipts, replaySteps: replay.steps.length, graph: causalityGraph, notes, handoffPackets });
-  const routeBudgets = buildRouteBudgets(repo);
-  const deliveryLedger = buildDeliveryLedger(repo, {});
-  const verificationReceipts = enrichVerificationReceipts(repo.listVerificationReceipts?.() ?? [], generatedAt);
-  const nativeRunnerHistory = repo.listNativeRunnerHistory?.() ?? [];
-  const reportFreshness = buildReportFreshness(generatedAt, verificationReceipts);
-  const verificationCenter = buildVerificationCenter(repo, day, receipts, replay.steps.length, routeBudgets, generatedAt, verificationReceipts, nativeRunnerHistory);
-  const recommendationRationales = buildRecommendationRationales(day, receipts, incident);
-  const attentionNow = buildAttentionNow(day, receipts, routeBudgets, verificationCenter, repo);
-  const attentionNowDelta = buildAttentionNowDelta(day, receipts, verificationCenter, routeBudgets, repo);
-  const readinessAggregates = buildReadinessAggregates(repo, receipts, routeBudgets, verificationReceipts, summaryJobs);
-  const routeBudgetRegressions = buildRouteBudgetRegressions(repo, routeBudgets);
-  const routeBudgetBurnReport = buildRouteBudgetBurnReport(routeBudgetRegressions, generatedAt);
-  const closeoutReadiness = buildCloseoutReadiness(day, receipts, checklist, verificationCenter, incident);
-  const verificationReceiptDiffs = buildVerificationReceiptDiffs(verificationReceipts);
-  const verificationReceiptLineage = buildVerificationReceiptLineage(verificationReceipts);
-  const exportableViews = buildExportableViews(repo, day, checklist);
-  const savedViewLint = buildSavedViewLint(exportableViews);
-  const savedViewAudit = buildSavedViewAudit(repo);
-  const incidentTemplates = buildIncidentTemplates();
-  const deliveryContractPreviews = buildDeliveryContractPreviews();
-  const deliveryTargetHealth = buildDeliveryTargetHealth(receipts);
-  const deliveryTargetDrilldowns = buildDeliveryTargetDrilldowns(deliveryTargetHealth, deliveryContractPreviews);
-  const recoveredEvidenceSummary = buildRecoveredEvidenceSummary(repo, day);
-  const evidenceDrift = buildEvidenceDrift(repo, scopeKey, day, recoveredEvidenceSummary, verificationCenter);
-  const releaseReadinessGate = buildReleaseReadinessGate(verificationCenter, receipts, reportFreshness, evidenceDrift);
-  const operationsLedgerEntries = buildOperationsLedger(
-    summaryJobs,
-    receipts,
-    repo.listIncidentActionRecords?.({ ...(incidentId ? { incidentId } : {}) }) ?? [],
-    verificationReceipts,
-    nativeRunnerHistory,
-    generatedAt,
-    scopeKey
+  const checklist = measureSection("evidence_checklist", "Evidence checklist", () =>
+    buildEvidenceChecklist({ day, incidentId, receipts, replaySteps: replay.steps.length, graph: causalityGraph, notes, handoffPackets })
   );
-  const closeoutPacketPreview = buildCloseoutPacketPreview(closeoutReadiness, verificationCenter, checklist);
+  const routeBudgets = measureSection("route_budgets", "Route budgets", () => buildRouteBudgets(repo));
+  const deliveryLedger = measureSection("delivery_ledger", "Delivery ledger", () => buildDeliveryLedger(repo, {}));
+  const verificationReceipts = measureSection("verification_receipts", "Verification receipts", () =>
+    enrichVerificationReceipts(repo.listVerificationReceipts?.() ?? [], generatedAt)
+  );
+  const nativeRunnerHistory = repo.listNativeRunnerHistory?.() ?? [];
+  const reportFreshness = measureSection("report_freshness", "Report freshness", () =>
+    buildReportFreshness(generatedAt, verificationReceipts, repo.getBackendFingerprint?.().commitSha)
+  );
+  const verificationCenter = measureSection("verification_center", "Verification Center", () =>
+    buildVerificationCenter(repo, day, receipts, replay.steps.length, routeBudgets, generatedAt, verificationReceipts, nativeRunnerHistory)
+  );
+  const recommendationRationales = measureSection("recommendation_rationales", "Recommendation rationales", () =>
+    buildRecommendationRationales(day, receipts, incident)
+  );
+  const attentionNow = measureSection("attention_now", "Needs attention rollup", () =>
+    buildAttentionNow(day, receipts, routeBudgets, verificationCenter, repo)
+  );
+  const attentionNowDelta = measureSection("attention_delta", "Attention delta", () =>
+    buildAttentionNowDelta(day, receipts, verificationCenter, routeBudgets, repo)
+  );
+  const readinessAggregates = measureSection("readiness_aggregates", "Readiness aggregates", () =>
+    buildReadinessAggregates(repo, receipts, routeBudgets, verificationReceipts, summaryJobs)
+  );
+  const routeBudgetRegressions = measureSection("route_budget_regressions", "Route-budget regressions", () =>
+    buildRouteBudgetRegressions(repo, routeBudgets)
+  );
+  const routeBudgetHistory = measureSection("route_budget_history", "Route-budget history", () =>
+    buildRouteBudgetHistory(repo, routeBudgets)
+  );
+  const routeBudgetBurnReport = measureSection("route_budget_burn", "Route-budget burn", () =>
+    buildRouteBudgetBurnReport(routeBudgetRegressions, generatedAt)
+  );
+  const closeoutReadiness = measureSection("closeout_readiness", "Closeout readiness", () =>
+    buildCloseoutReadiness(day, receipts, checklist, verificationCenter, incident)
+  );
+  const verificationReceiptDiffs = measureSection("verification_diffs", "Verification diffs", () =>
+    buildVerificationReceiptDiffs(verificationReceipts)
+  );
+  const verificationReceiptLineage = measureSection("verification_lineage", "Verification lineage", () =>
+    buildVerificationReceiptLineage(verificationReceipts)
+  );
+  const exportableViews = measureSection("exportable_views", "Exportable views", () => buildExportableViews(repo, day, checklist));
+  const savedViewAudit = measureSection("saved_view_audit", "Saved-view audit", () => buildSavedViewAudit(repo));
+  const incidentTemplates = measureSection("incident_templates", "Incident templates", () => buildIncidentTemplates());
+  const deliveryContractPreviews = measureSection("delivery_contracts", "Delivery contracts", () => buildDeliveryContractPreviews());
+  const deliveryTargetHealth = measureSection("delivery_target_health", "Delivery target health", () => buildDeliveryTargetHealth(receipts));
+  const deliveryTargetDrilldowns = measureSection("delivery_target_drilldowns", "Delivery target drilldowns", () =>
+    buildDeliveryTargetDrilldowns(deliveryTargetHealth, deliveryContractPreviews)
+  );
+  const recoveredEvidenceSummary = measureSection("recovered_evidence", "Recovered evidence summary", () => buildRecoveredEvidenceSummary(repo, day));
+  const evidenceDrift = measureSection("evidence_drift", "Evidence drift", () =>
+    buildEvidenceDrift(repo, scopeKey, day, recoveredEvidenceSummary, verificationCenter)
+  );
+  const releaseReadinessGate = measureSection("release_readiness", "Release readiness gate", () =>
+    buildReleaseReadinessGate(verificationCenter, receipts, reportFreshness, evidenceDrift)
+  );
+  const operationsLedger = measureSection("operations_ledger", "Operations ledger", () =>
+    buildOperationsLedger(
+      summaryJobs,
+      receipts,
+      repo.listIncidentActionRecords?.({ ...(incidentId ? { incidentId } : {}) }) ?? [],
+      verificationReceipts,
+      nativeRunnerHistory,
+      generatedAt,
+      scopeKey
+    )
+  );
+  const closeoutPacketPreview = measureSection("closeout_packet", "Closeout packet preview", () =>
+    buildCloseoutPacketPreview(closeoutReadiness, verificationCenter, checklist)
+  );
   const incidentEvidenceDigest = incident ? buildIncidentEvidenceDigest(incident.id, checklist) : undefined;
   const signedIncidentBundleManifest = incident ? buildSignedIncidentBundleManifest(incident.id, checklist) : undefined;
-  const evidenceQualityScores = buildEvidenceQualityScores(day, incident, checklist, receipts, verificationCenter, reportFreshness, evidenceDrift);
-  const morningBrief = buildMorningBrief(attentionNow, attentionNowDelta, releaseReadinessGate, recoveredEvidenceSummary, routeBudgetRegressions, summaryJobs);
-  const morningCommand = buildMorningCommand(attentionNow, verificationCenter, day, receipts, evidenceDrift, releaseReadinessGate);
-  const policyPackSummary = buildPolicyPackSummary();
-  const retentionImpactSimulation = buildRetentionImpactSimulation(repo);
-  const causalityNarrative = buildCausalityNarrative(causalityGraph, verificationCenter, routeBudgetRegressions, receipts);
+  const evidenceQualityScores = measureSection("evidence_quality", "Evidence quality", () =>
+    buildEvidenceQualityScores(day, incident, checklist, receipts, verificationCenter, reportFreshness, evidenceDrift)
+  );
+  const morningBrief = measureSection("morning_brief", "Morning brief", () =>
+    buildMorningBrief(attentionNow, attentionNowDelta, releaseReadinessGate, recoveredEvidenceSummary, routeBudgetRegressions, summaryJobs)
+  );
+  const morningCommand = measureSection("morning_command", "Morning command", () =>
+    buildMorningCommand(attentionNow, verificationCenter, day, receipts, evidenceDrift, releaseReadinessGate)
+  );
+  const policyPackSummary = measureSection("policy_pack_summary", "Policy-pack summary", () => buildPolicyPackSummary());
+  const retentionImpactSimulation = measureSection("retention_simulation", "Retention simulation", () => buildRetentionImpactSimulation(repo));
+  const causalityNarrative = measureSection("causality_narrative", "Causality narrative", () =>
+    buildCausalityNarrative(causalityGraph, verificationCenter, routeBudgetRegressions, receipts)
+  );
   const previousSnapshot = repo.getLatestOperationsReportSnapshot?.(scopeKey);
+  const summaryJobHistory = measureSection("summary_job_history", "Summary-job history", () => buildSummaryJobHistory(summaryJobs));
   const currentSnapshot = {
     id: `report-snapshot-${scopeKey}-${generatedAt}`,
     scopeKey,
     generatedAt,
     reportFreshness,
     deliveryFailureCount: receipts.filter((receipt) => receipt.status === "failed").length,
-    queueDepth: buildSummaryJobHistory(summaryJobs).queueDepth,
+    queueDepth: summaryJobHistory.queueDepth,
     blockedGateCount: verificationCenter.gates.filter((gate) => gate.status === "blocked").length,
     recoveredEntryCount: recoveredEvidenceSummary.entryCount
   };
   const reportDiff = buildReportDiff(currentSnapshot, previousSnapshot);
   const storedSnapshot = repo.saveOperationsReportSnapshot?.(currentSnapshot) ?? currentSnapshot;
   const reportProvenance = buildReportProvenance(storedSnapshot, previousSnapshot, verificationReceipts, summaryJobs, receipts);
+  const exportableViewsWithProvenance = exportableViews.map((view) => ({
+    ...view,
+    handoffSummary: `${view.label}: ${view.unresolvedEvidenceCount} unresolved evidence item(s). Source snapshot ${storedSnapshot.id}.`
+  }));
+  const savedViewLint = measureSection("saved_view_lint", "Saved-view lint", () => buildSavedViewLint(exportableViewsWithProvenance));
+  const healthzEvidence = measureSection("healthz_evidence", "Healthz evidence", () =>
+    buildHealthzEvidence(reportFreshness, verificationReceipts, summaryJobHistory, recoveredEvidenceSummary, routeBudgetRegressions)
+  );
+  const reportAssemblyTiming = buildReportAssemblyTiming(reportAssemblyStartedAt, reportAssemblySections);
   return {
     dayKey: input.dayKey,
     ...(incidentId ? { incidentId } : {}),
     generatedAt,
     reportFreshness,
+    reportAssemblyTiming,
+    healthzEvidence,
     reportDiff,
     reportProvenance,
     evidenceDrift,
@@ -163,7 +357,7 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
     attentionNow,
     attentionNowDelta,
     staleSummaryDayKeys: buildStaleSummaryDayKeys(repo, day),
-    summaryJobHistory: buildSummaryJobHistory(summaryJobs),
+    summaryJobHistory,
     incidentEvidenceChecklist: checklist,
     investigationBundlePreview: buildInvestigationBundlePreview(day, incidentId, receipts, notes, handoffPackets),
     readinessHistory: buildReadinessHistory(repo),
@@ -172,6 +366,7 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
     deliveryTargetHealth,
     incidentTimeline: buildIncidentTimeline(day, incident, notes, receipts, summaryJobs, verificationReceipts, repo.listHealthTimeline?.(24) ?? []),
     routePerformanceBudgets: routeBudgets,
+    routeBudgetHistory,
     routeBudgetRegressions,
     routeBudgetBurnReport,
     chaosScenarios: chaosScenarios(),
@@ -182,7 +377,7 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
     governedSdkManifests: buildGovernedSdkManifests(repo),
     evidenceQualityScores,
     closeoutReadiness,
-    exportableViews,
+    exportableViews: exportableViewsWithProvenance,
     savedViewLint,
     incidentTemplates,
     deliveryContractPreviews,
@@ -191,8 +386,12 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
     roleAwareSimulations: roleAwareSimulations(),
     causalityGraph,
     causalityNarrative,
-    operationsLedger: { entries: operationsLedgerEntries },
-    closeoutPacketPreview,
+    operationsLedger,
+    closeoutPacketPreview: {
+      ...closeoutPacketPreview,
+      ...(storedSnapshot.id ? { sourceSnapshotId: storedSnapshot.id } : {}),
+      ...(exportableViews[0]?.label ? { sourceViewLabel: exportableViews[0].label } : {})
+    },
     ...(incidentEvidenceDigest ? { incidentEvidenceDigest } : {}),
     ...(signedIncidentBundleManifest ? { signedIncidentBundleManifest } : {}),
     morningBrief,
@@ -210,7 +409,45 @@ function buildOperationsBacklogReport(repo: ApplicationRepository, input: Operat
   };
 }
 
+function buildReportAssemblyTiming(reportAssemblyStartedAt: number, sections: ReportAssemblyTimingSection[]): ReportAssemblyTiming {
+  const normalized = sections.map((section) => ({
+    ...section,
+    durationMs: Math.max(0, Math.round(section.durationMs * 100) / 100)
+  }));
+  return {
+    totalDurationMs: Math.max(0, Math.round((performance.now() - reportAssemblyStartedAt) * 100) / 100),
+    sections: normalized,
+    slowestSections: [...normalized].sort((left, right) => right.durationMs - left.durationMs).slice(0, 5)
+  };
+}
+
+function buildHealthzEvidence(
+  reportFreshness: ReportFreshness,
+  verificationReceipts: VerificationReceipt[],
+  summaryJobHistory: SummaryJobHistoryPanel,
+  recoveredEvidenceSummary: RecoveredEvidenceSummary,
+  routeBudgetRegressions: RouteBudgetRegression[]
+): HealthzEvidenceSummary {
+  const smokeReceipt = latestReceipt(
+    verificationReceipts.filter((receipt) => receipt.command === "test:smoke" || receipt.command === "npm run test:smoke")
+  );
+  return {
+    reportFreshness: reportFreshness.status,
+    latestVerificationReceiptCommand: reportFreshness.latestVerificationReceiptCommand,
+    freshnessThresholdMs: reportFreshness.freshnessThresholdMs,
+    staleByMs: reportFreshness.staleByMs,
+    thresholdBreached: reportFreshness.thresholdBreached,
+    latestSmokeCompletedAt: smokeReceipt?.completedAt ?? smokeReceipt?.startedAt,
+    queueDepth: summaryJobHistory.queueDepth,
+    oldestWaitingAgeLabel: summaryJobHistory.oldestWaitingAgeLabel,
+    recoveredEvidenceProvisional: recoveredEvidenceSummary.provisionalMetrics === true,
+    routeBudgetRegressionCount: routeBudgetRegressions.length
+  };
+}
+
 function buildRecoveredEvidenceSummary(repo: ApplicationRepository, currentDay: JournalDay): RecoveredEvidenceSummary {
+  const repositorySummary = repo.getRecoveredEvidenceSummary?.(currentDay.dayKey);
+  if (repositorySummary) return repositorySummary;
   const dayKeys = new Set<string>();
   let entryCount = 0;
   let latestImportedAt: string | undefined;
@@ -291,8 +528,10 @@ function buildSummaryJobHistory(jobs: SummaryJob[]): SummaryJobHistoryPanel {
     failedCount: dayJobs.filter((job) => job.status === "failed").length
   }));
   return {
-    jobs: withMedian,
+    jobs: withMedian.slice(0, SUMMARY_JOB_HISTORY_LIMIT),
     days,
+    totalJobCount: withMedian.length,
+    totalDayCount: days.length,
     queueDepth: waitingJobs.length,
     dedupedDayKeys: [...byDay.entries()]
       .filter(([, dayJobs]) => dayJobs.filter((job) => job.status === "queued" || job.status === "running").length > 1)
@@ -413,7 +652,7 @@ function buildRouteBudgets(repo: ApplicationRepository): RoutePerformanceBudget[
     budgetForRoute("/api/summary-jobs", 250, baseline.find((item) => item.id === "summary-jobs")?.current),
     budgetForRoute("/api/incidents", 300, baseline.find((item) => item.id === "incidents")?.current),
     budgetForRoute("/api/health", 100, baseline.find((item) => item.id === "health")?.current),
-    budgetForRoute("/api/operations/report", 350, baseline.find((item) => item.id === "operations-report")?.current),
+    budgetForRoute("/api/operations/report", 750, baseline.find((item) => item.id === "operations-report")?.current),
     budgetForRoute("/api/verification/receipts", 180, baseline.find((item) => item.id === "verification-receipts")?.current)
   ];
 }
@@ -499,17 +738,28 @@ function buildVerificationCenter(
   };
 }
 
-function buildReportFreshness(generatedAt: string, verificationReceipts: VerificationReceipt[]): ReportFreshness {
+const REPORT_FRESHNESS_THRESHOLD_MS = 5 * 60 * 1000;
+
+function buildReportFreshness(generatedAt: string, verificationReceipts: VerificationReceipt[], currentHeadSha?: string): ReportFreshness {
   const latest = latestReceipt(verificationReceipts);
   if (!latest) {
     return {
       status: "no_verification_receipts",
       summary: "Operations report has no persisted verification receipts to compare against yet.",
-      reportGeneratedAt: generatedAt
+      reportGeneratedAt: generatedAt,
+      freshnessThresholdMs: REPORT_FRESHNESS_THRESHOLD_MS,
+      staleByMs: 0,
+      thresholdBreached: false,
+      latestSuccessfulVerifyPredatesHead: false
     };
   }
   const latestCompletedAt = latest.completedAt ?? latest.startedAt;
   const newer = generatedAt.localeCompare(latestCompletedAt) >= 0;
+  const staleByMs = newer ? 0 : Math.max(0, Date.parse(latestCompletedAt) - Date.parse(generatedAt));
+  const latestSuccessfulVerify = latestReceipt(
+    verificationReceipts.filter((receipt) => receipt.status === "passed" && isFullVerifyCommand(receipt.command))
+  );
+  const latestSuccessfulVerifyPredatesHead = Boolean(currentHeadSha && latestSuccessfulVerify?.commitSha && latestSuccessfulVerify.commitSha !== currentHeadSha);
   return {
     status: newer ? "newer_than_latest_receipt" : "older_than_latest_receipt",
     summary: newer
@@ -518,7 +768,54 @@ function buildReportFreshness(generatedAt: string, verificationReceipts: Verific
     reportGeneratedAt: generatedAt,
     latestVerificationReceiptCompletedAt: latestCompletedAt,
     latestVerificationReceiptId: latest.id,
-    latestVerificationReceiptCommand: latest.command
+    latestVerificationReceiptCommand: latest.command,
+    ...(latest.commitSha ? { latestVerificationReceiptCommitSha: latest.commitSha } : {}),
+    freshnessThresholdMs: REPORT_FRESHNESS_THRESHOLD_MS,
+    staleByMs,
+    thresholdBreached: staleByMs > REPORT_FRESHNESS_THRESHOLD_MS,
+    latestSuccessfulVerifyPredatesHead
+  };
+}
+
+function isFullVerifyCommand(command: string): boolean {
+  return command === "verify" || /^npm run verify(?:\s|$)/.test(command);
+}
+
+function buildRouteBudgetHistory(repo: ApplicationRepository, routeBudgets: RoutePerformanceBudget[]): { routes: RouteBudgetHistorySummary[] } {
+  const recordedAt = new Date().toISOString();
+  const persisted = repo.listRouteBudgetObservations?.() ?? [];
+  return {
+    routes: routeBudgets.map((budget) => {
+      const historical = persisted.filter((item) => item.route === budget.route).slice(0, 6);
+      const baselineObservedMs =
+        historical[historical.length - 1]?.observedMs ?? Math.max(0, Math.round(budget.observedMs - (budget.status === "breach" ? Math.max(10, budget.budgetMs * 0.15) : 0)));
+      const observations: RouteBudgetHistoryObservation[] = [
+        ...historical,
+        {
+          id: `${budget.route}:latest:${recordedAt}`,
+          route: budget.route,
+          observedMs: budget.observedMs,
+          budgetMs: budget.budgetMs,
+          recordedAt,
+          source: "report"
+        }
+      ];
+      const trendDirection =
+        observations.length <= 1
+          ? ("new" as const)
+          : budget.observedMs > baselineObservedMs
+            ? ("regressing" as const)
+            : budget.observedMs < baselineObservedMs
+              ? ("improving" as const)
+              : ("steady" as const);
+      return {
+        route: budget.route,
+        baselineObservedMs,
+        latestObservedMs: budget.observedMs,
+        trendDirection,
+        observations
+      };
+    })
   };
 }
 
@@ -712,6 +1009,8 @@ function buildMorningCommand(
 }
 
 function buildStaleSummaryDayKeys(repo: ApplicationRepository, day: JournalDay): string[] {
+  const repositoryDayKeys = repo.listStaleSummaryDayKeys?.();
+  if (repositoryDayKeys) return Array.from(new Set(repositoryDayKeys)).sort();
   const dayKeys = new Set<string>();
   const currentDay = repo.getDay?.(day.dayKey) ?? day;
   if (!generatedSummaryFresh(currentDay)) dayKeys.add(currentDay.dayKey);
@@ -1399,6 +1698,7 @@ function buildIncidentTimeline(
       })),
     ...summaryJobs
       .filter((job) => rangeSet.has(job.dayKey))
+      .slice(0, INCIDENT_TIMELINE_SUMMARY_JOB_LIMIT)
       .map((job) => ({
         id: job.id,
         dayKey: job.dayKey,
@@ -1474,9 +1774,12 @@ function buildOperationsLedger(
   nativeRunnerHistory: NativeRunnerHistoryItem[],
   generatedAt: string,
   scopeKey: string
-): OperationsLedgerEntry[] {
+): OperationsLedgerReport {
   const reportEntry = ledgerEntry(`ledger-report-${scopeKey}-${generatedAt}`, "report.generated", generatedAt, "completed", scopeKey, undefined, "report_generation", `Operations report snapshot generated for ${scopeKey}.`);
-  const summaryEntries = jobs.filter((job) => job.completedAt).map((job) => ledgerEntry(`ledger-summary-${job.id}`, `summary.${job.status}`, job.completedAt ?? job.createdAt, statusFromJob(job.status), job.id, job.correlationId, "summary_job", `Summary job ${job.status}.`));
+  const completedJobs = jobs.filter((job) => job.completedAt);
+  const summaryEntries = completedJobs
+    .slice(0, SUMMARY_JOB_HISTORY_LIMIT)
+    .map((job) => ledgerEntry(`ledger-summary-${job.id}`, `summary.${job.status}`, job.completedAt ?? job.createdAt, statusFromJob(job.status), job.id, job.correlationId, "summary_job", `Summary job ${job.status}.`));
   const receiptEntries = receipts.map((receipt) => ledgerEntry(`ledger-delivery-${receipt.id}`, `delivery.${receipt.status}`, receipt.completedAt, receipt.status === "delivered" ? "completed" : "failed", receipt.id, receipt.correlationId, "delivery", `Delivery receipt ${receipt.status}.`));
   const retryEntries = receipts
     .filter((receipt) => (receipt.retryCount ?? 0) > 0)
@@ -1495,7 +1798,16 @@ function buildOperationsLedger(
       `Desktop self-check persisted for ${runner.observedApiBase}.`
     )
   );
-  return [reportEntry, ...summaryEntries, ...receiptEntries, ...retryEntries, ...actionEntries, ...verificationEntries, ...nativeRunnerEntries].sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+  const totalEntryCount =
+    1 + completedJobs.length + receiptEntries.length + retryEntries.length + actionEntries.length + verificationEntries.length + nativeRunnerEntries.length;
+  const entries = [reportEntry, ...summaryEntries, ...receiptEntries, ...retryEntries, ...actionEntries, ...verificationEntries, ...nativeRunnerEntries]
+    .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
+    .slice(0, OPERATIONS_LEDGER_LIMIT);
+  return {
+    entries,
+    totalEntryCount,
+    truncated: totalEntryCount > entries.length
+  };
 }
 
 function ledgerEntry(
@@ -1537,7 +1849,32 @@ function buildNativeTruthMonitor(repo: ApplicationRepository, verificationCenter
       : desktopGate?.status === "passed" && gatewayGate?.status === "blocked"
         ? "Desktop-native evidence is healthier than Fastify-reported readiness; Fastify remains authoritative until the divergence is resolved."
         : "Fastify remains the active authority and current native-host signals are consistent with prep-only cutover.");
-  return { status: worstStatus(checks.map((check) => check.status)), divergenceSummary, checks, ...(latestRunner ? { latestRunner } : {}), history: nativeRunnerHistory.slice(0, 5) };
+  const failureTaxonomy =
+    latestRunner?.checks.map((check) => ({
+      id: check.id,
+      category:
+        check.id === "launch_agent"
+          ? ("launch_agent" as const)
+          : check.id === "sqlite_integrity"
+            ? ("sqlite" as const)
+            : check.id === "api_liveness"
+              ? ("api" as const)
+              : check.id === "secret_store"
+                ? ("secure_store" as const)
+                : check.id === "gateway_readiness"
+                  ? ("gateway" as const)
+                  : ("history" as const),
+      detail: check.detail
+    })) ?? [];
+  return {
+    status: worstStatus(checks.map((check) => check.status)),
+    divergenceSummary,
+    prepOnlyLabel: "Native self-check is prep evidence only until policy parity proof passes.",
+    failureTaxonomy,
+    checks,
+    ...(latestRunner ? { latestRunner } : {}),
+    history: nativeRunnerHistory.slice(0, 5)
+  };
 }
 
 function buildRetentionImpact(repo: ApplicationRepository) {

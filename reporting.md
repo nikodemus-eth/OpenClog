@@ -1,5 +1,17 @@
 # OpenClog Reporting Seed
 
+## 2026-05-30/31 Current 8787 Proof And Rebaselined Live Load
+- The active LaunchAgent `com.m4.openclog-api` now runs `/Users/m4/OpenClog/scripts/run-openclog-api.sh` from `/Users/m4/OpenClog`; `http://127.0.0.1:8787/api/version` reported commit `4c15cf6`, PID `21714`, build timestamp `2026-05-31T02:50:26.025Z`, and runtime fingerprint `92883edac9c814babd7510630253cb9419a9c7160ca7785f8e2c76b43497495a`.
+- The desktop self-check path wrote real root-DB native evidence: `desktop-self-check:http___127_0_0_1_8787:2026_05_31T02_51_21_423Z`, status `passed`, observed API base `http://127.0.0.1:8787`, LaunchAgent loaded, SQLite path present, and secure store available.
+- Saved-view audit reporting is no longer limited to `used`: the root DB now has `created`, `updated`, `deleted`, and `used` evidence rows. Historical uses before the API path existed remain unbackfilled.
+- Live `npm run test:load` against `http://127.0.0.1:8787` is green under the rebaselined full-report contract: `/api/operations/report` 644 ms / 750 ms, `/api/verification/receipts` 2 ms / 200 ms, `/api/sessions/:key` 49 ms / 300 ms, breachCount 0. The old 250 ms report budget is superseded for the full operations packet; `/api/healthz` remains the cheap readiness route.
+
+## 2026-05-27 Current-HEAD Native And Live Load Proof
+- Native-runner reporting is now backed by real desktop-host evidence in `journal_native_runner_history`: the current root DB contains receipt `desktop-self-check:http___127_0_0_1_8787:2026_05_26T12_04_47_490Z`, observed API base `http://127.0.0.1:8787`, LaunchAgent loaded, SQLite path present, secure store available, and one persisted history row.
+- Current-HEAD Fastify proof used `http://127.0.0.1:8797` because the existing `8787` listener was a stale `53b761f` runtime. The fresh backend fingerprint reported commit `4c15cf6`.
+- Route-budget reporting now distinguishes live from fixture evidence: fixture rehearsals and live API checks both persist source-tagged rows, and the harness computes trend baselines within the same source. The old `8797` proof remains historical failed-closed evidence at 1895 ms then 1872 ms; the current `8787` proof is green.
+- Native cutover remains prep-only. Fastify remains report and policy authority, and live-send delivery success, browser-side verification writes, mutation-enabled Gateway proof, and full native authority handoff must not be reported green.
+
 ## 2026-05-26 Native Runner Evidence Cutover Prep
 - Daily reporting can now cite native-runner evidence separately from command verification receipts: latest desktop self-check receipt id, observed API base, LaunchAgent state, and persisted history count come from `journal_native_runner_history`.
 - The Operations Ledger now distinguishes `native_runner` entries from `verification` entries, so desktop-boundary health evidence does not masquerade as a CLI verification receipt.

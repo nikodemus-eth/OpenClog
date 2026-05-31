@@ -1019,6 +1019,8 @@ export interface SummaryJobDayHistory {
 export interface SummaryJobHistoryPanel {
   jobs: SummaryJobHistoryItem[];
   days: SummaryJobDayHistory[];
+  totalJobCount: number;
+  totalDayCount: number;
   queueDepth: number;
   oldestWaitingAgeMs?: number;
   oldestWaitingAgeLabel?: string;
@@ -1106,6 +1108,8 @@ export interface CloseoutPacketPreview {
   lastPassingReceiptIds: string[];
   unresolvedEvidenceCount: number;
   redactionStatus: "bounded" | "warning";
+  sourceSnapshotId?: string;
+  sourceViewLabel?: string;
 }
 
 export interface IncidentEvidenceDigest {
@@ -1134,6 +1138,36 @@ export interface ReportFreshness {
   latestVerificationReceiptCompletedAt?: string;
   latestVerificationReceiptId?: string;
   latestVerificationReceiptCommand?: string;
+  latestVerificationReceiptCommitSha?: string;
+  freshnessThresholdMs?: number;
+  staleByMs?: number;
+  thresholdBreached?: boolean;
+  latestSuccessfulVerifyPredatesHead?: boolean;
+}
+
+export interface ReportAssemblyTimingSection {
+  id: string;
+  label: string;
+  durationMs: number;
+}
+
+export interface ReportAssemblyTiming {
+  totalDurationMs: number;
+  sections: ReportAssemblyTimingSection[];
+  slowestSections: ReportAssemblyTimingSection[];
+}
+
+export interface HealthzEvidenceSummary {
+  reportFreshness: ReportFreshness["status"];
+  latestVerificationReceiptCommand?: string;
+  freshnessThresholdMs?: number;
+  staleByMs?: number;
+  thresholdBreached?: boolean;
+  latestSmokeCompletedAt?: string;
+  queueDepth: number;
+  oldestWaitingAgeLabel?: string;
+  recoveredEvidenceProvisional: boolean;
+  routeBudgetRegressionCount: number;
 }
 
 export interface ReportDiff {
@@ -1171,7 +1205,7 @@ export interface SavedViewAuditEvent {
   id: string;
   viewId: string;
   label: string;
-  action: "created" | "updated" | "used";
+  action: "created" | "updated" | "used" | "applied" | "edited" | "deleted" | "exported";
   createdAt: string;
   detail: string;
 }
@@ -1547,16 +1581,45 @@ export interface OperationsLedgerEntry {
   summary?: string;
 }
 
+export interface OperationsLedgerReport {
+  entries: OperationsLedgerEntry[];
+  totalEntryCount: number;
+  truncated: boolean;
+}
+
 export interface NativeTruthMonitorReport {
   status: OperationsGateStatus;
   divergenceSummary?: string;
   latestRunner?: NativeRunnerHistoryItem;
   history?: NativeRunnerHistoryItem[];
+  prepOnlyLabel?: string;
+  failureTaxonomy?: Array<{
+    id: NativeRunnerCheck["id"];
+    category: "launch_agent" | "sqlite" | "api" | "secure_store" | "gateway" | "history";
+    detail: string;
+  }>;
   checks: Array<{
     id: "api_health" | "gateway_readiness" | "launch_agent" | "backend_fingerprint" | "desktop_self_check" | NativeRunnerCheck["id"];
     status: OperationsGateStatus;
     detail: string;
   }>;
+}
+
+export interface RouteBudgetHistoryObservation {
+  id: string;
+  route: RoutePerformanceBudget["route"];
+  observedMs: number;
+  budgetMs: number;
+  recordedAt: string;
+  source: "fixture" | "live" | "report";
+}
+
+export interface RouteBudgetHistorySummary {
+  route: RoutePerformanceBudget["route"];
+  baselineObservedMs: number;
+  latestObservedMs: number;
+  trendDirection: "improving" | "steady" | "regressing" | "new";
+  observations: RouteBudgetHistoryObservation[];
 }
 
 export interface RecoveredEvidenceSummary {
@@ -1581,6 +1644,8 @@ export interface OperationsBacklogReport {
   incidentId?: string;
   generatedAt: string;
   reportFreshness: ReportFreshness;
+  reportAssemblyTiming: ReportAssemblyTiming;
+  healthzEvidence: HealthzEvidenceSummary;
   reportDiff: ReportDiff;
   reportProvenance: ReportProvenance;
   evidenceDrift: EvidenceDriftReport;
@@ -1597,6 +1662,9 @@ export interface OperationsBacklogReport {
   deliveryTargetHealth: DeliveryTargetHealth[];
   incidentTimeline: IncidentTimeline;
   routePerformanceBudgets: RoutePerformanceBudget[];
+  routeBudgetHistory?: {
+    routes: RouteBudgetHistorySummary[];
+  };
   routeBudgetRegressions: RouteBudgetRegression[];
   routeBudgetBurnReport: RouteBudgetBurnReport;
   chaosScenarios: ChaosTestScenario[];
@@ -1616,7 +1684,7 @@ export interface OperationsBacklogReport {
   roleAwareSimulations: RoleAwareIncidentSimulation[];
   causalityGraph: CorrelationGraph;
   causalityNarrative: CausalityNarrative;
-  operationsLedger: { entries: OperationsLedgerEntry[] };
+  operationsLedger: OperationsLedgerReport;
   closeoutPacketPreview: CloseoutPacketPreview;
   incidentEvidenceDigest?: IncidentEvidenceDigest;
   signedIncidentBundleManifest?: SignedIncidentBundleManifest;

@@ -1,4 +1,4 @@
-import type { OpenClogSettings, OperatorViewPreset } from "@openclog/core";
+import type { OpenClogSettings, OperatorViewPreset, SavedViewAuditEvent } from "@openclog/core";
 import type { SettingsRepository, UpdateSettingsInput } from "./contracts.js";
 import { requireMethod } from "./utils.js";
 
@@ -56,14 +56,7 @@ export function getSettings(repo: Partial<SettingsRepository>): OpenClogSettings
 export function updateSettings(
   repo: Partial<
     SettingsRepository & {
-      saveSavedViewAuditEvent?: (event: {
-        id: string;
-        viewId: string;
-        label: string;
-        action: "created" | "updated" | "used";
-        createdAt: string;
-        detail: string;
-      }) => unknown;
+      saveSavedViewAuditEvent?: (event: SavedViewAuditEvent) => unknown;
     }
   >,
   input: UpdateSettingsInput
@@ -97,6 +90,17 @@ export function updateSettings(
         action,
         createdAt: new Date().toISOString(),
         detail: action === "created" ? `Saved view ${view.label} was created.` : `Saved view ${view.label} was updated.`
+      });
+    }
+    const nextIds = new Set(next.operatorViews.map((view) => view.id));
+    for (const previous of current.operatorViews.filter((item) => item.builtIn !== true && !nextIds.has(item.id))) {
+      saveSavedViewAuditEvent({
+        id: `saved-view-deleted-${previous.id}-${Date.now()}`,
+        viewId: previous.id,
+        label: previous.label,
+        action: "deleted",
+        createdAt: new Date().toISOString(),
+        detail: `Saved view ${previous.label} was deleted.`
       });
     }
   }

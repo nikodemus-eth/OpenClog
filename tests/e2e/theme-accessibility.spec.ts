@@ -140,9 +140,11 @@ test("keyboard and accessibility affordances work", async ({ page }) => {
   await page.keyboard.press("Enter");
   await expect(page.getByText("Entry details")).toBeVisible();
 
-  await page.getByLabel(/Diagnostics card: Gateway/).focus();
-  await expect(page.getByLabel(/Diagnostics card: Gateway/)).toBeFocused();
-  const focusOutline = await page.getByLabel(/Diagnostics card: Gateway/).evaluate((element) => getComputedStyle(element).outlineStyle);
+  const diagnosticsPanel = page.getByRole("complementary", { name: "Accessible Diagnostics" });
+  const gatewayCard = diagnosticsPanel.getByLabel(/Diagnostics card: Gateway/);
+  await gatewayCard.focus();
+  await expect(gatewayCard).toBeFocused();
+  const focusOutline = await gatewayCard.evaluate((element) => getComputedStyle(element).outlineStyle);
   expect(focusOutline).not.toBe("none");
 
   const results = await new AxeBuilder({ page }).include("main").analyze();

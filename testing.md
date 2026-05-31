@@ -3,6 +3,20 @@
 ## Purpose
 Record deterministic verification, live Gateway verification, coverage policy, and closeout results.
 
+## 2026-05-30/31 Saved-View, Native, And Live Load Closeout
+- Added failing-first coverage for saved-view deletion audits and bounded operations-report payloads, then passed `npx vitest run packages/app/test/application.test.ts -t "records saved-view deletion|bounds operations-report"`.
+- Added desktop coverage proving the default scheduled self-check API base is `http://127.0.0.1:8787`, then passed `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml scheduled_self_check_reports_fail_closed_surfaces -- --nocapture`.
+- Focused checks passed after the refactor: `npm run typecheck`, `npx vitest run apps/api/test/repository.test.ts apps/api/test/routes.test.ts packages/app/test/application.test.ts`, `npx vitest run apps/api/test/routes.test.ts packages/app/test/application.test.ts`, and `npm run build`.
+- Live proof against real `8787` passed with `OPENCLOG_LOAD_BASE_URL=http://127.0.0.1:8787 npm run test:load -- --day-key 2026-05-25 --session-key agent:hugin:main`: `/api/operations/report` 644 ms / 750 ms, `/api/verification/receipts` 2 ms / 200 ms, `/api/sessions/:key` 49 ms / 300 ms, breachCount 0.
+- Real desktop-host evidence was refreshed by launching the Tauri host with `OPENCLOG_API_URL=http://127.0.0.1:8787`, `OPENCLOG_SQLITE_PATH=/Users/m4/OpenClog/openclog.db`, and `OPENCLOG_DESKTOP_SELF_CHECK_INTERVAL_MS=0`; the latest native-runner row is `desktop-self-check:http___127_0_0_1_8787:2026_05_31T02_51_21_423Z`.
+
+## 2026-05-27 Current-HEAD Native And Live Load Proof
+- Added regression coverage so report freshness only treats `verify` / `npm run verify` as a full verify bundle; focused receipts such as `npm run verify:gateway` no longer hide an older full-verify receipt from `latestSuccessfulVerifyPredatesHead`.
+- Added API coverage proving the load harness can hit a real local Fastify base URL, persist `source: "live"` route-budget rows for `/api/operations/report` and `/api/verification/receipts`, and keep live trend baselines separate from fixture rehearsal rows.
+- Expanded desktop-native tests so scheduled self-check persistence proves the stored native-runner JSON shape, and SQLite persistence failure returns a blocked self-check with a failed `native_runner_history` item.
+- Focused checks passed: `npx vitest run apps/api/test/repository.test.ts apps/api/test/routes.test.ts packages/app/test/application.test.ts`, `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml scheduled_self_check -- --nocapture`, `npm run verify:desktop-native`, and `npm run typecheck`.
+- Live load proof against current-HEAD Fastify on `http://127.0.0.1:8797` persisted live rows into `/Users/m4/OpenClog/openclog.db`. `/api/verification/receipts` stayed green at 2 ms; `/api/operations/report` failed closed twice at 1895 ms and 1872 ms against a 250 ms harness budget, so the live route-budget proof is real but not green.
+
 ## 2026-05-26 Native Runner Evidence Cutover Prep
 - Added failing-first coverage for native-runner persistence, operations-report ledger promotion, Native Truth Monitor readback, desktop self-check SQLite persistence, and receipt recording through a transient SQLite lock.
 - Focused verification passed during implementation with `npx vitest run packages/app/test/application.test.ts apps/api/test/repository.test.ts apps/api/test/advanced-features.test.ts apps/web/test/operator-workspace.test.ts`, `npm run typecheck`, and `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml`.

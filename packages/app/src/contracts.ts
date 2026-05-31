@@ -29,7 +29,9 @@ import type {
   OpenClogSettings,
   OperationsBacklogReport,
   OperatorRunbook,
+  RecoveredEvidenceSummary,
   ReportFreshness,
+  RouteBudgetHistoryObservation,
   PinnedDayContext,
   PluginExecutionResult,
   PluginManifest,
@@ -162,6 +164,8 @@ export interface GovernanceRepository {
   saveNativeRunnerHistory?(runner: NativeRunnerHistoryItem): NativeRunnerHistoryItem;
   listSavedViewAuditEvents?(): SavedViewAuditEvent[];
   saveSavedViewAuditEvent?(event: SavedViewAuditEvent): SavedViewAuditEvent;
+  listStaleSummaryDayKeys?(): string[];
+  getRecoveredEvidenceSummary?(currentDayKey: string): RecoveredEvidenceSummary | undefined;
   getLatestOperationsReportSnapshot?(scopeKey: string): {
     id: string;
     scopeKey: string;
@@ -193,6 +197,8 @@ export interface GovernanceRepository {
   };
   listEvidenceDriftObservations?(scopeKey?: string): Array<{ id: string; scopeKey: string; report: EvidenceDriftReport; createdAt: string }>;
   saveEvidenceDriftObservation?(observation: { id: string; scopeKey: string; report: EvidenceDriftReport; createdAt: string }): { id: string; scopeKey: string; report: EvidenceDriftReport; createdAt: string };
+  listRouteBudgetObservations?(route?: RouteBudgetHistoryObservation["route"]): RouteBudgetHistoryObservation[];
+  saveRouteBudgetObservation?(observation: RouteBudgetHistoryObservation): RouteBudgetHistoryObservation;
   createInvestigationWorkspace(input: { dayKeys: string[]; title?: string }): InvestigationWorkspace;
   getInvestigationWorkspace(id: string): InvestigationWorkspace | undefined;
   getRemoteOpsPolicy(): RemoteOpsPolicy;

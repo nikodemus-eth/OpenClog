@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { AlertFinding, AlertRule, CapabilityManifest, DeliveryReceipt, IncidentHandoffPacket, JournalDay, JournalSearchResult, SessionDrilldown } from "@openclog/core";
+import type { AlertFinding, AlertRule, CapabilityManifest, DeliveryReceipt, IncidentHandoffPacket, JournalDay, JournalSearchResult, OperatorViewPreset, SavedViewAuditEvent, SessionDrilldown, SummaryJob } from "@openclog/core";
 import { createOpenClogApplication } from "../src/index.js";
 
 function buildDay(dayKey: string, entryIds: string[]): JournalDay {
@@ -59,6 +59,94 @@ function buildBackfilledOpenClawDay(dayKey: string, count: number, latestImporte
 }
 
 describe("OpenClog application layer", () => {
+  test("records saved-view deletion audit events when persisted views are removed", () => {
+    const savedView: OperatorViewPreset = {
+      id: "saved-scope-review",
+      label: "Saved scope review",
+      searchQuery: "scope missing",
+      activeFilters: ["errors"],
+      grouped: true,
+      drilldown: { tab: "timeline", scrollTop: 0 }
+    };
+    const savedEvents: SavedViewAuditEvent[] = [];
+    const settings = new Map<string, unknown>([
+      [
+        "settings.v2",
+        {
+          version: 2,
+          theme: "default",
+          showToolCalls: true,
+          searchPresets: [],
+          operatorViews: [savedView]
+        }
+      ]
+    ]);
+    const app = createOpenClogApplication({
+      repo: {
+        getSetting: <T,>(key: string, fallback: T) => (settings.has(key) ? (settings.get(key) as T) : fallback),
+        setSetting: (key: string, value: unknown) => {
+          settings.set(key, value);
+        },
+        saveSavedViewAuditEvent: (event: SavedViewAuditEvent) => {
+          savedEvents.push(event);
+          return event;
+        }
+      }
+    });
+
+    app.updateSettings({ operatorViews: [] });
+
+    expect(savedEvents).toEqual([
+      expect.objectContaining({
+        viewId: "saved-scope-review",
+        label: "Saved scope review",
+        action: "deleted",
+        detail: "Saved view Saved scope review was deleted."
+      })
+    ]);
+  });
+
+  test("bounds operations-report summary jobs and ledger entries while preserving totals", () => {
+    const jobs = Array.from({ length: 125 }, (_, index): SummaryJob => {
+      const sequence = String(index + 1).padStart(3, "0");
+      return {
+        id: `summary-job-${sequence}`,
+        dayKey: "2026-05-27",
+        status: "completed",
+        createdAt: `2026-05-27T12:${String(index % 60).padStart(2, "0")}:00.000Z`,
+        startedAt: `2026-05-27T12:${String(index % 60).padStart(2, "0")}:01.000Z`,
+        completedAt: `2026-05-27T12:${String(index % 60).padStart(2, "0")}:02.000Z`
+      };
+    });
+    const app = createOpenClogApplication({
+      repo: {
+        getDay: () => buildDay("2026-05-27", ["entry-1"]),
+        listSummaryJobs: () => jobs,
+        listDeliveryReceipts: () => [],
+        listVerificationReceipts: () => [],
+        listNativeRunnerHistory: () => [],
+        listIncidentActionRecords: () => [],
+        listHealthTimeline: () => [],
+        getHealthAggregate: () => ({ createdAt: "2026-05-27T12:00:00.000Z", reconnectCount: 0, staleCount: 0, recoveryCount: 0, adapterFailureCount: 0 }),
+        getSloSnapshot: () => ({ createdAt: "2026-05-27T12:00:00.000Z", gatewayFreshnessOk: true, staleSummaryCount: 0, failedDeliveryCount: 0, retryBacklogCount: 0, reconnectHeavyDayCount: 0, baselines: [] }),
+        getSetting: () => ({ operatorViews: [] }),
+        getLatestOperationsReportSnapshot: () => undefined,
+        saveOperationsReportSnapshot: (snapshot) => snapshot,
+        listEvidenceDriftObservations: () => [],
+        saveEvidenceDriftObservation: (observation) => observation,
+        listRouteBudgetObservations: () => [],
+        previewRetention: () => ({ keepDays: 1, removedDayKeys: [], removedEntryCount: 0, removedSummaryCount: 0, removedAuditCount: 0 })
+      }
+    });
+
+    const report = app.getOperationsBacklog({ dayKey: "2026-05-27" });
+
+    expect(report.summaryJobHistory.totalJobCount).toBe(125);
+    expect(report.summaryJobHistory.jobs.length).toBeLessThanOrEqual(50);
+    expect(report.operationsLedger.totalEntryCount).toBeGreaterThan(report.operationsLedger.entries.length);
+    expect(report.operationsLedger.entries.length).toBeLessThanOrEqual(100);
+  });
+
   test("paginates search results and drilldowns with stable cursors", () => {
     const searchResults = [
       {
@@ -537,6 +625,50 @@ describe("OpenClog application layer", () => {
     expect(app.getRemoteOpsPolicy()).toMatchObject({ enabled: false, secretAccess: "fail-closed" });
   });
 
+  test("does not treat focused verify receipts as the latest full verify for current HEAD freshness", () => {
+    const app = createOpenClogApplication({
+      repo: {
+        getBackendFingerprint: () => ({
+          id: "boot-current",
+          pid: 1001,
+          bootedAt: "2026-05-27T12:00:00.000Z",
+          runtimeFingerprint: "runtime-current",
+          commitSha: "current123",
+          buildTimestamp: "2026-05-27T12:00:00.000Z",
+          nodeVersion: "v26.0.0"
+        }),
+        getDay: () => buildDay("2026-05-27", []),
+        listDeliveryReceipts: () => [],
+        listVerificationReceipts: () => [
+          {
+            id: "verify-full-old",
+            command: "npm run verify",
+            status: "passed",
+            startedAt: "2026-05-27T12:01:00.000Z",
+            completedAt: "2026-05-27T12:02:00.000Z",
+            summary: "Full verify passed before current HEAD.",
+            commitSha: "old123"
+          },
+          {
+            id: "verify-gateway-current",
+            command: "npm run verify:gateway",
+            status: "passed",
+            startedAt: "2026-05-27T12:03:00.000Z",
+            completedAt: "2026-05-27T12:04:00.000Z",
+            summary: "Focused gateway verify passed at current HEAD.",
+            commitSha: "current123"
+          }
+        ]
+      }
+    });
+
+    const report = (app as never as { getOperationsBacklog(input: { dayKey: string }): { reportFreshness: { latestSuccessfulVerifyPredatesHead?: boolean } } }).getOperationsBacklog({
+      dayKey: "2026-05-27"
+    });
+
+    expect(report.reportFreshness.latestSuccessfulVerifyPredatesHead).toBe(true);
+  });
+
   test("builds the full 30-item operations backlog report from local evidence", () => {
     const summaryDay: JournalDay = {
       ...buildDay("2026-05-08", ["entry-a", "entry-b", "entry-c"]),
@@ -788,7 +920,34 @@ describe("OpenClog application layer", () => {
       guidedIncidentCommand: { stages: Array<{ id: string; complete: boolean; blocked: boolean }> };
       escalationPlaybooks: Array<{ id: string; title: string }>;
       operationsLedger: { entries: Array<{ action: string; correlationId?: string; kind?: string; evidenceIds?: string[] }> };
-      reportFreshness: { status: string; summary: string; latestVerificationReceiptId?: string };
+      reportFreshness: {
+        status: string;
+        summary: string;
+        latestVerificationReceiptId?: string;
+        latestVerificationReceiptCommand?: string;
+        freshnessThresholdMs?: number;
+        staleByMs?: number;
+        thresholdBreached?: boolean;
+        latestVerificationReceiptCommitSha?: string;
+        latestSuccessfulVerifyPredatesHead?: boolean;
+      };
+      reportAssemblyTiming: {
+        totalDurationMs: number;
+        sections: Array<{ id: string; durationMs: number }>;
+        slowestSections: Array<{ id: string; durationMs: number }>;
+      };
+      healthzEvidence: {
+        reportFreshness: string;
+        latestVerificationReceiptCommand?: string;
+        freshnessThresholdMs?: number;
+        staleByMs?: number;
+        thresholdBreached?: boolean;
+        latestSmokeCompletedAt?: string;
+        queueDepth: number;
+        oldestWaitingAgeLabel?: string;
+        recoveredEvidenceProvisional: boolean;
+        routeBudgetRegressionCount: number;
+      };
       reportDiff: { available: boolean; summary: string; changedFields: string[]; previousSnapshotId?: string };
       reportProvenance: { sourceVerificationReceiptIds: string[]; sourceSummaryJobIds: string[]; lineageSummary: string };
       evidenceDrift: { status: string; summary: string; issues: Array<{ id: string }> };
@@ -813,6 +972,9 @@ describe("OpenClog application layer", () => {
       staleSummaryDayKeys: string[];
       readinessHistory: { points: Array<{ backendHealthy: boolean; gatewayStatus: string; reasonCodes?: string[] }> };
       morningBrief: { headline: string; bullets: string[]; citations?: string[] };
+      routeBudgetHistory?: { routes: Array<{ route: string; latestObservedMs: number; baselineObservedMs: number; trendDirection: string; observations: Array<{ observedMs: number }> }> };
+      closeoutPacketPreview: { summary: string; blockerSummaries: string[]; lastPassingReceiptIds: string[]; sourceSnapshotId?: string; sourceViewLabel?: string };
+      nativeTruthMonitor: { prepOnlyLabel?: string; failureTaxonomy?: Array<{ id: string; category: string }> };
     };
 
     expect(report.summaryJobHistory.jobs[0]).toMatchObject({
@@ -831,7 +993,27 @@ describe("OpenClog application layer", () => {
     expect(report.summaryJobHistory).toMatchObject({ queueDepth: 0 });
     expect(report.reportFreshness).toMatchObject({
       status: "newer_than_latest_receipt",
-      latestVerificationReceiptId: "verify-docs"
+      latestVerificationReceiptId: "verify-docs",
+      latestVerificationReceiptCommand: "docs:check",
+      freshnessThresholdMs: expect.any(Number),
+      thresholdBreached: false,
+      latestVerificationReceiptCommitSha: "abc1234",
+      latestSuccessfulVerifyPredatesHead: false
+    });
+    expect(report.reportAssemblyTiming.totalDurationMs).toBeGreaterThanOrEqual(0);
+    expect(report.reportAssemblyTiming.sections.length).toBeGreaterThan(0);
+    expect(report.reportAssemblyTiming.slowestSections[0]?.durationMs ?? 0).toBeGreaterThanOrEqual(
+      report.reportAssemblyTiming.slowestSections[1]?.durationMs ?? 0
+    );
+    expect(report.healthzEvidence).toMatchObject({
+      reportFreshness: "newer_than_latest_receipt",
+      latestVerificationReceiptCommand: "docs:check",
+      freshnessThresholdMs: expect.any(Number),
+      staleByMs: 0,
+      thresholdBreached: false,
+      queueDepth: 0,
+      recoveredEvidenceProvisional: true,
+      routeBudgetRegressionCount: 1
     });
     expect(report.reportDiff).toMatchObject({
       available: true,
@@ -845,6 +1027,15 @@ describe("OpenClog application layer", () => {
     expect(report.savedViewAudit).toMatchObject({
       events: [expect.objectContaining({ id: "saved-view-created-1", action: "created" })]
     });
+    expect(report.routeBudgetHistory?.routes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          route: "/api/operations/report",
+          trendDirection: expect.stringMatching(/improving|steady|regressing|new/),
+          observations: expect.arrayContaining([expect.objectContaining({ source: expect.stringMatching(/fixture|live|report/) })])
+        })
+      ])
+    );
     expect(report.incidentEvidenceChecklist.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "timeline", present: true }),
       expect.objectContaining({ id: "receipts", present: true }),
@@ -910,7 +1101,8 @@ describe("OpenClog application layer", () => {
         staleSummaryCount: 1,
         lastSuccessfulSummaryAt: "2026-05-08T12:00:07.000Z",
         redactedJson: expect.stringContaining("\"redacted\":true"),
-        newerEvidenceExists: expect.any(Boolean)
+        newerEvidenceExists: expect.any(Boolean),
+        handoffSummary: expect.stringContaining("snapshot")
       })
     ]);
     expect(report.staleSummaryDayKeys).toEqual(["2026-05-08"]);
@@ -989,9 +1181,11 @@ describe("OpenClog application layer", () => {
         observedApiBase: "http://127.0.0.1:3000"
       },
       history: expect.any(Array),
-      divergenceSummary: "Desktop self-check agrees with public Gateway readiness."
+      divergenceSummary: "Desktop self-check agrees with public Gateway readiness.",
+      prepOnlyLabel: expect.stringContaining("prep evidence")
     });
     expect(report.nativeTruthMonitor.checks).toEqual(expect.arrayContaining([expect.objectContaining({ id: "backend_fingerprint", status: "passed" }), expect.objectContaining({ id: "launch_agent", status: "passed" })]));
+    expect(report.nativeTruthMonitor.failureTaxonomy).toEqual(expect.any(Array));
     expect(report.retentionImpact).toMatchObject({ removedEntryCount: 0, removedDayKeys: [] });
     expect(report.activeHypotheses).toEqual([expect.objectContaining({ label: "Saved scope review", hypothesis: "Gateway scope grant is stale." })]);
     expect(report.morningBrief.citations).toEqual(expect.arrayContaining(["stale_summary", "receipt-slack-failed"]));
@@ -999,6 +1193,10 @@ describe("OpenClog application layer", () => {
       status: "prep",
       artifactPath: "docs/openclog-native-cutover.md",
       nextSteps: expect.arrayContaining(["Keep Fastify as policy/report authority until native policy parity is proven with fresh receipts."])
+    });
+    expect(report.closeoutPacketPreview).toMatchObject({
+      sourceSnapshotId: expect.any(String),
+      sourceViewLabel: "Saved scope review"
     });
   });
 

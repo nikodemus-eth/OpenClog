@@ -279,6 +279,7 @@ export const journalTableNames = [
   "journal_replay_workspaces",
   "journal_retention_classes",
   "journal_retention_snapshots",
+  "journal_route_budget_observations",
   "journal_saved_view_audit_events",
   "journal_sessions",
   "journal_settings",

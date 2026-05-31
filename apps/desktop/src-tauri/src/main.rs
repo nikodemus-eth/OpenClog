@@ -148,7 +148,7 @@ fn delete_secure_secret(key: String) -> Result<SecretMutationResult, String> {
 
 #[tauri::command]
 fn run_scheduled_self_check() -> DesktopSelfCheckReport {
-    let api_base = std::env::var("OPENCLOG_API_URL").unwrap_or_else(|_| "http://127.0.0.1:3000".to_string());
+    let api_base = std::env::var("OPENCLOG_API_URL").unwrap_or_else(|_| "http://127.0.0.1:8787".to_string());
     let generated_at = iso_now();
     let health = probe_api_health(&api_base);
     let divergence_summary = if health.1.status == "ok" {
@@ -402,9 +402,11 @@ mod tests {
     fn scheduled_self_check_reports_fail_closed_surfaces() {
         let _guard = ENV_LOCK.lock().expect("env lock");
         let db_path = std::env::temp_dir().join(format!("openclog-desktop-self-check-{}.db", std::process::id()));
+        std::env::remove_var("OPENCLOG_API_URL");
         std::env::set_var("OPENCLOG_SQLITE_PATH", &db_path);
         let report = run_scheduled_self_check();
         std::env::remove_var("OPENCLOG_SQLITE_PATH");
+        assert_eq!(report.observed_api_base, "http://127.0.0.1:8787");
         assert!(report.receipt_id.starts_with("desktop-self-check:"));
         assert!(report.checks.iter().any(|check| check.id == "api_liveness"));
         assert!(report.checks.iter().any(|check| check.id == "gateway_readiness"));
@@ -419,7 +421,36 @@ mod tests {
             .expect("query native runner table");
         assert!(count.status.success());
         assert_eq!(String::from_utf8_lossy(&count.stdout).trim(), "1");
+        let row = Command::new("sqlite3")
+            .arg(&db_path)
+            .arg("SELECT runner_json FROM journal_native_runner_history LIMIT 1;")
+            .output()
+            .expect("query native runner row");
+        assert!(row.status.success());
+        let row_json = String::from_utf8_lossy(&row.stdout);
+        assert!(row_json.contains("\"receiptId\":\"desktop-self-check:"));
+        assert!(row_json.contains("\"observedApiBase\""));
+        assert!(row_json.contains("\"source\":\"desktop\""));
+        assert!(row_json.contains("\"checks\""));
         let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn scheduled_self_check_marks_native_history_persistence_failures_blocked() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        let db_path = std::env::temp_dir().join(format!("openclog-desktop-self-check-dir-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&db_path);
+        std::env::set_var("OPENCLOG_SQLITE_PATH", &db_path);
+        let report = run_scheduled_self_check();
+        std::env::remove_var("OPENCLOG_SQLITE_PATH");
+
+        assert_eq!(report.status, "blocked");
+        assert!(report.divergence_summary.contains("Native runner history persistence failed closed."));
+        assert!(report
+            .checks
+            .iter()
+            .any(|check| check.id == "native_runner_history" && check.status == "failed"));
+        let _ = std::fs::remove_dir_all(db_path);
     }
 }
 

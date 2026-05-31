@@ -62,8 +62,11 @@ export function buildVerificationTrustSummary(report: OperationsBacklogReport | 
     verifySegment,
     `gateway ${center.lastSuccessfulGatewayVerifyAt ?? "unavailable"}`,
     `desktop ${center.lastSuccessfulDesktopVerifyAt ?? "unavailable"}`,
-    `docs ${center.lastSuccessfulDocsCheckAt ?? "unavailable"}`
-  ].join(" ");
+    `docs ${center.lastSuccessfulDocsCheckAt ?? "unavailable"}`,
+    report.reportFreshness?.latestSuccessfulVerifyPredatesHead ? "predates current HEAD" : null
+  ]
+    .filter((segment): segment is string => Boolean(segment))
+    .join(" ");
 }
 
 export function formatRecoveredEvidenceSummary(summary: RecoveredEvidenceSummary | undefined, options: { latestSeparator?: "," | ";" } = {}): string | null {
@@ -710,7 +713,8 @@ export function formatExportableOperatorView(view: ExportableOperatorView): stri
   const lastSuccessfulSummary = view.lastSuccessfulSummaryAt ? ` Last successful summary ${safeWorkbenchCopy(view.lastSuccessfulSummaryAt)}.` : "";
   const lint = view.lintFindings?.length ? ` Lint: ${view.lintFindings.map((finding) => safeWorkbenchCopy(finding.message)).join("; ")}.` : "";
   const verify = view.selectedGateId ? ` Selected gate ${safeWorkbenchCopy(view.selectedGateId)}.` : "";
-  return `${safeWorkbenchCopy(view.label)}: ${String(view.evidenceCount)} evidence item(s), ${String(view.unresolvedEvidenceCount)} unresolved.${staleSummary}${lastSuccessfulSummary}${warning}${lint}${verify} ${safeWorkbenchCopy(view.redactedJson)}`;
+  const handoff = view.handoffSummary ? ` Handoff: ${safeWorkbenchCopy(view.handoffSummary)}` : "";
+  return `${safeWorkbenchCopy(view.label)}: ${String(view.evidenceCount)} evidence item(s), ${String(view.unresolvedEvidenceCount)} unresolved.${staleSummary}${lastSuccessfulSummary}${warning}${lint}${verify}${handoff} ${safeWorkbenchCopy(view.redactedJson)}`;
 }
 
 export function capabilityGateAllows(capabilities: CapabilityView[], capabilityId: string): boolean {

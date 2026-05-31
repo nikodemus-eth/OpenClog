@@ -739,6 +739,7 @@ export function DayHeader(props: {
   changedSinceSummaryText?: string;
   lastSuccessfulSummaryJobCompletionAt?: string;
   latestSmokeCompletedAt?: string;
+  onCopyRecoveredEvidenceProvisional?: () => void;
   recoveredEvidenceProvisionalLabel?: string;
   recoveredEvidenceDriftText?: string;
   recoveredEvidenceSummary?: string;
@@ -762,7 +763,16 @@ export function DayHeader(props: {
           {props.latestSmokeCompletedAt ? <span>Last smoke {props.latestSmokeCompletedAt}</span> : null}
           {typeof props.summaryQueueDepth === "number" ? <span>Summary queue depth {props.summaryQueueDepth}</span> : null}
           {props.recoveredEvidenceSummary ? <span>{props.recoveredEvidenceSummary}</span> : null}
-          {props.recoveredEvidenceProvisionalLabel ? <span>{props.recoveredEvidenceProvisionalLabel}</span> : null}
+          {props.recoveredEvidenceProvisionalLabel ? (
+            <span>
+              {props.recoveredEvidenceProvisionalLabel}{" "}
+              {props.onCopyRecoveredEvidenceProvisional ? (
+                <button type="button" onClick={props.onCopyRecoveredEvidenceProvisional}>
+                  Copy provisional note
+                </button>
+              ) : null}
+            </span>
+          ) : null}
           {props.recoveredEvidenceDriftText ? <span>{props.recoveredEvidenceDriftText}</span> : null}
           {props.changedSinceSummaryText ? <span>{props.changedSinceSummaryText}</span> : null}
         </div>

@@ -3,6 +3,12 @@
 ## Purpose
 Track OpenClog implementation decisions, verification passes, refactors, and closeout evidence.
 
+## 2026-05-30 Saved-View, Runtime Drift, And Route-Budget Closeout
+- Finished the saved-view audit surface across the real settings/API path: saved views now persist `created`, `updated`, `deleted`, and workbench `used` audit events. The root DB proof added reversible audit rows for `audit-proof-1780195919976` and retained the existing 7 `used` rows.
+- Bounded the operations report payload instead of streaming the entire summary-job corpus: `summaryJobHistory` now returns 50 recent jobs with `totalJobCount`, and the Operations Ledger returns 100 entries with `totalEntryCount` and `truncated` metadata.
+- Repaired the desktop self-check default API base to `http://127.0.0.1:8787`, rebuilt the service artifacts, and restarted `com.m4.openclog-api` from `/Users/m4/OpenClog/scripts/run-openclog-api.sh`.
+- Optimized expensive report assembly reads with bounded SQL summaries for health history, SLO, retention, stale summaries, and recovered-evidence counts, then rebaselined the full `/api/operations/report` live budget to 750 ms.
+
 ## 2026-05-26 Native Runner Evidence Cutover Prep
 - Added shared native-runner evidence contracts, repository read/write methods, a Drizzle schema export, and bounded SQLite busy handling so command receipts and native self-check rows wait through transient local locks instead of being silently lost.
 - Promoted the Tauri scheduled self-check into a persisted desktop evidence producer: it writes normalized native-runner history to `journal_native_runner_history`, runs once on startup, and repeats on `OPENCLOG_DESKTOP_SELF_CHECK_INTERVAL_MS` unless the interval is `0`.

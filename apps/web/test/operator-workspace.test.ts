@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { CapabilityView, DeliveryReceipt, GeneratedSummary, JournalEntry, MonitoringImportResult, OperationsBacklogReport } from "@openclog/core";
+import { describeReportFreshness } from "../src/hooks/useOperationsReport.js";
 import {
   addSearchPreset,
   buildActiveIncidentBadgeText,
@@ -76,6 +77,21 @@ describe("operator workspace helpers", () => {
     expect(remainingPinnedSummaryCharacters("abc")).toBe(277);
   });
 
+  test("describes report freshness with explicit threshold and stale delta context", () => {
+    expect(
+      describeReportFreshness({
+        reportFreshness: {
+          status: "older_than_latest_receipt",
+          summary: "Older than latest receipt.",
+          reportGeneratedAt: "2026-05-08T12:00:00.000Z",
+          freshnessThresholdMs: 300000,
+          staleByMs: 420000,
+          thresholdBreached: true
+        }
+      } as OperationsBacklogReport)
+    ).toContain("beyond threshold");
+  });
+
   test("detects when generated summaries are stale", () => {
     const generatedSummary: GeneratedSummary = {
       summary: "Summary text",
@@ -137,6 +153,29 @@ describe("operator workspace helpers", () => {
         }
       } as OperationsBacklogReport)
     ).toBe("Last successful local verify bundle: verify unavailable gateway unavailable desktop unavailable docs unavailable");
+    expect(
+      buildVerificationTrustSummary({
+        verificationCenter: {
+          criticalIssueCount: 0,
+          failingGateCount: 0,
+          firstBlockedGateId: undefined,
+          gates: [],
+          lastSuccessfulDesktopVerifyAt: "2026-05-04T10:00:00.000Z",
+          lastSuccessfulDocsCheckAt: "2026-05-04T11:00:00.000Z",
+          lastSuccessfulGatewayVerifyAt: "2026-05-04T09:00:00.000Z",
+          lastSuccessfulVerifyAgeLabel: "5m old",
+          lastSuccessfulVerifyAt: "2026-05-04T12:00:00.000Z",
+          lastSuccessfulVerifyFreshness: "fresh",
+          summary: "All clear."
+        },
+        reportFreshness: {
+          status: "newer_than_latest_receipt",
+          summary: "Fresh report.",
+          reportGeneratedAt: "2026-05-04T12:05:00.000Z",
+          latestSuccessfulVerifyPredatesHead: true
+        }
+      } as OperationsBacklogReport)
+    ).toContain("predates current HEAD");
   });
 
   test("formats recovered OpenClaw evidence summaries for report and header surfaces", () => {
@@ -513,6 +552,16 @@ describe("operator workspace helpers", () => {
       label: "Open GitHub issue delivery target",
       message: "Dry-run verification failed for GitHub issue; jump to the delivery target card."
     });
+    expect(
+      formatExportableOperatorView({
+        id: "saved-scope-review",
+        label: "Saved scope review",
+        evidenceCount: 3,
+        unresolvedEvidenceCount: 1,
+        redactedJson: "{\"redacted\":true}",
+        handoffSummary: "Saved scope review: 1 unresolved evidence item(s). Source snapshot report-snapshot-1."
+      })
+    ).toContain("Handoff: Saved scope review: 1 unresolved evidence item(s). Source snapshot report-snapshot-1.");
     expect(
       applyOperatorViewTimelinePreference({
         id: "investigation",
