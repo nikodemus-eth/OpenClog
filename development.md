@@ -3,11 +3,18 @@
 ## Purpose
 Track OpenClog implementation decisions, verification passes, refactors, and closeout evidence.
 
+## 2026-06-01 Current-HEAD Proof And Focus Refactor
+- Reconciled the repo-local reporting artifacts with the live Google Doc authority for local `main` commit `2d37c7f`, replacing stale current-proof references to the older `4c15cf6` `8787` runtime while preserving that proof only as historical May 27 context.
+- Kept native cutover truth bounded: the May 30/31 evidence proves desktop self-check/native-runner evidence and live route-budget health, not browser-side receipt writes, mutation-enabled Gateway verification, live-send delivery success, or a full native authority handoff.
+- Refactored timeline focus retention so it restores entry focus only while focus remains in the timeline context; diagnostics, shell, and other operator regions can now keep focus across health/report re-renders.
+- Fresh closeout verification passed through `npm run verify`, `npm run docs:check`, `npm run test:smoke`, `npm run verify:gateway`, and `npm run verify:desktop-native`.
+
 ## 2026-05-30 Saved-View, Runtime Drift, And Route-Budget Closeout
 - Finished the saved-view audit surface across the real settings/API path: saved views now persist `created`, `updated`, `deleted`, and workbench `used` audit events. The root DB proof added reversible audit rows for `audit-proof-1780195919976` and retained the existing 7 `used` rows.
 - Bounded the operations report payload instead of streaming the entire summary-job corpus: `summaryJobHistory` now returns 50 recent jobs with `totalJobCount`, and the Operations Ledger returns 100 entries with `totalEntryCount` and `truncated` metadata.
 - Repaired the desktop self-check default API base to `http://127.0.0.1:8787`, rebuilt the service artifacts, and restarted `com.m4.openclog-api` from `/Users/m4/OpenClog/scripts/run-openclog-api.sh`.
 - Optimized expensive report assembly reads with bounded SQL summaries for health history, SLO, retention, stale summaries, and recovered-evidence counts, then rebaselined the full `/api/operations/report` live budget to 750 ms.
+- Reconciled the repo-local proof logs with the live Google Doc authority for closeout commit `2d37c7f`: `8787` reported runtime fingerprint `96c1db842ef7bf6990883b995733c9cc491ca181dbee6d81ebefaea98388977f`, the native self-check receipt was `desktop-self-check:http___127_0_0_1_8787:2026_05_31T03_07_26_520Z`, and the live route-budget proof remained prep-only native evidence rather than an authority handoff.
 
 ## 2026-05-26 Native Runner Evidence Cutover Prep
 - Added shared native-runner evidence contracts, repository read/write methods, a Drizzle schema export, and bounded SQLite busy handling so command receipts and native self-check rows wait through transient local locks instead of being silently lost.

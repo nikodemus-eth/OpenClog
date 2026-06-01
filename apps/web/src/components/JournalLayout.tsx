@@ -805,6 +805,16 @@ export function Timeline(props: {
   const entryIndexById = useMemo(() => new Map(entryIds.map((id, index) => [id, index])), [entryIds]);
   const [focusedEntryId, setFocusedEntryId] = useState<string | null>(null);
 
+  function isTimelineFocusContext(activeElement: Element | null): boolean {
+    if (!activeElement) return false;
+    if (activeElement === document.body) return true;
+    if (activeElement === timelineRef.current || timelineRef.current?.contains(activeElement)) return true;
+    for (const node of refs.current.values()) {
+      if (node === activeElement || node.contains(activeElement)) return true;
+    }
+    return false;
+  }
+
   useEffect(() => {
     setFocusedEntryId((current) => {
       if (current && entryIds.includes(current)) return current;
@@ -816,7 +826,9 @@ export function Timeline(props: {
     if (!focusedEntryId) return;
     const node = refs.current.get(focusedEntryId);
     if (!node || document.activeElement === node) return;
+    if (!isTimelineFocusContext(document.activeElement)) return;
     window.requestAnimationFrame(() => {
+      if (!isTimelineFocusContext(document.activeElement)) return;
       refs.current.get(focusedEntryId)?.focus({ preventScroll: true });
     });
   }, [focusedEntryId, timelineRef]);

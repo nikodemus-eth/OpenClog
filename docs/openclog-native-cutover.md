@@ -16,11 +16,11 @@ Current follow-through inside that boundary:
 - The desktop host persists that report into `journal_native_runner_history`, and `@openclog/app` promotes the latest native-runner row into the Native Truth Monitor and Operations Ledger.
 - Divergence between desktop-observed health and Fastify-reported readiness remains an evidence item, not a browser-side policy decision or authority handoff.
 - As of the 2026-05-30/31 proof, the default desktop self-check base is `http://127.0.0.1:8787`, matching the local Fastify LaunchAgent rather than the old development port.
-- The refreshed root-DB native receipt is `desktop-self-check:http___127_0_0_1_8787:2026_05_31T02_51_21_423Z`; it observed API liveness, public Gateway readiness, the loaded `com.m4.openclog-api` LaunchAgent, `/Users/m4/OpenClog/openclog.db`, and macOS Keychain availability.
-- The 8787 listener itself reported backend commit `4c15cf6` and runtime fingerprint `92883edac9c814babd7510630253cb9419a9c7160ca7785f8e2c76b43497495a` after rebuilding and restarting the tracked LaunchAgent script.
+- The refreshed root-DB native receipt is `desktop-self-check:http___127_0_0_1_8787:2026_05_31T03_07_26_520Z`; it observed API liveness, public Gateway readiness, the loaded `com.m4.openclog-api` LaunchAgent, `/Users/m4/OpenClog/openclog.db`, and macOS Keychain availability.
+- The 8787 listener itself reported backend commit `2d37c7f`, PID `53455`, build timestamp `2026-05-31T03:06:08.801Z`, and runtime fingerprint `96c1db842ef7bf6990883b995733c9cc491ca181dbee6d81ebefaea98388977f` after rebuilding and restarting the tracked LaunchAgent script.
 - As of the 2026-05-27 current-HEAD proof, `/Users/m4/OpenClog/openclog.db` contains real native-runner receipt `desktop-self-check:http___127_0_0_1_8787:2026_05_26T12_04_47_490Z`; focused desktop tests also prove that a failed native-runner history write returns a blocked self-check with a failed `native_runner_history` item.
-- The same proof kept the route-budget boundary honest: live `npm run test:load` against current-HEAD Fastify persisted live rows, but `/api/operations/report` breached the harness budget and must remain degraded until optimized or rebaselined with evidence.
-- The route-budget boundary has now been optimized and rebaselined: the full operations report is green at 644 ms against a 750 ms live budget, while `/api/healthz` remains the cheap readiness contract.
+- The same May 27 proof kept the route-budget boundary honest: live `npm run test:load` against then-current Fastify persisted live rows, but `/api/operations/report` breached the harness budget and remained degraded until later optimization.
+- The route-budget boundary has now been optimized and rebaselined: the full operations report is green at 647 ms against a 750 ms live budget, while `/api/healthz` remains the cheap readiness contract.
 
 ## Cutover Goals
 

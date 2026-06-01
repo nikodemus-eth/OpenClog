@@ -3,12 +3,19 @@
 ## Purpose
 Record deterministic verification, live Gateway verification, coverage policy, and closeout results.
 
+## 2026-06-01 Current-HEAD Verification Refresh
+- Re-read the live Google Doc `OpenClog` (`1FUJzFAW1TNgT42JWVeA2PClkyEPAgSt-PQYnCDj9B2Q`) and refreshed repo-local proof logs from the May 30/31 closeout state at local `main` commit `2d37c7f`.
+- The first fresh `npm run verify` run failed in `tests/e2e/theme-accessibility.spec.ts` because the timeline focus-retention effect could reclaim focus from the Gateway diagnostics card after an entry had been opened.
+- Refactor verification passed with `npx playwright test tests/e2e/theme-accessibility.spec.ts --project=chromium --grep "keyboard and accessibility affordances work"`.
+- Final `npm run verify` passed with forbidden-RPC checks, typecheck, lint, workspace builds, 21 Vitest files / 207 tests, 100 percent measured statements/branches/functions/lines, 210 Playwright UI tests, 54 visual snapshots, 8 red-team tests, and docs check.
+- Additional explicit closeout gates passed: `npm run docs:check`, `npm run test:smoke`, `npm run verify:gateway` with `status: ready` and mutation testing disabled, and `npm run verify:desktop-native` with 3 native cargo tests.
+
 ## 2026-05-30/31 Saved-View, Native, And Live Load Closeout
 - Added failing-first coverage for saved-view deletion audits and bounded operations-report payloads, then passed `npx vitest run packages/app/test/application.test.ts -t "records saved-view deletion|bounds operations-report"`.
 - Added desktop coverage proving the default scheduled self-check API base is `http://127.0.0.1:8787`, then passed `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml scheduled_self_check_reports_fail_closed_surfaces -- --nocapture`.
 - Focused checks passed after the refactor: `npm run typecheck`, `npx vitest run apps/api/test/repository.test.ts apps/api/test/routes.test.ts packages/app/test/application.test.ts`, `npx vitest run apps/api/test/routes.test.ts packages/app/test/application.test.ts`, and `npm run build`.
-- Live proof against real `8787` passed with `OPENCLOG_LOAD_BASE_URL=http://127.0.0.1:8787 npm run test:load -- --day-key 2026-05-25 --session-key agent:hugin:main`: `/api/operations/report` 644 ms / 750 ms, `/api/verification/receipts` 2 ms / 200 ms, `/api/sessions/:key` 49 ms / 300 ms, breachCount 0.
-- Real desktop-host evidence was refreshed by launching the Tauri host with `OPENCLOG_API_URL=http://127.0.0.1:8787`, `OPENCLOG_SQLITE_PATH=/Users/m4/OpenClog/openclog.db`, and `OPENCLOG_DESKTOP_SELF_CHECK_INTERVAL_MS=0`; the latest native-runner row is `desktop-self-check:http___127_0_0_1_8787:2026_05_31T02_51_21_423Z`.
+- Live proof against real `8787` passed with `OPENCLOG_LOAD_BASE_URL=http://127.0.0.1:8787 npm run test:load -- --day-key 2026-05-25 --session-key agent:hugin:main`: `/api/operations/report` 647 ms / 750 ms, `/api/verification/receipts` 2 ms / 200 ms, `/api/sessions/:key` 51 ms / 300 ms, breachCount 0.
+- Real desktop-host evidence was refreshed by launching the Tauri host with `OPENCLOG_API_URL=http://127.0.0.1:8787`, `OPENCLOG_SQLITE_PATH=/Users/m4/OpenClog/openclog.db`, and `OPENCLOG_DESKTOP_SELF_CHECK_INTERVAL_MS=0`; the latest native-runner row is `desktop-self-check:http___127_0_0_1_8787:2026_05_31T03_07_26_520Z`, and `http://127.0.0.1:8787/api/version` reported commit `2d37c7f`.
 
 ## 2026-05-27 Current-HEAD Native And Live Load Proof
 - Added regression coverage so report freshness only treats `verify` / `npm run verify` as a full verify bundle; focused receipts such as `npm run verify:gateway` no longer hide an older full-verify receipt from `latestSuccessfulVerifyPredatesHead`.
