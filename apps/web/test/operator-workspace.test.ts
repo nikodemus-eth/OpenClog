@@ -14,6 +14,9 @@ import {
   applyOperatorViewTimelinePreference,
   buildDryRunFailureJumpNotice,
   buildGatewayScopeButtonLabel,
+  buildMorningBriefCopyText,
+  buildReportSnapshotSummary,
+  buildVerificationGateFocusSelector,
   buildRetryReceiptConfirmation,
   buildRetryWithNewKeyReceiptConfirmation,
   buildVerificationTrustSummary,
@@ -42,6 +45,7 @@ import {
   formatDeliveryTargetHealthSummary,
   formatExportableOperatorView,
   formatMonitoringImportSummary,
+  formatRecoveredEvidenceBadge,
   formatRecoveredEvidenceSummary,
   formatMissionReplayStep,
   formatReceiptDetails,
@@ -213,6 +217,77 @@ describe("operator workspace helpers", () => {
         { latestSeparator: ";" }
       )
     ).toBe("Recovered evidence: 1 entry across 1 day");
+  });
+
+  test("formats recovered-evidence badges for archive and search surfaces", () => {
+    expect(formatRecoveredEvidenceBadge(undefined)).toBeNull();
+    expect(
+      formatRecoveredEvidenceBadge({
+        label: "Backfilled from OpenClaw",
+        latestImportedAt: "2026-05-20T22:30:01.601Z"
+      })
+    ).toBe("Backfilled from OpenClaw · imported 2026-05-20T22:30:01.601Z");
+    expect(
+      formatRecoveredEvidenceBadge({
+        label: "Backfilled from OpenClaw",
+        entryCount: 69
+      })
+    ).toBe("Backfilled from OpenClaw · 69 entries");
+    expect(
+      formatRecoveredEvidenceBadge({
+        label: "Backfilled from OpenClaw",
+        entryCount: 1
+      })
+    ).toBe("Backfilled from OpenClaw · 1 entry");
+  });
+
+  test("builds report snapshot summaries for header provenance copy", () => {
+    expect(buildReportSnapshotSummary(null)).toBeNull();
+    expect(
+      buildReportSnapshotSummary({
+        reportProvenance: {
+          currentSnapshotId: "report-snapshot-current",
+          previousSnapshotId: "report-snapshot-previous",
+          sourceVerificationReceiptIds: [],
+          sourceSummaryJobIds: [],
+          sourceDeliveryReceiptIds: [],
+          lineageSummary: "Lineage ready."
+        }
+      } as OperationsBacklogReport)
+    ).toBe("Report snapshots: current report-snapshot-current · previous report-snapshot-previous");
+    expect(
+      buildReportSnapshotSummary({
+        reportProvenance: {
+          currentSnapshotId: "report-snapshot-current",
+          sourceVerificationReceiptIds: [],
+          sourceSummaryJobIds: [],
+          sourceDeliveryReceiptIds: [],
+          lineageSummary: "Lineage ready."
+        }
+      } as OperationsBacklogReport)
+    ).toBe("Report snapshots: current report-snapshot-current · previous none");
+  });
+
+  test("builds morning brief copy text with bullets and citations", () => {
+    expect(
+      buildMorningBriefCopyText({
+        headline: "Morning brief: local operations still need operator attention.",
+        bullets: ["Refresh stale summaries.", "Review failed receipts."],
+        citations: ["stale_summary", "receipt-slack-failed"]
+      })
+    ).toContain("Citations: stale_summary, receipt-slack-failed");
+    expect(
+      buildMorningBriefCopyText({
+        headline: "Morning brief: clear.",
+        bullets: ["Nothing new."],
+        citations: []
+      })
+    ).toBe("Morning brief: clear.\n- Nothing new.");
+  });
+
+  test("builds a selector for the first blocked verification gate with fallback", () => {
+    expect(buildVerificationGateFocusSelector("summary_freshness")).toBe('[data-verification-gate-id="summary_freshness"]');
+    expect(buildVerificationGateFocusSelector(undefined)).toBe('[data-verification-gate-status="blocked"]');
   });
 
   test("formats reconnect, retention, and empty-search guidance", () => {

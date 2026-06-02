@@ -130,6 +130,11 @@ export interface JournalDay {
   retention?: RetentionMetadata;
   incidentIds?: string[];
   evidenceCompleteness?: EvidenceCompleteness;
+  recoveredEvidenceBadge?: {
+    label: string;
+    entryCount: number;
+    latestImportedAt?: string;
+  };
   routeBudgetRegressions?: RouteBudgetRegression[];
   entries: JournalEntry[];
   metrics: JournalDayMetrics;
@@ -180,6 +185,11 @@ export interface JournalSearchResult {
   kind: JournalEntryKind;
   status?: JournalEntryStatus;
   redactionReasons?: string[];
+  recoveredEvidenceBadge?: {
+    label: string;
+    entryCount?: number;
+    latestImportedAt?: string;
+  };
 }
 
 export interface SessionDrilldown {
@@ -1168,6 +1178,10 @@ export interface HealthzEvidenceSummary {
   oldestWaitingAgeLabel?: string;
   recoveredEvidenceProvisional: boolean;
   routeBudgetRegressionCount: number;
+  closeoutBlockerCount?: number;
+  blockedGateIds?: VerificationCenterGate["id"][];
+  currentSnapshotId?: string;
+  previousSnapshotId?: string;
 }
 
 export interface ReportDiff {
@@ -1479,6 +1493,7 @@ export interface DeliveryTargetHealth {
   latestReceiptId?: string;
   latestDryRunReceiptId?: string;
   lastVerifiedAt?: string;
+  lastDryRunVerifiedAt?: string;
   lastVerifiedAgeLabel?: string;
   lastVerifiedFreshness?: VerificationReceipt["freshness"];
   receiptCount24h: number;

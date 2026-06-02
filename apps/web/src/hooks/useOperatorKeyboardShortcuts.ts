@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import type { JournalEntry } from "@openclog/core";
+import { buildVerificationGateFocusSelector } from "../state/operator-workspace.js";
 
 interface UseOperatorKeyboardShortcutsInput {
   composerRef: React.RefObject<HTMLElement | HTMLTextAreaElement | null>;
@@ -15,6 +16,7 @@ interface UseOperatorKeyboardShortcutsInput {
   jumpToNextMatchingEntry: (entries: JournalEntry[], predicate: (entry: JournalEntry) => boolean) => void;
   focusShellTarget: (element: HTMLElement | null | undefined, message: string) => void;
   handleApplyOperatorViewById: (viewId: string) => Promise<void>;
+  onShortcutUsed?: (payload: { shortcut: string; action: string; context?: string }) => void;
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -28,6 +30,7 @@ export function useOperatorKeyboardShortcuts(input: UseOperatorKeyboardShortcuts
       if (event.altKey && event.key.toLowerCase() === "s") {
         event.preventDefault();
         input.searchInputRef.current?.focus();
+        input.onShortcutUsed?.({ shortcut: "Alt+S", action: "focus_search", context: "keyboard" });
         return;
       }
       if (isEditableTarget(event.target)) return;
@@ -59,36 +62,45 @@ export function useOperatorKeyboardShortcuts(input: UseOperatorKeyboardShortcuts
       } else if (event.altKey && event.key.toLowerCase() === "i") {
         event.preventDefault();
         input.focusShellTarget(input.incidentsPanelRef.current, "Incident workspace focused.");
+        input.onShortcutUsed?.({ shortcut: "Alt+I", action: "focus_incident_workspace", context: "keyboard" });
       } else if (event.altKey && event.key.toLowerCase() === "l") {
         event.preventDefault();
         input.focusShellTarget(input.alertsPanelRef.current, "Alert workspace focused.");
+        input.onShortcutUsed?.({ shortcut: "Alt+L", action: "focus_alert_workspace", context: "keyboard" });
       } else if (event.altKey && event.key.toLowerCase() === "v") {
         event.preventDefault();
         const center = document.querySelector<HTMLElement>('[aria-label="Verification Center"]');
         input.focusShellTarget(center, "Verification Center focused.");
+        input.onShortcutUsed?.({ shortcut: "Alt+V", action: "focus_verification_center", context: "keyboard" });
       } else if (event.altKey && event.key.toLowerCase() === "f") {
         event.preventDefault();
-        const blockedGate = document.querySelector<HTMLElement>('[data-verification-gate-status="blocked"]');
+        const blockedGate = document.querySelector<HTMLElement>(buildVerificationGateFocusSelector());
         input.focusShellTarget(blockedGate, "Verification failure focused.");
+        input.onShortcutUsed?.({ shortcut: "Alt+F", action: "focus_blocked_verification_gate", context: "keyboard" });
       } else if (event.altKey && event.key.toLowerCase() === "b") {
         event.preventDefault();
         const blockedAction = document.querySelector<HTMLElement>('[data-blocked-action="true"]');
         input.focusShellTarget(blockedAction, "Blocked action focused.");
+        input.onShortcutUsed?.({ shortcut: "Alt+B", action: "focus_blocked_action", context: "keyboard" });
       } else if (event.altKey && event.key.toLowerCase() === "r") {
         event.preventDefault();
         const recoveredEvidence = document.querySelector<HTMLElement>('[data-recovered-evidence-section="true"]');
         if (recoveredEvidence) {
           input.focusShellTarget(recoveredEvidence, "Recovered evidence surfaces focused.");
+          input.onShortcutUsed?.({ shortcut: "Alt+R", action: "focus_recovered_evidence", context: "keyboard" });
           return;
         }
+        input.onShortcutUsed?.({ shortcut: "Alt+R", action: "open_recovered_evidence_view", context: "keyboard" });
         void input.handleApplyOperatorViewById("backfilled-openclaw");
       } else if (event.altKey && event.key.toLowerCase() === "m") {
         event.preventDefault();
         const morningCommand = document.querySelector<HTMLElement>('[aria-label="Morning command"]');
         if (morningCommand) {
           input.focusShellTarget(morningCommand, "Morning command focused.");
+          input.onShortcutUsed?.({ shortcut: "Alt+M", action: "focus_morning_command", context: "keyboard" });
           return;
         }
+        input.onShortcutUsed?.({ shortcut: "Alt+M", action: "open_morning_command_view", context: "keyboard" });
         void input.handleApplyOperatorViewById("stale-summaries");
       }
     }
@@ -103,6 +115,7 @@ export function useOperatorKeyboardShortcuts(input: UseOperatorKeyboardShortcuts
     input.incidentsPanelRef,
     input.jumpToNextMatchingEntry,
     input.mainRef,
+    input.onShortcutUsed,
     input.searchInputRef,
     input.setApprovalsOpen,
     input.setExpandedEntryId,

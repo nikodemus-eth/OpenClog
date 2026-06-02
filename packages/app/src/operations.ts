@@ -340,7 +340,16 @@ function buildOperationsBacklogReport(sourceRepo: ApplicationRepository, input: 
   }));
   const savedViewLint = measureSection("saved_view_lint", "Saved-view lint", () => buildSavedViewLint(exportableViewsWithProvenance));
   const healthzEvidence = measureSection("healthz_evidence", "Healthz evidence", () =>
-    buildHealthzEvidence(reportFreshness, verificationReceipts, summaryJobHistory, recoveredEvidenceSummary, routeBudgetRegressions)
+    buildHealthzEvidence(
+      reportFreshness,
+      verificationReceipts,
+      summaryJobHistory,
+      recoveredEvidenceSummary,
+      routeBudgetRegressions,
+      verificationCenter,
+      closeoutReadiness,
+      reportProvenance
+    )
   );
   const reportAssemblyTiming = buildReportAssemblyTiming(reportAssemblyStartedAt, reportAssemblySections);
   return {
@@ -426,7 +435,10 @@ function buildHealthzEvidence(
   verificationReceipts: VerificationReceipt[],
   summaryJobHistory: SummaryJobHistoryPanel,
   recoveredEvidenceSummary: RecoveredEvidenceSummary,
-  routeBudgetRegressions: RouteBudgetRegression[]
+  routeBudgetRegressions: RouteBudgetRegression[],
+  verificationCenter: VerificationCenterReport,
+  closeoutReadiness: CloseoutReadinessScore,
+  reportProvenance: ReportProvenance
 ): HealthzEvidenceSummary {
   const smokeReceipt = latestReceipt(
     verificationReceipts.filter((receipt) => receipt.command === "test:smoke" || receipt.command === "npm run test:smoke")
@@ -441,7 +453,11 @@ function buildHealthzEvidence(
     queueDepth: summaryJobHistory.queueDepth,
     oldestWaitingAgeLabel: summaryJobHistory.oldestWaitingAgeLabel,
     recoveredEvidenceProvisional: recoveredEvidenceSummary.provisionalMetrics === true,
-    routeBudgetRegressionCount: routeBudgetRegressions.length
+    routeBudgetRegressionCount: routeBudgetRegressions.length,
+    closeoutBlockerCount: closeoutReadiness.blockers.length,
+    blockedGateIds: verificationCenter.gates.filter((gate) => gate.status === "blocked").map((gate) => gate.id),
+    currentSnapshotId: reportProvenance.currentSnapshotId,
+    previousSnapshotId: reportProvenance.previousSnapshotId
   };
 }
 
@@ -1631,6 +1647,7 @@ function buildDeliveryTargetHealth(
       ...(latest ? { latestReceiptId: latest.id } : {}),
       ...(latestDryRun ? { latestDryRunReceiptId: latestDryRun.id } : {}),
       ...(lastVerifiedAt ? { lastVerifiedAt } : {}),
+      ...(latestDryRun ? { lastDryRunVerifiedAt: latestDryRun.completedAt } : {}),
       ...(lastVerifiedAt ? { lastVerifiedAgeLabel: formatDuration(lastVerifiedAgeMs) } : {}),
       ...(lastVerifiedAt ? { lastVerifiedFreshness: classifyFreshness(lastVerifiedAgeMs) } : {}),
       receiptCount24h: scoped.length,

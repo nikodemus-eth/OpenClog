@@ -94,7 +94,40 @@ export function createApiApp(services: ApiServices): FastifyInstance {
         queueDepth: report.summaryJobHistory.queueDepth,
         oldestWaitingAgeLabel: report.summaryJobHistory.oldestWaitingAgeLabel ?? "none",
         recoveredEvidenceProvisional: report.recoveredEvidenceSummary?.provisionalMetrics === true,
-        routeBudgetRegressionCount: report.routeBudgetRegressions.length
+        routeBudgetRegressionCount: report.routeBudgetRegressions.length,
+        closeoutBlockerCount: report.closeoutReadiness.blockers.length,
+        blockedGateIds: report.verificationCenter.gates.filter((gate) => gate.status === "blocked").map((gate) => gate.id),
+        currentSnapshotId: report.reportProvenance.currentSnapshotId,
+        previousSnapshotId: report.reportProvenance.previousSnapshotId
+      }
+    };
+  });
+
+  app.get("/api/healthz/details", async () => {
+    const report = openclog.getOperationsBacklog({ dayKey: todayKey() });
+    return {
+      ok: true,
+      details: {
+        generatedAt: report.generatedAt,
+        currentSnapshotId: report.reportProvenance.currentSnapshotId,
+        previousSnapshotId: report.reportProvenance.previousSnapshotId,
+        closeoutBlockerCount: report.closeoutReadiness.blockers.length,
+        failingGates: report.verificationCenter.gates
+          .filter((gate) => gate.status === "blocked")
+          .map((gate) => ({
+            id: gate.id,
+            label: gate.label,
+            detail: gate.detail,
+            nextSafeActions: gate.nextSafeActions,
+            blockerSource: gate.blockerSource,
+            lastVerifiedAt: gate.lastVerifiedAt
+          })),
+        deliveryTargets: report.deliveryTargetHealth.map((target) => ({
+          target: target.target,
+          latestDryRunReceiptId: target.latestDryRunReceiptId,
+          lastDryRunVerifiedAt: target.lastDryRunVerifiedAt,
+          parityDriftState: target.parityDriftState
+        }))
       }
     };
   });
@@ -201,6 +234,21 @@ export function createApiApp(services: ApiServices): FastifyInstance {
       action: "used",
       createdAt,
       detail
+    });
+    return { ok: true, event };
+  });
+
+  app.post<{ Body: { shortcut?: string; action?: string; context?: string } }>("/api/operator/shortcuts/audit", async (request, reply) => {
+    const shortcut = cleanPublicText(request.body?.shortcut ?? "").trim().slice(0, 32);
+    const action = cleanPublicText(request.body?.action ?? "").trim().slice(0, 80);
+    const context = cleanPublicText(request.body?.context ?? "keyboard").trim().slice(0, 80) || "keyboard";
+    if (!shortcut || !action) return reply.code(400).send({ error: "shortcut_and_action_required" });
+    const event = { shortcut, action, context, createdAt: new Date().toISOString() };
+    services.repo.addAudit("operator.shortcut.used", {
+      target_type: "operator_shortcut",
+      shortcut,
+      action,
+      context
     });
     return { ok: true, event };
   });

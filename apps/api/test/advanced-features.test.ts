@@ -158,7 +158,107 @@ describe("advanced OpenClog features", () => {
         }
       }
     });
+    const days = await app.inject({ method: "GET", url: "/api/days" });
+    const search = await app.inject({ method: "GET", url: "/api/search?q=%22Backfilled%20from%20OpenClaw%22" });
+    expect(days.json()).toMatchObject({
+      days: expect.arrayContaining([
+        expect.objectContaining({
+          dayKey: "2026-05-20",
+          recoveredEvidenceBadge: {
+            label: "Backfilled from OpenClaw",
+            entryCount: 69,
+            latestImportedAt: "2026-05-20T22:30:01.601Z"
+          }
+        })
+      ])
+    });
+    expect(search.json()).toMatchObject({
+      results: expect.arrayContaining([
+        expect.objectContaining({
+          entryId: "2026-05-20-openclaw-backfill-69",
+          recoveredEvidenceBadge: {
+            label: "Backfilled from OpenClaw",
+            latestImportedAt: "2026-05-20T22:30:01.601Z"
+          }
+        })
+      ])
+    });
     expect(JSON.stringify(report.json().report.recoveredEvidenceSummary)).not.toContain("Recovered OpenClaw session message");
+    await app.close();
+  });
+
+  test("extends healthz with blocker counts and exposes detailed readiness metadata", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    repo.addEntry({
+      id: "healthz-entry",
+      dayKey: "2026-05-04",
+      source: "system",
+      kind: "system_status",
+      title: "Gateway reconnect",
+      body: "Gateway recovered after timeout",
+      timestamp: "2026-05-04T09:00:00.000Z",
+      status: "success",
+      severity: "warning",
+      redacted: true
+    });
+    const app = createApiApp({ repo, gateway: createMemoryGateway({ ready: true }) });
+
+    const healthz = await app.inject({ method: "GET", url: "/api/healthz" });
+    const details = await app.inject({ method: "GET", url: "/api/healthz/details" });
+
+    expect(healthz.statusCode).toBe(200);
+    expect(healthz.json()).toMatchObject({
+      ok: true,
+      operations: {
+        closeoutBlockerCount: expect.any(Number),
+        blockedGateIds: expect.any(Array),
+        currentSnapshotId: expect.stringMatching(/^report-snapshot-/)
+      }
+    });
+    expect(details.statusCode).toBe(200);
+    expect(details.json()).toMatchObject({
+      ok: true,
+      details: {
+        generatedAt: expect.any(String),
+        currentSnapshotId: expect.stringMatching(/^report-snapshot-/),
+        closeoutBlockerCount: expect.any(Number),
+        failingGates: expect.any(Array),
+        deliveryTargets: expect.any(Array)
+      }
+    });
+    await app.close();
+  });
+
+  test("records operator shortcut audits through the local audit path", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    const app = createApiApp({ repo, gateway: createMemoryGateway({ ready: true }) });
+    const addAuditSpy = vi.spyOn(repo, "addAudit");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/operator/shortcuts/audit",
+      payload: { shortcut: "Alt+R", action: "focus_recovered_evidence", context: "keyboard" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      ok: true,
+      event: {
+        shortcut: "Alt+R",
+        action: "focus_recovered_evidence",
+        context: "keyboard"
+      }
+    });
+    expect(addAuditSpy).toHaveBeenCalledWith(
+      "operator.shortcut.used",
+      expect.objectContaining({
+        target_type: "operator_shortcut",
+        shortcut: "Alt+R",
+        action: "focus_recovered_evidence"
+      })
+    );
     await app.close();
   });
 

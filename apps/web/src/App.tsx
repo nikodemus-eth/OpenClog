@@ -78,6 +78,7 @@ import {
   pollSummaryJobUntilSettled,
   previewRetention,
   previewRetentionByClass,
+  recordOperatorShortcutUsed,
   recordOperatorViewUsed,
   registerPlugin,
   resolveApproval,
@@ -122,11 +123,14 @@ import {
   buildArchiveView,
   buildDryRunFailureJumpNotice,
   buildGatewayScopeButtonLabel,
+  buildMorningBriefCopyText,
+  buildReportSnapshotSummary,
   buildReconnectTrendText,
   buildRetryReceiptConfirmation,
   buildRetryWithNewKeyReceiptConfirmation,
   buildShellShortcutHints,
   buildVerificationTrustSummary,
+  buildVerificationGateFocusSelector,
   describeChangesSinceSummary,
   describeActiveOperatorView,
   describeIncidentActionRecordingStatus,
@@ -171,6 +175,7 @@ import {
   formatExportableOperatorView,
   isGeneratedSummaryStale,
   formatMonitoringImportSummary,
+  formatRecoveredEvidenceBadge,
   formatRecoveredEvidenceSummary,
   formatSummaryJobDurations,
   isSummaryJobActive,
@@ -449,6 +454,7 @@ export function App() {
     return `Verify ${center.lastSuccessfulVerifyFreshness ?? "unknown"} · ${center.lastSuccessfulVerifyAgeLabel}${blockedSummary}`;
   }, [operationsReport]);
   const reportFreshnessSummary = useMemo(() => describeReportFreshness(operationsReport), [operationsReport]);
+  const reportSnapshotSummary = useMemo(() => buildReportSnapshotSummary(operationsReport), [operationsReport]);
   const recoveredEvidenceProvisionalLabel = useMemo(() => describeRecoveredEvidenceProvisional(operationsReport), [operationsReport]);
   const latestSmokeReceipt = useMemo(() => findLatestSmokeReceipt(operationsReport) ?? null, [operationsReport]);
 
@@ -954,7 +960,8 @@ export function App() {
     mainRef,
     jumpToNextMatchingEntry,
     focusShellTarget,
-    handleApplyOperatorViewById
+    handleApplyOperatorViewById,
+    onShortcutUsed: handleOperatorShortcutAudit
   });
 
   function jumpToNextMatchingEntry(entries: JournalEntry[], predicate: (entry: JournalEntry) => boolean): void {
@@ -1652,6 +1659,12 @@ export function App() {
     }
   }
 
+  function handleOperatorShortcutAudit(payload: { shortcut: string; action: string; context?: string }): void {
+    void recordOperatorShortcutUsed(payload).catch(() => {
+      // Shortcut audit stays best-effort so keyboard navigation never blocks on audit I/O.
+    });
+  }
+
 async function handleRetryReceipt(id: string): Promise<void> {
   const original = deliveryReceipts.find((receipt) => receipt.id === id);
   if (original?.status === "failed" && pendingRetryReceiptId !== id) {
@@ -1900,7 +1913,7 @@ async function handleRetryReceipt(id: string): Promise<void> {
       onToolFilterFocus={() => focusShellTarget(toolFilterRef.current, "Tool filter focused.")}
       onActiveIncidentFocus={() => focusShellTarget(incidentsPanelRef.current, "Active incident focused.")}
       onVerificationFailureFocus={() => {
-        const blockedGate = document.querySelector<HTMLElement>('[data-verification-gate-status="blocked"]');
+        const blockedGate = document.querySelector<HTMLElement>(buildVerificationGateFocusSelector(operationsReport?.verificationCenter.firstBlockedGateId));
         focusShellTarget(blockedGate, "Verification failure focused.");
       }}
     >
@@ -1916,6 +1929,7 @@ async function handleRetryReceipt(id: string): Promise<void> {
         recoveredEvidenceDriftText={recoveredEvidenceDriftText ?? undefined}
         recoveredEvidenceSummary={recoveredEvidenceHeaderSummary ?? undefined}
         reportFreshnessSummary={reportFreshnessSummary ?? undefined}
+        reportSnapshotSummary={reportSnapshotSummary ?? undefined}
         summaryQueueDepth={operationsReport?.summaryJobHistory.queueDepth}
         summaryFreshnessLabel={summaryFreshnessLabel}
         theme={resolvedTheme}
@@ -2038,6 +2052,9 @@ async function handleRetryReceipt(id: string): Promise<void> {
 	        onCopyIncidentId={(id) => {
 	          void copyTextWithNotice(id, "Incident id copied.");
 	        }}
+        onCopyMorningBrief={(text) => {
+          void copyTextWithNotice(text, "Morning brief copied with citations.");
+        }}
         onCopyWhyBlocked={(summary) => {
           void copyTextWithNotice(summary, "Blocked-state summary copied with redaction applied.");
         }}
@@ -2444,17 +2461,18 @@ function SearchPanel(props: {
       </div>
       {props.activeViewSource ? <p className="search-meta">{props.activeViewSource}</p> : null}
       {props.searchLatencyMs !== null ? <p className="search-meta">Search completed in {props.searchLatencyMs} ms.</p> : null}
-      <ul className="search-results">
-        {props.results.map((result) => (
-          <li key={result.entryId}>
-            <button type="button" onClick={() => props.onSelectResult(result)}>
-              <strong>{result.title}</strong>
-              <span>{result.bodyPreview}</span>
-              {result.matchSnippet ? <small>{result.matchSnippet}</small> : null}
-              {result.matchFieldHints?.length ? <small>Matched fields: {result.matchFieldHints.join(", ")}</small> : null}
-            </button>
-          </li>
-        ))}
+        <ul className="search-results">
+          {props.results.map((result) => (
+            <li key={result.entryId}>
+              <button type="button" onClick={() => props.onSelectResult(result)}>
+                <strong>{result.title}</strong>
+                <span>{result.bodyPreview}</span>
+                {formatRecoveredEvidenceBadge(result.recoveredEvidenceBadge) ? <small>{formatRecoveredEvidenceBadge(result.recoveredEvidenceBadge)}</small> : null}
+                {result.matchSnippet ? <small>{result.matchSnippet}</small> : null}
+                {result.matchFieldHints?.length ? <small>Matched fields: {result.matchFieldHints.join(", ")}</small> : null}
+              </button>
+            </li>
+          ))}
       </ul>
       {props.nextCursor ? (
         <button type="button" onClick={props.onLoadMore}>
@@ -2545,6 +2563,7 @@ function OperationalPanels(props: {
   onCopyApiExample: (route: string, payload: Record<string, unknown>) => void;
   onCopyBundleDigest: (digest: string) => void;
   onCopyIncidentId: (id: string) => void;
+  onCopyMorningBrief: (text: string) => void;
   onCopyWhyBlocked: (summary: string) => void;
   onCopySessionSummary: () => void;
   onCopyOfflineBundle: () => void;
@@ -2745,7 +2764,7 @@ function OperationalPanels(props: {
                 type="button"
                 onClick={() =>
                   document
-                    .querySelector<HTMLElement>(`[data-verification-gate-status="blocked"]`)
+                    .querySelector<HTMLElement>(buildVerificationGateFocusSelector(operationsReport.verificationCenter.firstBlockedGateId))
                     ?.focus({ preventScroll: false })
                 }
               >
@@ -2789,6 +2808,7 @@ function OperationalPanels(props: {
               {operationsReport.verificationCenter.gates.map((gate) => (
                 <li
                   key={gate.id}
+                  data-verification-gate-id={gate.id}
                   data-verification-gate-status={gate.status}
                   tabIndex={gate.status === "blocked" ? 0 : -1}
                   aria-current={props.selectedVerificationGateId === gate.id ? "true" : undefined}
@@ -3015,7 +3035,7 @@ function OperationalPanels(props: {
             <ul>
               {operationsReport.deliveryTargetHealth.map((item) => (
                 <li key={item.target}>
-                  {formatDeliveryTargetHealthSummary(item)} Receipts {item.receiptCount24h}, failed {item.failedCount24h}, dry-run failures {item.dryRunFailures24h}, trend {item.trend}, parity {item.parityDriftState ?? "unknown"}, health score {item.healthScore ?? "n/a"}.
+                  {formatDeliveryTargetHealthSummary(item)} Receipts {item.receiptCount24h}, failed {item.failedCount24h}, dry-run failures {item.dryRunFailures24h}, trend {item.trend}, parity {item.parityDriftState ?? "unknown"}, last dry-run parity check {item.lastDryRunVerifiedAt ?? "unavailable"}, health score {item.healthScore ?? "n/a"}.
                 </li>
               ))}
             </ul>
@@ -3040,8 +3060,10 @@ function OperationalPanels(props: {
               Healthz evidence: freshness {operationsReport.healthzEvidence.reportFreshness}, latest verify{" "}
               {operationsReport.healthzEvidence.latestVerificationReceiptCommand ?? "unavailable"}, smoke{" "}
               {operationsReport.healthzEvidence.latestSmokeCompletedAt ?? "unavailable"}, queue depth {operationsReport.healthzEvidence.queueDepth}, oldest waiting{" "}
-              {operationsReport.healthzEvidence.oldestWaitingAgeLabel ?? "none"}, route regressions {operationsReport.healthzEvidence.routeBudgetRegressionCount},
-              recovered provisional {operationsReport.healthzEvidence.recoveredEvidenceProvisional ? "yes" : "no"}.
+              {operationsReport.healthzEvidence.oldestWaitingAgeLabel ?? "none"}, route regressions {operationsReport.healthzEvidence.routeBudgetRegressionCount}, closeout blockers{" "}
+              {operationsReport.healthzEvidence.closeoutBlockerCount ?? 0}, blocked gates {operationsReport.healthzEvidence.blockedGateIds?.join(", ") || "none"}, snapshot{" "}
+              {operationsReport.healthzEvidence.currentSnapshotId ?? "unavailable"}, previous {operationsReport.healthzEvidence.previousSnapshotId ?? "none"}, recovered provisional{" "}
+              {operationsReport.healthzEvidence.recoveredEvidenceProvisional ? "yes" : "no"}.
             </p>
             <p>
               Report assembly timing: total {operationsReport.reportAssemblyTiming.totalDurationMs} ms; slowest{" "}
@@ -3160,7 +3182,15 @@ function OperationalPanels(props: {
               Release readiness gate: {operationsReport.releaseReadinessGate.status} ({operationsReport.releaseReadinessGate.blockers.join(", ") || "no blockers"}). Why:{" "}
               {operationsReport.releaseReadinessGate.whyBlocking.join(" ") || "none"} Threshold {operationsReport.releaseReadinessGate.staleAgeThresholdMinutes} minute(s).
             </p>
-            <p>Morning brief: {operationsReport.morningBrief.headline}</p>
+            <p>
+              Morning brief: {operationsReport.morningBrief.headline}{" "}
+              <button
+                type="button"
+                onClick={() => props.onCopyMorningBrief(buildMorningBriefCopyText(operationsReport.morningBrief))}
+              >
+                Copy morning brief
+              </button>
+            </p>
             <ul>
               {operationsReport.morningBrief.bullets.map((bullet) => (
                 <li key={bullet}>{bullet}</li>

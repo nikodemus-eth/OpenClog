@@ -918,6 +918,24 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
           dateLabel: String(row.date_label),
           summary: typeof row.summary === "string" ? row.summary : undefined,
           evidenceCompleteness: buildEvidenceCompleteness(db, String(row.day_key), typeof row.summary === "string" ? row.summary : undefined, getGeneratedSummary(db, String(row.day_key))),
+          ...(() => {
+            const recoveredEntries = listAllEntries(db).filter(
+              (entry) => entry.dayKey === String(row.day_key) && entry.backfilled === true && /openclaw/i.test(`${entry.source} ${entry.sourceLabel ?? ""}`)
+            );
+            const latestImportedAt = recoveredEntries
+              .map((entry) => entry.importedAt)
+              .filter((value): value is string => Boolean(value))
+              .sort((left, right) => right.localeCompare(left))[0];
+            return recoveredEntries.length > 0
+              ? {
+                  recoveredEvidenceBadge: {
+                    label: recoveredEntries.find((entry) => entry.sourceLabel)?.sourceLabel ?? "Backfilled from OpenClaw",
+                    entryCount: recoveredEntries.length,
+                    latestImportedAt
+                  }
+                }
+              : {};
+          })(),
           ...(listIncidentIdsForDay(db, String(row.day_key)).length > 0 ? { incidentIds: listIncidentIdsForDay(db, String(row.day_key)) } : {}),
           metrics: JSON.parse(String(row.metrics_json)) as JournalDay["metrics"]
         }));
@@ -1380,7 +1398,15 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
           bodyPreview: browserVisibleEntryText(entry, { expanded: false }).body,
           ...buildSearchMatchDetails(entry, needle),
           kind: entry.kind,
-          status: entry.status
+          status: entry.status,
+          ...(entry.backfilled || entry.sourceLabel || entry.importedAt
+            ? {
+                recoveredEvidenceBadge: {
+                  label: entry.sourceLabel ?? "Backfilled from OpenClaw",
+                  latestImportedAt: entry.importedAt
+                }
+              }
+            : {})
         }));
     },
     setAlertState(ruleId, state) {

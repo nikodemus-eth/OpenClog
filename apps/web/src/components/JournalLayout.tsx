@@ -51,6 +51,7 @@ import {
   type ThemeId
 } from "@openclog/core";
 import type { VersionResponse } from "../api.js";
+import { formatRecoveredEvidenceBadge } from "../state/operator-workspace.js";
 import { iconFor } from "./icons.js";
 import { timelineDisplayText } from "./event-display.js";
 import { StatusChip } from "./StatusChip.js";
@@ -566,10 +567,11 @@ export function DayArchive(props: {
         const completenessLabel = completeness?.label ?? "Evidence completeness unavailable";
         const hasRouteBudgetRegression = routeBudgetRegressionDayKeys.has(item.dayKey);
         const routeBudgetSummary = item.routeBudgetRegressions?.[0];
+        const recoveredEvidenceBadge = formatRecoveredEvidenceBadge(item.recoveredEvidenceBadge);
         return (
         <button
           aria-current={selected ? "date" : undefined}
-          aria-label={`${item.dateLabel}. ${title}. ${selected ? props.theme.labels.selectedDayStatus : "Archived day"}. ${item.metrics.errorCount > 0 ? "Status: degraded" : "Status: active"}. ${completenessLabel}${hasRouteBudgetRegression ? `. Route budget regression present${routeBudgetSummary ? `: ${routeBudgetSummary.route} +${String(routeBudgetSummary.deltaMs)} ms` : ""}.` : ""}`}
+          aria-label={`${item.dateLabel}. ${title}. ${selected ? props.theme.labels.selectedDayStatus : "Archived day"}. ${item.metrics.errorCount > 0 ? "Status: degraded" : "Status: active"}. ${completenessLabel}${recoveredEvidenceBadge ? `. ${recoveredEvidenceBadge}.` : ""}${hasRouteBudgetRegression ? ` Route budget regression present${routeBudgetSummary ? `: ${routeBudgetSummary.route} +${String(routeBudgetSummary.deltaMs)} ms` : ""}.` : ""}`}
           className={selected ? "day-row selected" : "day-row"}
           key={item.dayKey}
           onClick={() => props.onDaySelect(item.dayKey)}
@@ -581,6 +583,7 @@ export function DayArchive(props: {
             {selected ? props.theme.labels.selectedDayStatus : "Archived day"} · {item.metrics.errorCount > 0 ? "Status: degraded" : "Status: active"}
           </small>
           {completeness ? <small className="evidence-badge">{completeness.label}</small> : null}
+          {recoveredEvidenceBadge ? <small className="evidence-badge">{recoveredEvidenceBadge}</small> : null}
           {hasRouteBudgetRegression ? <small className="evidence-badge">Route budget regression{routeBudgetSummary ? ` +${String(routeBudgetSummary.deltaMs)} ms` : ""}</small> : null}
         </button>
         );
@@ -744,6 +747,7 @@ export function DayHeader(props: {
   recoveredEvidenceDriftText?: string;
   recoveredEvidenceSummary?: string;
   reportFreshnessSummary?: string;
+  reportSnapshotSummary?: string;
   summaryQueueDepth?: number;
   summaryFreshnessLabel: string;
   theme: Theme;
@@ -759,6 +763,7 @@ export function DayHeader(props: {
         <div className="day-header-meta">
           <StatusChip label="Summary freshness" status={props.summaryFreshnessLabel} tone={freshnessTone} />
           {props.reportFreshnessSummary ? <span>{props.reportFreshnessSummary}</span> : null}
+          {props.reportSnapshotSummary ? <span>{props.reportSnapshotSummary}</span> : null}
           {props.lastSuccessfulSummaryJobCompletionAt ? <span>Last summary completion {props.lastSuccessfulSummaryJobCompletionAt}</span> : null}
           {props.latestSmokeCompletedAt ? <span>Last smoke {props.latestSmokeCompletedAt}</span> : null}
           {typeof props.summaryQueueDepth === "number" ? <span>Summary queue depth {props.summaryQueueDepth}</span> : null}

@@ -3,6 +3,14 @@
 ## Purpose
 Record deterministic verification, live Gateway verification, coverage policy, and closeout results.
 
+## 2026-06-01 Trust-Surface Visibility Tranche Closeout
+- Implemented the Phase 1 trust-surface slice for operations visibility and operator polish: enriched `/api/healthz`, added `/api/healthz/details`, surfaced report snapshot provenance in the shell, carried delivery `lastDryRunVerifiedAt`, rendered recovered-evidence badges in archive/search flows, added morning-brief copy with citations, and recorded major keyboard shortcuts through the local audit path.
+- Refactored the new shell/report affordances behind focused workspace helpers so verification-gate targeting, recovered-evidence badge formatting, snapshot provenance summaries, and morning-brief copy stay deterministic and directly unit tested.
+- Coverage stayed at 100 percent statements, branches, functions, and lines after adding unit/API/UI coverage for the new helpers and contracts.
+- Fresh deterministic closeout passed with `npm run verify`: forbidden-RPC checks, typecheck, lint, workspace builds, 21 Vitest files / 213 tests, 210 Playwright E2E/UI tests, 54 Playwright visual snapshots, 8 red-team tests, and docs check.
+- Additional explicit gates passed after the tranche landed: `npm run test:smoke`, `npm run verify:desktop-native`, and `npm run verify:gateway` with `status: ready` and mutation testing disabled.
+- Visual baselines were intentionally refreshed for all 54 snapshots because the new provenance/header metadata changed the expected desktop and mobile layouts.
+
 ## 2026-06-01 Current-HEAD Verification Refresh
 - Re-read the live Google Doc `OpenClog` (`1FUJzFAW1TNgT42JWVeA2PClkyEPAgSt-PQYnCDj9B2Q`) and refreshed repo-local proof logs from the May 30/31 closeout state at local `main` commit `2d37c7f`.
 - The first fresh `npm run verify` run failed in `tests/e2e/theme-accessibility.spec.ts` because the timeline focus-retention effect could reclaim focus from the Gateway diagnostics card after an entry had been opened.

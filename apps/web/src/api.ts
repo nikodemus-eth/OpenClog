@@ -90,6 +90,52 @@ export interface HealthResponse {
   };
 }
 
+export interface HealthzResponse {
+  ok: boolean;
+  service: string;
+  backend: VersionResponse;
+  gateway: HealthResponse["gateway"];
+  operations: {
+    reportFreshness: OperationsBacklogReport["reportFreshness"]["status"];
+    latestVerificationReceiptCommand?: string;
+    freshnessThresholdMs?: number;
+    reportFreshnessThresholdBreached: boolean;
+    latestSmokeCompletedAt?: string;
+    queueDepth: number;
+    oldestWaitingAgeLabel: string;
+    recoveredEvidenceProvisional: boolean;
+    routeBudgetRegressionCount: number;
+    closeoutBlockerCount?: number;
+    blockedGateIds?: OperationsBacklogReport["verificationCenter"]["gates"][number]["id"][];
+    currentSnapshotId?: string;
+    previousSnapshotId?: string;
+  };
+}
+
+export interface HealthzDetailsResponse {
+  ok: boolean;
+  details: {
+    generatedAt: string;
+    currentSnapshotId?: string;
+    previousSnapshotId?: string;
+    closeoutBlockerCount: number;
+    failingGates: Array<{
+      id: OperationsBacklogReport["verificationCenter"]["gates"][number]["id"];
+      label: string;
+      detail: string;
+      nextSafeActions: string[];
+      blockerSource?: OperationsBacklogReport["verificationCenter"]["gates"][number]["blockerSource"];
+      lastVerifiedAt?: string;
+    }>;
+    deliveryTargets: Array<{
+      target: DeliveryReceipt["target"];
+      latestDryRunReceiptId?: string;
+      lastDryRunVerifiedAt?: string;
+      parityDriftState?: "match" | "drift";
+    }>;
+  };
+}
+
 export interface VersionResponse {
   version: string;
   commitSha: string;
@@ -102,6 +148,14 @@ export interface VersionResponse {
 
 export async function fetchHealth(): Promise<HealthResponse> {
   return fetchJson<HealthResponse>("/api/health");
+}
+
+export async function fetchHealthz(): Promise<HealthzResponse> {
+  return fetchJson<HealthzResponse>("/api/healthz");
+}
+
+export async function fetchHealthzDetails(): Promise<HealthzDetailsResponse> {
+  return fetchJson<HealthzDetailsResponse>("/api/healthz/details");
 }
 
 export async function fetchVersion(): Promise<VersionResponse> {
@@ -221,6 +275,15 @@ export async function recordOperatorViewUsed(view: Pick<OperatorViewPreset, "id"
   if (!response.ok) throw new Error("Operator view audit failed");
   const result = (await response.json()) as { event: SavedViewAuditEvent };
   return result.event;
+}
+
+export async function recordOperatorShortcutUsed(payload: { shortcut: string; action: string; context?: string }): Promise<void> {
+  const response = await fetch("/api/operator/shortcuts/audit", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) throw new Error("Operator shortcut audit failed");
 }
 
 export async function fetchSessions(dayKey: string): Promise<AgentActivity[]> {

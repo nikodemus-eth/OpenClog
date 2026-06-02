@@ -69,6 +69,23 @@ export function buildVerificationTrustSummary(report: OperationsBacklogReport | 
     .join(" ");
 }
 
+export function buildReportSnapshotSummary(report: OperationsBacklogReport | null): string | null {
+  const current = report?.reportProvenance.currentSnapshotId;
+  if (!current) return null;
+  const previous = report.reportProvenance.previousSnapshotId ?? "none";
+  return `Report snapshots: current ${safeWorkbenchCopy(current)} · previous ${safeWorkbenchCopy(previous)}`;
+}
+
+export function buildMorningBriefCopyText(brief: { headline: string; bullets: string[]; citations: string[] }): string {
+  const sections = [brief.headline, ...brief.bullets.map((bullet) => `- ${bullet}`)];
+  if (brief.citations.length > 0) sections.push(`Citations: ${brief.citations.join(", ")}`);
+  return sections.join("\n");
+}
+
+export function buildVerificationGateFocusSelector(gateId?: string): string {
+  return gateId ? `[data-verification-gate-id="${gateId}"]` : '[data-verification-gate-status="blocked"]';
+}
+
 export function formatRecoveredEvidenceSummary(summary: RecoveredEvidenceSummary | undefined, options: { latestSeparator?: "," | ";" } = {}): string | null {
   if (!summary || summary.entryCount <= 0 || summary.dayCount <= 0) return null;
   const entryLabel = summary.entryCount === 1 ? "entry" : "entries";
@@ -76,6 +93,18 @@ export function formatRecoveredEvidenceSummary(summary: RecoveredEvidenceSummary
   const latestSeparator = options.latestSeparator ?? ",";
   const latest = summary.latestImportedAt ? `${latestSeparator} latest import ${summary.latestImportedAt}` : "";
   return `Recovered evidence: ${String(summary.entryCount)} ${entryLabel} across ${String(summary.dayCount)} ${dayLabel}${latest}`;
+}
+
+export function formatRecoveredEvidenceBadge(
+  badge: { label: string; entryCount?: number; latestImportedAt?: string } | undefined
+): string | null {
+  if (!badge?.label) return null;
+  const parts = [safeWorkbenchCopy(badge.label)];
+  if (typeof badge.entryCount === "number" && badge.entryCount > 0) {
+    parts.push(`${String(badge.entryCount)} ${badge.entryCount === 1 ? "entry" : "entries"}`);
+  }
+  if (badge.latestImportedAt) parts.push(`imported ${safeWorkbenchCopy(badge.latestImportedAt)}`);
+  return parts.join(" · ");
 }
 
 export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): OperatorViewPreset[] {
