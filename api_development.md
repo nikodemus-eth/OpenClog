@@ -8,6 +8,7 @@ Track public API contracts and Gateway RPC usage.
 - Added API test coverage for scheduler disabled state, scheduled real-scanner fallback, startup exception containment, empty configured session windows, and bulk-write failure containment.
 - The API contract is unchanged: `GET /api/version` still binds before scheduled backfill work, startup import remains bounded by default, and `GET /api/sessions/:key` remains SQL-filtered.
 - Final proof passed through `npm run verify`, `npm run verify:desktop-native`, `npm run test:smoke`, `npm run verify:gateway`, and live `npm run test:load -- --base-url http://127.0.0.1:8787 --day-key 2026-06-06`.
+- After the post-commit rebuild/restart, `GET /api/version` reports commit `f6d3cef`; live load on that listener is green with `/api/operations/report` at 396 ms / 750 ms.
 
 ## 2026-06-08 Default Startup And Report Route Proof
 - `apps/api/src/server.ts` now lets `GET /api/version` bind before OpenClaw session backfill starts. Backfill is scheduled after `app.listen`, and the default LaunchAgent pass is capped at 10 files / 10 messages unless the existing max env vars override it.

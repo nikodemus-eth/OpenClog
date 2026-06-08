@@ -7,7 +7,7 @@ Track OpenClog security posture, Gateway authority boundaries, redaction, and fa
 - The final refactor only changed backend startup-backfill resilience and test coverage; it did not add browser write authority, Gateway credentials exposure, raw frame exposure, or new mutation routes.
 - `npm run verify` passed with 8 red-team tests, 210 Playwright E2E/UI tests, 54 visual snapshots, and 100 percent measured unit coverage. The red-team lane remains part of the all-up gate rather than a separate informal check.
 - `npm run verify:gateway` passed with status `ready` and read/subscribe probes only; mutation testing remained disabled, so no live create/send/abort delivery success is claimed.
-- Live load remains green after the coverage refactor: `/api/operations/report` 553 ms / 750 ms, `/api/verification/receipts` 4 ms / 200 ms, `/api/sessions/:key` 2 ms / 300 ms, `breachCount: 0`.
+- Live load remains green after the coverage refactor and post-commit restart on `f6d3cef`: `/api/operations/report` 396 ms / 750 ms, `/api/verification/receipts` 3 ms / 200 ms, `/api/sessions/:key` 2 ms / 300 ms, `breachCount: 0`.
 
 ## 2026-06-08 Default Startup Proof Boundary
 - Removing the `OPENCLOG_OPENCLAW_SESSION_BACKFILL=0` launchd override did not widen authority: OpenClaw session backfill still runs only inside the backend-owned local SQLite path after Fastify binds, and the browser still cannot write verification receipts, native history, report provenance, Gateway state, or secrets.

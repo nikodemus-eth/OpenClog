@@ -4,7 +4,8 @@
 Track network behavior, local Gateway assumptions, and remote deployment boundaries.
 
 ## 2026-06-08 Final Local Network Proof
-- Latest live route-budget proof against `http://127.0.0.1:8787` remained green after the coverage refactor: `/api/operations/report` 553 ms / 750 ms, `/api/verification/receipts` 4 ms / 200 ms, `/api/sessions/:key` 2 ms / 300 ms, `breachCount: 0`.
+- Latest live route-budget proof against `http://127.0.0.1:8787` remained green after the coverage refactor and post-commit restart to `f6d3cef`: `/api/operations/report` 396 ms / 750 ms, `/api/verification/receipts` 3 ms / 200 ms, `/api/sessions/:key` 2 ms / 300 ms, `breachCount: 0`.
+- The live listener now reports commit `f6d3cef`, PID `33268`, build timestamp `2026-06-08T11:18:50.216Z`, and runtime fingerprint `6a72172c2df794c23c2bfc2392bb037e3c6e689f39904e1866db23f7d4c3f435`.
 - `npm run verify:gateway` passed against the local Gateway with status `ready`, role `operator`, scopes `operator.admin`, `operator.read`, and `operator.write`; mutation testing stayed disabled.
 - The browser network boundary is unchanged: the web app still uses OpenClog HTTP/SSE routes and does not connect directly to OpenClaw Gateway or receive Gateway credentials.
 

@@ -1,11 +1,12 @@
 # OpenClog Reporting Seed
 
 ## 2026-06-08 Final All-Gates Reporting Proof
-- Current source authority is local `main` at `05fa238` plus the now-committable trust-surface/startup-backfill diff.
+- Current source authority is local `main` at final commit `f6d3cef`, which contains the trust-surface/startup-backfill diff and the final coverage/log closeout.
 - The initial final-gate attempt failed only at coverage after the startup backfill work; the follow-up refactor and tests restored the repo-wide 100 percent statements/branches/functions/lines gate.
 - Final deterministic proof passed with `npm run verify`: forbidden-RPC, typecheck, lint, workspace builds, 21 Vitest files / 232 tests at 100 percent coverage, 210 Playwright E2E/UI tests, 54 visual snapshots, 8 red-team tests, and docs check.
 - Supplemental proof passed with `npm run verify:desktop-native`, `npm run test:smoke`, and `npm run verify:gateway`.
-- Latest current live route-budget proof is green on `http://127.0.0.1:8787`: `/api/operations/report` 553 ms / 750 ms, `/api/verification/receipts` 4 ms / 200 ms, `/api/sessions/:key` 2 ms / 300 ms, `breachCount: 0`.
+- After the post-commit rebuild/restart, `http://127.0.0.1:8787/api/version` reports commit `f6d3cef`, PID `33268`, build timestamp `2026-06-08T11:18:50.216Z`, and runtime fingerprint `6a72172c2df794c23c2bfc2392bb037e3c6e689f39904e1866db23f7d4c3f435`.
+- Latest current live route-budget proof is green on that listener: `/api/operations/report` 396 ms / 750 ms, `/api/verification/receipts` 3 ms / 200 ms, `/api/sessions/:key` 2 ms / 300 ms, `breachCount: 0`.
 - Gateway proof is read/subscribe only with mutation testing disabled; live-send delivery success and mutation-enabled Gateway behavior remain outside this closeout.
 
 ## 2026-06-08 Default Startup And Current Live Load Proof

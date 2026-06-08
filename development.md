@@ -9,7 +9,8 @@ Track OpenClog implementation decisions, verification passes, refactors, and clo
 - Repaired the repo-wide 100 percent coverage gate after the first all-up `npm run verify` failed at 99.29 percent statements / 98.43 percent branches. `npm run test:coverage` now reports 100 percent statements, branches, functions, and lines across 21 Vitest files / 232 tests.
 - Final `npm run verify` passed end to end: forbidden-RPC checks, typecheck, lint, workspace builds, 100 percent coverage, 210 Playwright E2E/UI tests, 54 visual snapshots, 8 red-team tests, and docs check.
 - Supplemental closeout also passed: `npm run verify:desktop-native` rebuilt the web bundle and passed 3 Tauri tests; `npm run test:smoke` passed 60 Vitest smoke tests, the Chromium operations-report empty-state check, and desktop cargo smoke.
-- Latest live route-budget proof against `http://127.0.0.1:8787` stayed green with `npm run test:load -- --base-url http://127.0.0.1:8787 --day-key 2026-06-06`: `/api/operations/report` 553 ms / 750 ms, `/api/verification/receipts` 4 ms / 200 ms, `/api/sessions/:key` 2 ms / 300 ms, `breachCount: 0`.
+- After committing, rebuilt `@openclog/api` and restarted `com.m4.openclog-api` so `/api/version` reports final commit `f6d3cef`, PID `33268`, build timestamp `2026-06-08T11:18:50.216Z`, and runtime fingerprint `6a72172c2df794c23c2bfc2392bb037e3c6e689f39904e1866db23f7d4c3f435`.
+- Latest live route-budget proof against `http://127.0.0.1:8787` stayed green with `npm run test:load -- --base-url http://127.0.0.1:8787 --day-key 2026-06-06`: `/api/operations/report` 396 ms / 750 ms, `/api/verification/receipts` 3 ms / 200 ms, `/api/sessions/:key` 2 ms / 300 ms, `breachCount: 0`.
 - Live Gateway verification passed with status `ready`, role `operator`, scopes `operator.admin`, `operator.read`, and `operator.write`; mutation testing remained disabled.
 
 ## 2026-06-08 Default Startup Backfill And Live Load Closeout

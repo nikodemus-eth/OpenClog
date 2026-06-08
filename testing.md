@@ -11,7 +11,8 @@ Record deterministic verification, live Gateway verification, coverage policy, a
 - `npm run verify:desktop-native` passed after rebuilding the web bundle and running 3 Tauri tests.
 - `npm run test:smoke` passed with 60 Vitest smoke tests, 1 Chromium smoke test, and desktop cargo smoke.
 - `npm run verify:gateway` passed with Gateway status `ready`, negotiated role `operator`, scopes `operator.admin`, `operator.read`, and `operator.write`, and mutation testing disabled.
-- Latest live `npm run test:load -- --base-url http://127.0.0.1:8787 --day-key 2026-06-06` passed with `breachCount: 0`: `/api/operations/report` 553 ms / 750 ms, `/api/verification/receipts` 4 ms / 200 ms, and `/api/sessions/:key` 2 ms / 300 ms.
+- Post-commit API rebuild/restart aligned the live listener with final commit `f6d3cef`; `/api/version` reports PID `33268` and runtime fingerprint `6a72172c2df794c23c2bfc2392bb037e3c6e689f39904e1866db23f7d4c3f435`.
+- Latest live `npm run test:load -- --base-url http://127.0.0.1:8787 --day-key 2026-06-06` passed with `breachCount: 0`: `/api/operations/report` 396 ms / 750 ms, `/api/verification/receipts` 3 ms / 200 ms, and `/api/sessions/:key` 2 ms / 300 ms.
 
 ## 2026-06-08 Default Startup And Live Route-Budget Proof
 - Added failing-first coverage for the two hot paths: startup backfill must be scheduled after listener bind, and session drilldown must filter session/approval rows in SQL before parsing unrelated entries.

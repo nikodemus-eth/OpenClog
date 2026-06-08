@@ -6,6 +6,7 @@ Record first-person implementation notes from the builder/operator perspective.
 ## 2026-06-08 Final Refactor And Verification
 - I treated the 100 percent coverage gate as part of the product contract. The first all-up verify failed there, so I refactored the duplicated throwable handling and added behavior tests for the missed startup-backfill failure paths.
 - I reran the whole gate instead of relying on the focused fix: coverage, E2E/UI, visual snapshots, red-team, docs, native, smoke, Gateway, and live load all got fresh evidence.
+- I rebuilt and restarted the API after the first commit so the running listener reported `f6d3cef`, not the pre-commit dirty SHA.
 - I kept the Gateway claim scoped: ready read/subscribe proof is green, but mutation testing stayed disabled and live-send delivery success is still not claimed.
 
 ## 2026-06-06 Current-Source Listener Reverification

@@ -6,7 +6,7 @@ Capture durable lessons that should shape future OpenClog work.
 ## 2026-06-08 Final Coverage Closeout
 - A green focused regression bundle is not enough when the repo has a 100 percent coverage contract. Run the all-up gate, then close missed resilience branches with behavior tests rather than loosening thresholds.
 - Coverage failures can be a useful refactor signal: repeated `error instanceof Error ? ...` branches were easier to cover and reason about once throwable normalization had one owner.
-- Keep live proof fresh after refactors, even when the code change looks test-only. The final live load check stayed under budget but moved from 249 ms to 553 ms on `/api/operations/report`, which belongs in the current story.
+- Keep live proof fresh after refactors and after commits, even when the code change looks test-only. The post-commit listener reported `f6d3cef` and the final live load check stayed under budget at 396 ms on `/api/operations/report`.
 
 ## 2026-06-08 Default Startup And Load Proof
 - Moving import work after `app.listen` proves prompt bind, but it does not prove a usable listener if the scheduled import can still monopolize the request loop. Bound the startup pass and prove route budgets after the scheduled work fires.
