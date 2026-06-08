@@ -3,6 +3,46 @@
 ## Purpose
 Record deterministic verification, live Gateway verification, coverage policy, and closeout results.
 
+## 2026-06-08 Final Coverage And All-Tests Closeout
+- First all-up `npm run verify` correctly failed at the coverage gate after the startup-backfill tranche: 21 Vitest files / 225 tests passed, but coverage was 99.29 percent statements, 98.43 percent branches, 100 percent functions, and 99.49 percent lines.
+- Added focused regression coverage for scheduler disabled/no-op/error branches, bounded empty session windows, and bulk-write error handling, then refactored throwable-message handling out of duplicated catch branches.
+- `npm run test:coverage` passed with 21 files / 232 tests and 100 percent statements, branches, functions, and lines.
+- Final `npm run verify` passed: forbidden-RPC, typecheck, lint, workspace builds, 100 percent coverage, 210 Playwright E2E/UI tests, 54 visual snapshots, 8 red-team tests, and docs check.
+- `npm run verify:desktop-native` passed after rebuilding the web bundle and running 3 Tauri tests.
+- `npm run test:smoke` passed with 60 Vitest smoke tests, 1 Chromium smoke test, and desktop cargo smoke.
+- `npm run verify:gateway` passed with Gateway status `ready`, negotiated role `operator`, scopes `operator.admin`, `operator.read`, and `operator.write`, and mutation testing disabled.
+- Latest live `npm run test:load -- --base-url http://127.0.0.1:8787 --day-key 2026-06-06` passed with `breachCount: 0`: `/api/operations/report` 553 ms / 750 ms, `/api/verification/receipts` 4 ms / 200 ms, and `/api/sessions/:key` 2 ms / 300 ms.
+
+## 2026-06-08 Default Startup And Live Route-Budget Proof
+- Added failing-first coverage for the two hot paths: startup backfill must be scheduled after listener bind, and session drilldown must filter session/approval rows in SQL before parsing unrelated entries.
+- Focused regression proof passed with `npx vitest run apps/api/test/openclaw-session-backfill.test.ts apps/api/test/repository.test.ts apps/api/test/routes.test.ts`: 3 files / 66 tests. `npm run typecheck` and `npm run build -w @openclog/api` also passed.
+- Cleared `OPENCLOG_OPENCLAW_SESSION_BACKFILL` from the launchd environment and restarted `com.m4.openclog-api`; `/api/version` bound in 729 ms and returned commit `05fa238`, PID `98679`, build timestamp `2026-06-08T10:58:19.319Z`, and runtime fingerprint `84b2ece13dc6062251447943a4754a04d14236819453b7d61f4a8a65cf4e4826`.
+- The restarted LaunchAgent no longer inherited `OPENCLOG_OPENCLAW_SESSION_BACKFILL=0`; `launchctl print gui/$(id -u)/com.m4.openclog-api` showed only `SSH_AUTH_SOCK` in inherited environment.
+- The default scheduled startup backfill is bounded to 10 files / 10 messages unless env limits override it; stderr showed `OpenClog OpenClaw session backfill: imported 10 message(s) from 8 file(s) through 2026-06-08T10:32:28.358Z`.
+- Live `curl -m 10 -sS -w ... http://127.0.0.1:8787/api/healthz` returned in `TIME_TOTAL=0.263489` from the same PID/fingerprint.
+- Live `npm run test:load -- --base-url http://127.0.0.1:8787 --day-key 2026-06-06` passed with `breachCount: 0`: `/api/operations/report` 249 ms / 750 ms, `/api/verification/receipts` 3 ms / 200 ms, and `/api/sessions/:key` 2 ms / 300 ms.
+- Remaining proof limits: no fresh desktop-host self-check row, mutation-enabled Gateway verification, browser-written verification receipt proof, or live-send delivery success is claimed in this pass.
+
+## 2026-06-06 Current-Source Live Runtime Proof
+- Focused rebuild passed for the runtime packages: `npm run build -w @openclog/core`, `npm run build -w @openclog/app`, and `npm run build -w @openclog/api`.
+- After final post-proof restart, `http://127.0.0.1:8787/api/version` reported commit `05fa238`, PID `90222`, build timestamp `2026-06-06T19:35:03.247Z`, and runtime fingerprint `5599ca09712b9833b9e3eb59a2167648162d4161d8962acdee35891ef0336bfa`.
+- Live `npm run test:load -- --base-url http://127.0.0.1:8787 --day-key 2026-06-06` failed truthfully with `breachCount: 1` on the same rebuilt source before the final post-proof restart: `/api/operations/report` was HTTP 200 but 14454 ms / 750 ms, `/api/verification/receipts` was HTTP 200 at 3 ms / 200 ms, and `/api/sessions/:key` was HTTP 200 at 172 ms / 300 ms.
+- `npm run verify:desktop-native` passed with receipt `verification-npm-run-verify-desktop-native-20260606T192846262Z`: the web bundle rebuilt and all 3 Tauri tests passed.
+- The latest native-runner self-check row in `journal_native_runner_history` remains `desktop-self-check:http___127_0_0_1_8787:2026_05_31T03_07_26_520Z`, so no fresh desktop-host self-check row is claimed for the June 6 listener.
+
+## 2026-06-03 Trust-Surface Reverification And Dirty-Tranche Closeout
+- Rebased the trust-surface tranche against local `HEAD` `05fa238` plus the dirty worktree instead of the older `2d37c7f` live-runtime proof.
+- Added/tightened failing-first coverage for attention-item acknowledge/snooze persistence and route-budget percentile truthfulness. Route rows no longer emit percentile labels without persisted route-history observations.
+- Focused proof passed with `npx vitest run packages/app/test/application.test.ts apps/api/test/routes.test.ts apps/web/test/api-summary-jobs.test.ts apps/web/test/operator-workspace.test.ts`: 4 files / 79 tests.
+- `npm run typecheck` passed for the active TypeScript surface.
+- `npm run test:load` passed in fixture mode with `breachCount: 0`; it persisted route-budget rows for `/api/operations/report` at 148 ms / 750 ms and `/api/verification/receipts` at 112 ms / 200 ms at `2026-06-03T12:35:31.258Z`.
+- `npm run test:visual` passed after refreshing the intentional 54 snapshot baselines for the global healthz and saved-view shell changes.
+- `npm run test:smoke` passed with 60 Vitest tests, the Chromium operations-report empty-state check, and desktop cargo smoke.
+- `npm run verify:desktop-native` passed with the rebuilt web bundle and 3 Tauri tests.
+- `npm run verify:gateway` passed with Gateway status ready, read/subscribe probes green, and mutation testing disabled.
+- Final all-up `npm run verify` passed with receipt `verification-npm-run-verify-20260603T125558606Z` at `2026-06-03T12:55:58.606Z` on commit `05fa238`: forbidden-RPC checks, typecheck, lint, workspace builds, 21 Vitest files / 218 tests, 100 percent measured coverage, 210 Playwright E2E tests, 54 visual snapshots, 8 red-team tests, and docs check.
+- Stale proof boundary at the time: `http://127.0.0.1:8787/api/version` still reported commit `2d37c7f`, PID `53455`, and build timestamp `2026-05-31T03:06:08.801Z`, so the May 30/31 live 8787 proof was historical and not current-head proof for that dirty tranche. The June 6 proof above supersedes the listener identity but records a current live load breach.
+
 ## 2026-06-01 Trust-Surface Visibility Tranche Closeout
 - Implemented the Phase 1 trust-surface slice for operations visibility and operator polish: enriched `/api/healthz`, added `/api/healthz/details`, surfaced report snapshot provenance in the shell, carried delivery `lastDryRunVerifiedAt`, rendered recovered-evidence badges in archive/search flows, added morning-brief copy with citations, and recorded major keyboard shortcuts through the local audit path.
 - Refactored the new shell/report affordances behind focused workspace helpers so verification-gate targeting, recovered-evidence badge formatting, snapshot provenance summaries, and morning-brief copy stay deterministic and directly unit tested.
@@ -22,7 +62,7 @@ Record deterministic verification, live Gateway verification, coverage policy, a
 - Added failing-first coverage for saved-view deletion audits and bounded operations-report payloads, then passed `npx vitest run packages/app/test/application.test.ts -t "records saved-view deletion|bounds operations-report"`.
 - Added desktop coverage proving the default scheduled self-check API base is `http://127.0.0.1:8787`, then passed `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml scheduled_self_check_reports_fail_closed_surfaces -- --nocapture`.
 - Focused checks passed after the refactor: `npm run typecheck`, `npx vitest run apps/api/test/repository.test.ts apps/api/test/routes.test.ts packages/app/test/application.test.ts`, `npx vitest run apps/api/test/routes.test.ts packages/app/test/application.test.ts`, and `npm run build`.
-- Live proof against real `8787` passed with `OPENCLOG_LOAD_BASE_URL=http://127.0.0.1:8787 npm run test:load -- --day-key 2026-05-25 --session-key agent:hugin:main`: `/api/operations/report` 647 ms / 750 ms, `/api/verification/receipts` 2 ms / 200 ms, `/api/sessions/:key` 51 ms / 300 ms, breachCount 0.
+- Live proof against real `8787` passed for this historical `2d37c7f` runtime with `OPENCLOG_LOAD_BASE_URL=http://127.0.0.1:8787 npm run test:load -- --day-key 2026-05-25 --session-key agent:hugin:main`: `/api/operations/report` 647 ms / 750 ms, `/api/verification/receipts` 2 ms / 200 ms, `/api/sessions/:key` 51 ms / 300 ms, breachCount 0.
 - Real desktop-host evidence was refreshed by launching the Tauri host with `OPENCLOG_API_URL=http://127.0.0.1:8787`, `OPENCLOG_SQLITE_PATH=/Users/m4/OpenClog/openclog.db`, and `OPENCLOG_DESKTOP_SELF_CHECK_INTERVAL_MS=0`; the latest native-runner row is `desktop-self-check:http___127_0_0_1_8787:2026_05_31T03_07_26_520Z`, and `http://127.0.0.1:8787/api/version` reported commit `2d37c7f`.
 
 ## 2026-05-27 Current-HEAD Native And Live Load Proof

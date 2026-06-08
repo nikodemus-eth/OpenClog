@@ -133,6 +133,7 @@ interface AppShellProps {
   themeIds: ThemeId[];
   healthPollAgeLabel: string;
   healthPollLatencyMs: number | null;
+  healthzSummaryChip: string;
   verificationTrustSummary: string;
   activeIncidentBadgeText?: string;
   collapsedRightRailSummary?: string;
@@ -234,6 +235,7 @@ export function AppShell(props: AppShellProps) {
             onToolFilterFocus={() => expandRightRail(props.onToolFilterFocus)}
             healthPollAgeLabel={props.healthPollAgeLabel}
             healthPollLatencyMs={props.healthPollLatencyMs}
+            healthzSummaryChip={props.healthzSummaryChip}
             verificationTrustSummary={props.verificationTrustSummary}
             activeIncidentBadgeText={props.activeIncidentBadgeText}
             onVerificationFailureFocus={props.onVerificationFailureFocus}
@@ -343,6 +345,7 @@ function TopAppBar(props: {
   onToolFilterFocus: () => void;
   healthPollAgeLabel: string;
   healthPollLatencyMs: number | null;
+  healthzSummaryChip: string;
   verificationTrustSummary: string;
   activeIncidentBadgeText?: string;
   onVerificationFailureFocus?: () => void;
@@ -385,6 +388,9 @@ function TopAppBar(props: {
         </p>
         <p className="backend-meta" aria-label="Verification trust chip">
           {props.verificationTrustSummary}
+        </p>
+        <p className="backend-meta" aria-label="Healthz summary chip">
+          {props.healthzSummaryChip}
         </p>
         {props.activeIncidentBadgeText && props.onActiveIncidentFocus ? (
           <button type="button" className="backend-meta" aria-label="Active incident badge" onClick={props.onActiveIncidentFocus}>
@@ -872,6 +878,7 @@ export function Timeline(props: {
   function focusEntry(index: number): void {
     const id = entryIds[Math.max(0, Math.min(index, entryIds.length - 1))];
     if (!id) return;
+    if (!refs.current.get(id) && focusVisibleEntry(index)) return;
     setFocusedEntryId(id);
     const focusTarget = () => {
       const node = refs.current.get(id);
@@ -880,6 +887,19 @@ export function Timeline(props: {
     focusTarget();
     window.requestAnimationFrame(focusTarget);
     window.setTimeout(focusTarget, 0);
+  }
+
+  function focusVisibleEntry(index: number): boolean {
+    const nodes = Array.from(timelineRef.current?.querySelectorAll<HTMLDivElement>("[data-entry-id]") ?? []);
+    const node = nodes[Math.max(0, Math.min(index, nodes.length - 1))];
+    const id = node?.dataset.entryId;
+    if (!node || !id) return false;
+    setFocusedEntryId(id);
+    const focusTarget = () => node.focus({ preventScroll: true });
+    focusTarget();
+    window.requestAnimationFrame(focusTarget);
+    window.setTimeout(focusTarget, 0);
+    return true;
   }
 
   function handleTimelineKeyDown(event: React.KeyboardEvent<HTMLOListElement>): void {

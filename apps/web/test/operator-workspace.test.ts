@@ -14,6 +14,7 @@ import {
   applyOperatorViewTimelinePreference,
   buildDryRunFailureJumpNotice,
   buildGatewayScopeButtonLabel,
+  buildHealthzSummaryChip,
   buildMorningBriefCopyText,
   buildReportSnapshotSummary,
   buildVerificationGateFocusSelector,
@@ -94,6 +95,27 @@ describe("operator workspace helpers", () => {
         }
       } as OperationsBacklogReport)
     ).toContain("beyond threshold");
+  });
+
+  test("builds a compact healthz summary chip for the shell header", () => {
+    expect(
+      buildHealthzSummaryChip({
+        healthzEvidence: {
+          blockedGateIds: ["summary_freshness", "route_budgets"],
+          routeBudgetRegressionCount: 3,
+          queueDepth: 2
+        }
+      } as OperationsBacklogReport)
+    ).toBe("Healthz blocked 2 · route regressions 3 · queue 2");
+    expect(
+      buildHealthzSummaryChip({
+        healthzEvidence: {
+          routeBudgetRegressionCount: 0,
+          queueDepth: 0
+        }
+      } as OperationsBacklogReport)
+    ).toBe("Healthz blocked 0 · route regressions 0 · queue 0");
+    expect(buildHealthzSummaryChip(null)).toBe("Healthz summary unavailable");
   });
 
   test("detects when generated summaries are stale", () => {
@@ -419,6 +441,7 @@ describe("operator workspace helpers", () => {
       expect.objectContaining({ id: "delivery-failures", builtIn: true, drilldown: { sessionKey: "agent:hugin:main", tab: "deliveries", scrollTop: 0 } }),
       expect.objectContaining({ id: "stale-summaries", builtIn: true, searchQuery: "summary stale" }),
       expect.objectContaining({ id: "stale-summaries-failed-deliveries", builtIn: true, searchQuery: "summary stale delivery receipt failed" }),
+      expect.objectContaining({ id: "blocked-gates-failed-dry-runs-stale-summaries", builtIn: true, searchQuery: "verification blocked failed gate dry-run summary stale" }),
       expect.objectContaining({ id: "failed-receipts", builtIn: true, searchQuery: "delivery receipt failed" }),
       expect.objectContaining({ id: "stale-backend-fingerprint", builtIn: true, searchQuery: "stale backend fingerprint" }),
       expect.objectContaining({ id: "needs-operator-action-now", builtIn: true, hypothesis: "Needs operator action now highlights blocked, stale, and failed work that should be handled before handoff." }),
@@ -495,6 +518,7 @@ describe("operator workspace helpers", () => {
       expect.objectContaining({ id: "delivery-failures", builtIn: true }),
       expect.objectContaining({ id: "stale-summaries", builtIn: true }),
       expect.objectContaining({ id: "stale-summaries-failed-deliveries", builtIn: true }),
+      expect.objectContaining({ id: "blocked-gates-failed-dry-runs-stale-summaries", builtIn: true }),
       expect.objectContaining({ id: "failed-receipts", builtIn: true }),
       expect.objectContaining({ id: "stale-backend-fingerprint", builtIn: true }),
       expect.objectContaining({ id: "needs-operator-action-now", builtIn: true }),
@@ -512,6 +536,7 @@ describe("operator workspace helpers", () => {
       expect.objectContaining({ id: "delivery-failures", drilldown: { sessionKey: undefined, tab: "deliveries", scrollTop: 0 } }),
       expect.objectContaining({ id: "stale-summaries", drilldown: { sessionKey: undefined, tab: "timeline", scrollTop: 0 } }),
       expect.objectContaining({ id: "stale-summaries-failed-deliveries", drilldown: { sessionKey: undefined, tab: "deliveries", scrollTop: 0 } }),
+      expect.objectContaining({ id: "blocked-gates-failed-dry-runs-stale-summaries", drilldown: { sessionKey: undefined, tab: "actions", scrollTop: 0 } }),
       expect.objectContaining({ id: "failed-receipts", drilldown: { sessionKey: undefined, tab: "deliveries", scrollTop: 0 } }),
       expect.objectContaining({ id: "stale-backend-fingerprint", drilldown: { sessionKey: undefined, tab: "timeline", scrollTop: 0 } }),
       expect.objectContaining({ id: "needs-operator-action-now", drilldown: { sessionKey: undefined, tab: "actions", scrollTop: 0 } }),
@@ -1256,9 +1281,14 @@ describe("operator workspace helpers", () => {
         label: "Failed dry-run delivery",
         detail: "Slack failed because Authorization: Bearer secret was missing.",
         evidenceIds: ["receipt-1"],
-        action: "Open why blocked drawer."
+        action: "Open why blocked drawer.",
+        acknowledgedAt: "2026-05-04T12:30:00.000Z",
+        acknowledgedBy: "local-operator",
+        snoozeUntil: "2026-05-04T13:30:00.000Z"
       })
-    ).toBe("critical: Failed dry-run delivery - Slack failed because [REDACTED_SECRET] was missing. Evidence receipt-1. Action: Open why blocked drawer.");
+    ).toBe(
+      "critical: Failed dry-run delivery - Slack failed because [REDACTED_SECRET] was missing. Evidence receipt-1. Action: Open why blocked drawer. Acknowledged 2026-05-04T12:30:00.000Z by local-operator. Snoozed until 2026-05-04T13:30:00.000Z."
+    );
     expect(
       formatWhyBlocked({
         label: "Deliver to Slack",
@@ -1294,9 +1324,24 @@ describe("operator workspace helpers", () => {
         label: "Stale summary",
         detail: "Summary is older than the newest receipt",
         evidenceIds: [],
-        action: "Refresh summary"
+        action: "Refresh summary",
+        acknowledgedAt: "2026-05-04T12:45:00.000Z"
       })
-    ).toBe("warning: Stale summary - Summary is older than the newest receipt. Evidence none. Action: Refresh summary");
+    ).toBe(
+      "warning: Stale summary - Summary is older than the newest receipt. Evidence none. Action: Refresh summary Acknowledged 2026-05-04T12:45:00.000Z by local-operator."
+    );
+    expect(
+      formatAttentionNowItem({
+        id: "missing_dry_run_delivery",
+        severity: "warning",
+        label: "Missing dry-run delivery evidence",
+        detail: "Slack, email are missing dry-run receipts.",
+        evidenceIds: ["slack", "email"],
+        action: "Run dry-run verification for every configured delivery target."
+      })
+    ).toBe(
+      "warning: Missing dry-run delivery evidence - Slack, email are missing dry-run receipts. Evidence slack, email. Action: Run dry-run verification for every configured delivery target."
+    );
     expect(
       formatWhyBlocked({
         label: "Plugin action",

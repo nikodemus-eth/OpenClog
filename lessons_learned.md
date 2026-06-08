@@ -3,6 +3,26 @@
 ## Purpose
 Capture durable lessons that should shape future OpenClog work.
 
+## 2026-06-08 Final Coverage Closeout
+- A green focused regression bundle is not enough when the repo has a 100 percent coverage contract. Run the all-up gate, then close missed resilience branches with behavior tests rather than loosening thresholds.
+- Coverage failures can be a useful refactor signal: repeated `error instanceof Error ? ...` branches were easier to cover and reason about once throwable normalization had one owner.
+- Keep live proof fresh after refactors, even when the code change looks test-only. The final live load check stayed under budget but moved from 249 ms to 553 ms on `/api/operations/report`, which belongs in the current story.
+
+## 2026-06-08 Default Startup And Load Proof
+- Moving import work after `app.listen` proves prompt bind, but it does not prove a usable listener if the scheduled import can still monopolize the request loop. Bound the startup pass and prove route budgets after the scheduled work fires.
+- Backfill recovery should batch by day and summarize once per touched day; per-message `addEntry` is too expensive for LaunchAgent startup recovery on a large local corpus.
+- Live load regressions can move: after `/api/operations/report` was optimized, `/api/sessions/:key` became the red route because it still parsed every journal row. Keep the harness as the arbiter instead of focusing only on the previous slow route.
+
+## 2026-06-06 Current-Source Listener Reverification
+- A matching `/api/version` commit is not enough when dirty source is in play; compare changed source to emitted package files and restart the actual LaunchAgent before treating a listener as current proof.
+- Keep startup ingestion separate from listener liveness. The existing backfill switch was enough to get a current proof listener online, and the logs must record that scoped runtime environment.
+- A current live listener can still be a red load proof. Preserve route-budget regressions as evidence instead of replacing a stale green proof with a fresh overclaim.
+
+## 2026-06-03 Trust-Surface Reverification
+- Built-in saved views should not count against user-saved view caps; defaults are product vocabulary, while user views are operator state that must survive new built-ins.
+- Route-budget percentiles are evidence, not labels. Do not emit p99-style copy until the repository has actual route observations for that route.
+- A green historical listener is not current proof after HEAD and the dirty diff move. Keep live runtime, command receipt, native-test, and fixture-load authority separate.
+
 ## 2026-05-20 Mega Tranche Rework
 - Many “new” operator features are actually contract-clarity problems; if the report shape is too thin, the UI either invents state or duplicates policy.
 - Saved-view persistence becomes a governance surface once operators use it for handoff; restart persistence, linting, and selected-gate recovery need explicit behavior and tests.

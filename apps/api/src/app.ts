@@ -26,6 +26,8 @@ import {
   type JournalEntry,
   type PluginManifest,
   type ProfileConfig,
+  type ReportAssemblyTiming,
+  type ReportAssemblyTimingSection,
   type RetentionPolicy
 } from "@openclog/core";
 import type { GatewayPort } from "./gateway.js";
@@ -676,12 +678,27 @@ export function createApiApp(services: ApiServices): FastifyInstance {
     }
   });
 
-  app.get<{ Querystring: { dayKey?: string; incidentId?: string } }>("/api/operations/report", async (request) => ({
-    report: openclog.getOperationsBacklog({
+  app.get<{ Querystring: { dayKey?: string; incidentId?: string } }>("/api/operations/report", async (request) => {
+    const routeStartedAt = performance.now();
+    const reportBuildStartedAt = performance.now();
+    const report = openclog.getOperationsBacklog({
       dayKey: request.query.dayKey ?? todayKey(),
       incidentId: request.query.incidentId
-    })
-  }));
+    });
+    const reportBuildSection = timingSection("route.report_build", "Route report build", "route_phase", reportBuildStartedAt, 1);
+    const auditStartedAt = performance.now();
+    if (report.routeBudgetRegressions.length > 0) {
+      services.repo.addAudit("route_budget.breach", {
+        target_type: "operations_report",
+        routeCount: report.routeBudgetRegressions.length,
+        routes: report.routeBudgetRegressions.map((regression) => regression.route),
+        snapshotId: report.reportProvenance.currentSnapshotId
+      });
+    }
+    const auditSection = timingSection("route.route_budget_audit", "Route-budget audit", "route_phase", auditStartedAt, report.routeBudgetRegressions.length);
+    report.reportAssemblyTiming = appendReportAssemblySections(report.reportAssemblyTiming, [reportBuildSection, auditSection], routeStartedAt);
+    return { report };
+  });
 
   app.get<{ Querystring: { dayKey?: string; incidentId?: string } }>("/api/operations/center", async (request) => ({
     report: openclog.getOperationsBacklog({
@@ -689,6 +706,31 @@ export function createApiApp(services: ApiServices): FastifyInstance {
       incidentId: request.query.incidentId
     })
   }));
+
+  app.post<{ Params: { id: string }; Body: { acknowledgedAt?: string; acknowledgedBy?: string } }>("/api/operations/attention/:id/ack", async (request, reply) => {
+    if (!isAttentionItemId(request.params.id)) return reply.code(404).send({ error: "attention_item_not_found" });
+    return {
+      ok: true,
+      state: openclog.acknowledgeAttentionItem({
+        attentionItemId: request.params.id,
+        acknowledgedAt: request.body?.acknowledgedAt ?? new Date().toISOString(),
+        acknowledgedBy: request.body?.acknowledgedBy
+      })
+    };
+  });
+
+  app.post<{ Params: { id: string }; Body: { snoozeUntil?: string; acknowledgedBy?: string } }>("/api/operations/attention/:id/snooze", async (request, reply) => {
+    if (!isAttentionItemId(request.params.id)) return reply.code(404).send({ error: "attention_item_not_found" });
+    if (!request.body?.snoozeUntil) return reply.code(400).send({ error: "snooze_until_required" });
+    return {
+      ok: true,
+      state: openclog.snoozeAttentionItem({
+        attentionItemId: request.params.id,
+        snoozeUntil: request.body.snoozeUntil,
+        acknowledgedBy: request.body?.acknowledgedBy
+      })
+    };
+  });
 
   app.get<{ Querystring: { route?: string } }>("/api/operations/route-budget-history", async (request) => ({
     history: services.repo.listRouteBudgetObservations?.(
@@ -1143,6 +1185,25 @@ function isDeliveryTarget(value: string): value is DeliveryAdapterTarget {
   return value === "slack" || value === "generic-webhook" || value === "email" || value === "github-issue";
 }
 
+function isAttentionItemId(value: string): value is
+  | "stale_summary"
+  | "approval_backlog"
+  | "repeated_receipt_failure"
+  | "reconnect_event"
+  | "route_budget_regression"
+  | "failed_dry_run_delivery"
+  | "missing_dry_run_delivery" {
+  return [
+    "stale_summary",
+    "approval_backlog",
+    "repeated_receipt_failure",
+    "reconnect_event",
+    "route_budget_regression",
+    "failed_dry_run_delivery",
+    "missing_dry_run_delivery"
+  ].includes(value);
+}
+
 function isRetentionClassId(value: string): value is
   | "entries"
   | "alert_state"
@@ -1164,6 +1225,38 @@ function isRetentionClassId(value: string): value is
     "audit_log",
     "analytics_integrity_plugin_runs"
   ].includes(value);
+}
+
+function timingSection(
+  id: string,
+  label: string,
+  category: NonNullable<ReportAssemblyTimingSection["category"]>,
+  startedAt: number,
+  rowCount?: number
+): ReportAssemblyTimingSection {
+  return {
+    id,
+    label,
+    category,
+    durationMs: Math.max(0, Math.round((performance.now() - startedAt) * 100) / 100),
+    ...(rowCount !== undefined ? { rowCount } : {})
+  };
+}
+
+function appendReportAssemblySections(
+  timing: ReportAssemblyTiming,
+  additions: ReportAssemblyTimingSection[],
+  routeStartedAt: number
+): ReportAssemblyTiming {
+  const sections = [...timing.sections, ...additions].map((section) => ({
+    ...section,
+    durationMs: Math.max(0, Math.round(section.durationMs * 100) / 100)
+  }));
+  return {
+    totalDurationMs: Math.max(timing.totalDurationMs, Math.max(0, Math.round((performance.now() - routeStartedAt) * 100) / 100)),
+    sections,
+    slowestSections: [...sections].sort((left, right) => right.durationMs - left.durationMs).slice(0, 5)
+  };
 }
 
 /* v8 ignore next -- process-local git metadata branch varies by test isolation and is validated through route coverage plus targeted helper tests */

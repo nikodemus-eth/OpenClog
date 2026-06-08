@@ -72,6 +72,153 @@ describe("SQLite repository", () => {
     ]);
   });
 
+  test("stores hot report entry metadata columns for recovered-evidence summaries and badges", () => {
+    const dir = mkdtempSync(join(tmpdir(), "openclog-hot-entry-metadata-"));
+    tempDirs.push(dir);
+    const filename = join(dir, "openclog.db");
+    const repo = createSqliteRepository(filename);
+    repos.push(repo);
+
+    repo.addEntry({
+      id: "backfilled-openclaw-entry",
+      dayKey: "2026-05-20",
+      source: "openclaw-session-jsonl",
+      kind: "assistant_message",
+      title: "OpenClaw response",
+      body: "Recovered operator note",
+      timestamp: "2026-05-20T22:00:23.406Z",
+      status: "info",
+      severity: "info",
+      sessionId: "openclaw:session:real-log",
+      sourceLabel: "Backfilled from OpenClaw",
+      backfilled: true,
+      importedAt: "2026-05-20T22:17:21.955Z",
+      redacted: true
+    });
+
+    const db = new DatabaseSync(filename, { readOnly: true });
+    const columns = db.prepare("PRAGMA table_info(journal_entries)").all().map((row) => String(row.name));
+    const row = db
+      .prepare("SELECT backfilled, source_label, imported_at FROM journal_entries WHERE id = ?")
+      .get("backfilled-openclaw-entry") as { backfilled: number; source_label: string; imported_at: string };
+    db.close();
+
+    expect(columns).toEqual(expect.arrayContaining(["backfilled", "source_label", "imported_at"]));
+    expect(row).toEqual({
+      backfilled: 1,
+      source_label: "Backfilled from OpenClaw",
+      imported_at: "2026-05-20T22:17:21.955Z"
+    });
+    expect(repo.getRecoveredEvidenceSummary("2026-05-20")).toMatchObject({
+      sourceLabel: "Backfilled from OpenClaw",
+      entryCount: 1,
+      dayCount: 1,
+      latestImportedAt: "2026-05-20T22:17:21.955Z"
+    });
+    expect(repo.listDays().find((day) => day.dayKey === "2026-05-20")?.recoveredEvidenceBadge).toMatchObject({
+      entryCount: 1,
+      latestImportedAt: "2026-05-20T22:17:21.955Z"
+    });
+  });
+
+  test("stores bounded health categories for readiness and SLO report queries", () => {
+    const dir = mkdtempSync(join(tmpdir(), "openclog-health-entry-metadata-"));
+    tempDirs.push(dir);
+    const filename = join(dir, "openclog.db");
+    const repo = createSqliteRepository(filename);
+    repos.push(repo);
+
+    repo.addEntry({
+      id: "health-reconnect",
+      dayKey: "2026-05-21",
+      source: "system",
+      kind: "system_status",
+      title: "Gateway reconnected",
+      body: "Recovered cleanly",
+      timestamp: "2026-05-21T10:00:00.000Z",
+      status: "success",
+      severity: "info",
+      redacted: true
+    });
+    repo.addEntry({
+      id: "health-gateway-error",
+      dayKey: "2026-05-21",
+      source: "gateway",
+      kind: "error",
+      title: "Gateway listener error",
+      body: "Sequence stalled",
+      timestamp: "2026-05-21T10:01:00.000Z",
+      status: "failed",
+      severity: "error",
+      redacted: true
+    });
+    repo.addEntry({
+      id: "health-tool-failure",
+      dayKey: "2026-05-22",
+      source: "tool",
+      kind: "tool_result",
+      title: "Tool failed",
+      body: "Command returned a non-zero exit.",
+      timestamp: "2026-05-22T10:02:00.000Z",
+      status: "failed",
+      severity: "error",
+      redacted: true
+    });
+
+    const db = new DatabaseSync(filename, { readOnly: true });
+    const columns = db.prepare("PRAGMA table_info(journal_entries)").all().map((row) => String(row.name));
+    const rows = db
+      .prepare("SELECT id, health_category FROM journal_entries WHERE id LIKE 'health-%' ORDER BY id ASC")
+      .all() as Array<{ id: string; health_category: string }>;
+    db.close();
+
+    expect(columns).toContain("health_category");
+    expect(rows).toEqual([
+      { id: "health-gateway-error", health_category: "gateway_error" },
+      { id: "health-reconnect", health_category: "reconnect" },
+      { id: "health-tool-failure", health_category: "tool_failure" }
+    ]);
+    expect(repo.listHealthHistory(5).map((entry) => entry.category)).toEqual(["tool_failure", "gateway_error", "reconnect"]);
+    expect(repo.getHealthAggregate(5)).toMatchObject({
+      reconnectCount: 1,
+      staleCount: 1,
+      recoveryCount: 1
+    });
+    expect(repo.getSloSnapshot()).toMatchObject({
+      gatewayFreshnessOk: false,
+      reconnectHeavyDayCount: 1
+    });
+  });
+
+  test("filters route-budget observations in SQL before parsing JSON rows", () => {
+    const dir = mkdtempSync(join(tmpdir(), "openclog-route-filter-"));
+    tempDirs.push(dir);
+    const filename = join(dir, "openclog.db");
+    const repo = createSqliteRepository(filename);
+    repos.push(repo);
+    repo.saveRouteBudgetObservation({
+      id: "report-live",
+      route: "/api/operations/report",
+      observedMs: 412,
+      budgetMs: 750,
+      recordedAt: "2026-05-27T12:00:00.000Z",
+      source: "live"
+    });
+
+    const db = new DatabaseSync(filename);
+    db.prepare("INSERT INTO journal_route_budget_observations (id, route, recorded_at, observation_json) VALUES (?, ?, ?, ?)").run(
+      "corrupt-verification-row",
+      "/api/verification/receipts",
+      "2026-05-27T12:01:00.000Z",
+      "{not-json"
+    );
+    db.close();
+
+    expect(repo.listRouteBudgetObservations("/api/operations/report")).toEqual([
+      expect.objectContaining({ id: "report-live", route: "/api/operations/report" })
+    ]);
+  });
+
   test("reports corrupted integrity rows when hashes or entry ids drift", () => {
     const dir = mkdtempSync(join(tmpdir(), "openclog-repo-"));
     tempDirs.push(dir);
@@ -376,6 +523,56 @@ describe("SQLite repository", () => {
       sourceLabel: "Backfilled from OpenClaw",
       importedAt: "2026-05-17T16:00:00.000Z"
     });
+  });
+
+  test("drilldown filters session and approval rows in SQL before parsing unrelated entries", () => {
+    const dir = mkdtempSync(join(tmpdir(), "openclog-drilldown-filter-"));
+    tempDirs.push(dir);
+    const filename = join(dir, "openclog.db");
+    const repo = createSqliteRepository(filename);
+    repos.push(repo);
+
+    repo.addEntry({
+      id: "session-tool",
+      dayKey: "2026-05-08",
+      source: "tool",
+      kind: "tool_call",
+      title: "Tool call",
+      body: "Inspect session state",
+      timestamp: "2026-05-08T10:00:00.000Z",
+      status: "success",
+      severity: "info",
+      sessionId: "agent:hugin:main",
+      approvalId: "approval-8",
+      redacted: true
+    });
+    repo.addEntry({
+      id: "approval-resolved",
+      dayKey: "2026-05-08",
+      source: "gateway",
+      kind: "approval_resolved",
+      title: "Approval resolved",
+      body: "allow-once",
+      timestamp: "2026-05-08T10:02:00.000Z",
+      status: "approved",
+      severity: "info",
+      approvalId: "approval-8",
+      redacted: true
+    });
+
+    const db = new DatabaseSync(filename);
+    db.prepare(
+      `INSERT INTO journal_entries (
+        id, day_key, session_id, source, kind, title, timestamp, status, severity, redacted, entry_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run("corrupt-unrelated", "2026-05-08", "agent:other:main", "tool", "tool_result", "Corrupt unrelated row", "2026-05-08T10:03:00.000Z", "failed", "error", 1, "{not-json");
+    db.close();
+
+    const drilldown = repo.getDrilldown("agent:hugin:main");
+
+    expect(drilldown.entries.map((entry) => entry.id)).toEqual(["session-tool", "approval-resolved"]);
+    expect(drilldown.toolCount).toBe(1);
+    expect(drilldown.approvalCount).toBe(1);
   });
 
   test("returns empty incidents and profiles when none exist", () => {

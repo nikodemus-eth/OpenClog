@@ -26,6 +26,7 @@ import {
   type VerificationReceipt
 } from "@openclog/core";
 import {
+  acknowledgeAttentionItem,
   acknowledgeAlert,
   applyRetention,
   type BundleExport,
@@ -90,6 +91,7 @@ import {
   saveAlertRule,
   saveRetentionClass,
   searchJournal,
+  snoozeAttentionItem,
   type SearchPreset,
   selectableThemeIds,
   selectProfile,
@@ -123,6 +125,7 @@ import {
   buildArchiveView,
   buildDryRunFailureJumpNotice,
   buildGatewayScopeButtonLabel,
+  buildHealthzSummaryChip,
   buildMorningBriefCopyText,
   buildReportSnapshotSummary,
   buildReconnectTrendText,
@@ -455,6 +458,7 @@ export function App() {
   }, [operationsReport]);
   const reportFreshnessSummary = useMemo(() => describeReportFreshness(operationsReport), [operationsReport]);
   const reportSnapshotSummary = useMemo(() => buildReportSnapshotSummary(operationsReport), [operationsReport]);
+  const healthzSummaryChip = useMemo(() => buildHealthzSummaryChip(operationsReport), [operationsReport]);
   const recoveredEvidenceProvisionalLabel = useMemo(() => describeRecoveredEvidenceProvisional(operationsReport), [operationsReport]);
   const latestSmokeReceipt = useMemo(() => findLatestSmokeReceipt(operationsReport) ?? null, [operationsReport]);
 
@@ -1258,7 +1262,8 @@ export function App() {
         scrollTop: sessionScrollTop
       }
     };
-    const next = mergeOperatorViewsForDay(visibleDay.dayKey, selectedSessionKey, [nextView, ...operatorViews.filter((view) => view.id !== nextView.id && view.builtIn !== true)]).slice(0, 12);
+    const savedViews = [nextView, ...operatorViews.filter((view) => view.id !== nextView.id && view.builtIn !== true)].slice(0, 12);
+    const next = mergeOperatorViewsForDay(visibleDay.dayKey, selectedSessionKey, savedViews);
     setOperatorViews(next);
     await updateSettings({ operatorViews: next });
     setNotice("Operator view saved.");
@@ -1431,6 +1436,27 @@ export function App() {
       setNotice("Alert snoozed for 30 minutes.");
     } catch {
       setNotice("Alert snooze failed closed: local alert state was not changed.");
+    }
+  }
+
+  async function handleAcknowledgeAttentionItem(attentionItemId: "stale_summary" | "approval_backlog" | "repeated_receipt_failure" | "reconnect_event" | "route_budget_regression" | "failed_dry_run_delivery" | "missing_dry_run_delivery"): Promise<void> {
+    try {
+      await acknowledgeAttentionItem(attentionItemId, { acknowledgedBy: "local-operator" });
+      await handleReloadOperationsReport();
+      setNotice(`Attention item ${attentionItemId} acknowledged.`);
+    } catch {
+      setNotice("Attention acknowledgement failed closed: local attention state was not changed.");
+    }
+  }
+
+  async function handleSnoozeAttentionItem(attentionItemId: "stale_summary" | "approval_backlog" | "repeated_receipt_failure" | "reconnect_event" | "route_budget_regression" | "failed_dry_run_delivery" | "missing_dry_run_delivery"): Promise<void> {
+    const snoozeUntil = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    try {
+      await snoozeAttentionItem(attentionItemId, snoozeUntil, { acknowledgedBy: "local-operator" });
+      await handleReloadOperationsReport();
+      setNotice(`Attention item ${attentionItemId} snoozed for 1 hour.`);
+    } catch {
+      setNotice("Attention snooze failed closed: local attention state was not changed.");
     }
   }
 
@@ -1876,6 +1902,7 @@ async function handleRetryReceipt(id: string): Promise<void> {
       themeIds={selectableThemeIds}
       healthPollAgeLabel={healthPollAgeLabel}
       healthPollLatencyMs={healthPollLatencyMs}
+      healthzSummaryChip={healthzSummaryChip}
       shortcutHints={buildShellShortcutHints()}
       verificationTrustSummary={verificationTrustSummary}
       activeIncidentBadgeText={activeIncidentBadgeText ?? undefined}
@@ -2037,6 +2064,7 @@ async function handleRetryReceipt(id: string): Promise<void> {
         summaryProfiles={summaryProfiles}
         visibleDay={visibleDay}
         onAcknowledgeAlert={(ruleId) => void handleAcknowledgeAlert(ruleId)}
+        onAcknowledgeAttentionItem={(attentionItemId) => void handleAcknowledgeAttentionItem(attentionItemId)}
         onApplyRetention={() => void handleApplyRetention()}
         onApplyQuickFilter={(query, filters) => {
           void handleApplyQuickFilter(query, filters);
@@ -2105,6 +2133,7 @@ async function handleRetryReceipt(id: string): Promise<void> {
         onSaveAlertRule={() => void handleSaveAlertRule()}
         onSaveInvestigationNote={() => void handleSaveInvestigationNote()}
         onSnoozeAlert={(ruleId) => void handleSnoozeAlert(ruleId)}
+        onSnoozeAttentionItem={(attentionItemId) => void handleSnoozeAttentionItem(attentionItemId)}
 	        onTightenRetention={() => void handleTightenRetention()}
 	        onVerifyIntegration={(target) => {
 	          void handleVerifyIntegration(target);
@@ -2555,6 +2584,7 @@ function OperationalPanels(props: {
   summaryProfiles?: Awaited<ReturnType<typeof fetchSummaryProfiles>>;
   visibleDay: JournalDay;
   onAcknowledgeAlert: (ruleId: string) => void;
+  onAcknowledgeAttentionItem: (attentionItemId: "stale_summary" | "approval_backlog" | "repeated_receipt_failure" | "reconnect_event" | "route_budget_regression" | "failed_dry_run_delivery" | "missing_dry_run_delivery") => void;
   onApplyRetention: () => void;
   onApplyQuickFilter: (query: string, filters?: JournalFilterKey[]) => void;
   onBuildIntegration: () => void;
@@ -2597,6 +2627,7 @@ function OperationalPanels(props: {
   onSaveAlertRule: () => void;
   onSaveInvestigationNote: () => void;
   onSnoozeAlert: (ruleId: string) => void;
+  onSnoozeAttentionItem: (attentionItemId: "stale_summary" | "approval_backlog" | "repeated_receipt_failure" | "reconnect_event" | "route_budget_regression" | "failed_dry_run_delivery" | "missing_dry_run_delivery") => void;
   onTightenRetention: () => void;
   onVerifyIntegration: (target: VerifiableIntegrationTarget) => void;
   onSelectIncident: (id: string) => void;
@@ -2641,6 +2672,10 @@ function OperationalPanels(props: {
     { label: "Webhook", target: "generic-webhook" },
     { label: "Email", target: "email" }
   ];
+  const latestVerifyReceipt = operationsReport?.verificationCenter.receipts.find((receipt) => receipt.command === "verify" || receipt.command === "npm run verify");
+  const latestSmokeVerificationReceipt = operationsReport?.verificationCenter.receipts.find((receipt) => receipt.command === "test:smoke" || receipt.command === "npm run test:smoke");
+  const latestGatewayVerificationReceipt =
+    operationsReport?.verificationCenter.receipts.find((receipt) => receipt.command === "verify:gateway" || receipt.command === "npm run verify:gateway");
   return (
     <section className="workspace-grid" aria-label="Operational workbench">
       {operationsReport ? (
@@ -2684,7 +2719,15 @@ function OperationalPanels(props: {
           {operationsReport.attentionNow.length > 0 ? (
             <ul>
               {operationsReport.attentionNow.map((item) => (
-                <li key={item.id}>{formatAttentionNowItem(item)}</li>
+                <li key={item.id}>
+                  {formatAttentionNowItem(item)}{" "}
+                  <button type="button" onClick={() => props.onAcknowledgeAttentionItem(item.id)}>
+                    Acknowledge
+                  </button>{" "}
+                  <button type="button" onClick={() => props.onSnoozeAttentionItem(item.id)}>
+                    Snooze 1 hour
+                  </button>
+                </li>
               ))}
             </ul>
           ) : (
@@ -2782,6 +2825,11 @@ function OperationalPanels(props: {
             <p>Last successful verify:gateway {operationsReport.verificationCenter.lastSuccessfulGatewayVerifyAt ?? "unavailable"}.</p>
             <p>Last successful verify:desktop-native {operationsReport.verificationCenter.lastSuccessfulDesktopVerifyAt ?? "unavailable"}.</p>
             <p>Last successful docs:check {operationsReport.verificationCenter.lastSuccessfulDocsCheckAt ?? "unavailable"}.</p>
+            <p>
+              Verification receipt ages: verify {latestVerifyReceipt ? formatVerificationReceiptAge(latestVerifyReceipt) : "unavailable"}; test:smoke{" "}
+              {latestSmokeVerificationReceipt ? formatVerificationReceiptAge(latestSmokeVerificationReceipt) : "unavailable"}; verify:gateway{" "}
+              {latestGatewayVerificationReceipt ? formatVerificationReceiptAge(latestGatewayVerificationReceipt) : "unavailable"}.
+            </p>
             <p>{formatVerificationReceiptComparison(operationsReport.verificationCenter)}</p>
             {operationsReport.verificationCenter.docsCheckedCommitSha ? (
               <p>Docs-checked commit {operationsReport.verificationCenter.docsCheckedCommitSha}.</p>
@@ -2824,7 +2872,7 @@ function OperationalPanels(props: {
                   <strong>{gate.label}</strong>: {gate.status}. {gate.detail} Freshness {gate.freshness ?? "unknown"} ({gate.ageLabel ?? "age unavailable"}). Last verified{" "}
                   {gate.lastVerifiedAt ?? "unavailable"}. {gate.agingSoon ? "Aging soon." : ""} Blocker source {gate.blockerSource ?? "unknown"}.
                   {gate.status === "blocked" || gate.blockingReasons.length > 0 ? (
-                    <details>
+                    <details open={props.selectedVerificationGateId === gate.id}>
                       <summary>Why blocked</summary>
                       <p>{gate.copyableBlockerSummary ?? formatWhyBlocked({ label: gate.label, blockingReasons: gate.blockingReasons, nextSafeActions: gate.nextSafeActions, evidenceIds: gate.evidenceIds })}</p>
                       <button
@@ -3066,13 +3114,25 @@ function OperationalPanels(props: {
               {operationsReport.healthzEvidence.recoveredEvidenceProvisional ? "yes" : "no"}.
             </p>
             <p>
-              Report assembly timing: total {operationsReport.reportAssemblyTiming.totalDurationMs} ms; slowest{" "}
+              Report/query timing: total {operationsReport.reportAssemblyTiming.totalDurationMs} ms; slowest{" "}
               {operationsReport.reportAssemblyTiming.slowestSections
                 .map((section) => `${section.label} ${section.durationMs} ms`)
                 .join(", ") || "none"}
               .
             </p>
             <p>Closeout readiness: {formatCloseoutReadiness(operationsReport.closeoutReadiness)}</p>
+            {operationsReport.closeoutReadiness.blockers.length > 0 ? (
+              <ul>
+                {operationsReport.closeoutReadiness.blockers.map((blocker) => (
+                  <li key={blocker}>
+                    {blocker}{" "}
+                    <button type="button" onClick={() => props.onCopyWhyBlocked(blocker)}>
+                      Copy closeout blocker
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             <p>
               Readiness aggregates:{" "}
               {operationsReport.readinessAggregates
@@ -3126,7 +3186,7 @@ function OperationalPanels(props: {
             <ul>
               {operationsReport.routePerformanceBudgets.map((budget) => (
                 <li key={budget.route}>
-                  {budget.route}: observed {budget.observedMs} ms against {budget.budgetMs} ms budget.
+                  {budget.route}: observed {budget.observedMs} ms against {budget.budgetMs} ms budget, status {budget.status}, {budget.percentileLabel ?? "percentile unavailable"}.
                 </li>
               ))}
             </ul>

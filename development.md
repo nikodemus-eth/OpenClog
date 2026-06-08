@@ -3,6 +3,38 @@
 ## Purpose
 Track OpenClog implementation decisions, verification passes, refactors, and closeout evidence.
 
+## 2026-06-08 Final Refactor, Coverage, And All-Gates Closeout
+- Refactored OpenClaw startup backfill error handling by centralizing throwable-to-message normalization in `apps/api/src/openclaw-session-backfill.ts`, keeping scheduled startup failures and bulk-write failures fail-closed without duplicated branches.
+- Added targeted backfill resilience coverage for disabled scheduling, scheduled real-scanner no-op runs, startup exception containment, empty configured session windows, bulk-write `Error` failures, and bulk-write string throwables.
+- Repaired the repo-wide 100 percent coverage gate after the first all-up `npm run verify` failed at 99.29 percent statements / 98.43 percent branches. `npm run test:coverage` now reports 100 percent statements, branches, functions, and lines across 21 Vitest files / 232 tests.
+- Final `npm run verify` passed end to end: forbidden-RPC checks, typecheck, lint, workspace builds, 100 percent coverage, 210 Playwright E2E/UI tests, 54 visual snapshots, 8 red-team tests, and docs check.
+- Supplemental closeout also passed: `npm run verify:desktop-native` rebuilt the web bundle and passed 3 Tauri tests; `npm run test:smoke` passed 60 Vitest smoke tests, the Chromium operations-report empty-state check, and desktop cargo smoke.
+- Latest live route-budget proof against `http://127.0.0.1:8787` stayed green with `npm run test:load -- --base-url http://127.0.0.1:8787 --day-key 2026-06-06`: `/api/operations/report` 553 ms / 750 ms, `/api/verification/receipts` 4 ms / 200 ms, `/api/sessions/:key` 2 ms / 300 ms, `breachCount: 0`.
+- Live Gateway verification passed with status `ready`, role `operator`, scopes `operator.admin`, `operator.read`, and `operator.write`; mutation testing remained disabled.
+
+## 2026-06-08 Default Startup Backfill And Live Load Closeout
+- Moved OpenClaw session backfill out of the pre-listen boot path: `apps/api/src/server.ts` now starts Fastify first, then schedules the backfill; `apps/api/src/openclaw-session-backfill.ts` batches imported messages through the repository when available instead of summarizing each message one by one.
+- Added a bounded startup recovery pass for the LaunchAgent default: 10 recent files / 10 messages unless `OPENCLOG_OPENCLAW_SESSION_BACKFILL_MAX_FILES` or `OPENCLOG_OPENCLAW_SESSION_BACKFILL_MAX_MESSAGES` is set. The disable switch still exists for emergencies, but it is no longer needed for prompt `8787` bind.
+- Cleared the inherited launchd override with `launchctl unsetenv OPENCLOG_OPENCLAW_SESSION_BACKFILL`; `launchctl print gui/$(id -u)/com.m4.openclog-api` then showed no inherited backfill override, only `SSH_AUTH_SOCK`.
+- Rebuilt and restarted `com.m4.openclog-api`; the default startup listener bound `/api/version` in 729 ms and reported commit `05fa238`, PID `98679`, build timestamp `2026-06-08T10:58:19.319Z`, and runtime fingerprint `84b2ece13dc6062251447943a4754a04d14236819453b7d61f4a8a65cf4e4826`.
+- The scheduled default backfill imported 10 messages from 8 files through `2026-06-08T10:32:28.358Z`. A larger 50-message trial proved why the default needed a tighter bound: it temporarily pushed `/api/operations/report` to 2958 ms / 750 ms before settling.
+- Final live route-budget proof is green on the default-started listener: `npm run test:load -- --base-url http://127.0.0.1:8787 --day-key 2026-06-06` reported `breachCount: 0`; `/api/operations/report` was 249 ms / 750 ms, `/api/verification/receipts` was 3 ms / 200 ms, and `/api/sessions/:key` was 2 ms / 300 ms.
+- Focused verification passed with `npx vitest run apps/api/test/openclaw-session-backfill.test.ts apps/api/test/repository.test.ts apps/api/test/routes.test.ts` (66 tests), `npm run typecheck`, and `npm run build -w @openclog/api`.
+
+## 2026-06-06 Current-Source Listener Reverification
+- Confirmed the pre-refresh listener no longer reported `2d37c7f`; `/api/version` already returned commit `05fa238` from PID `2162`, but two dirty source files were newer than the API entry bundle, so the runtime proof still needed a focused rebuild/restart.
+- Rebuilt `@openclog/core`, `@openclog/app`, and `@openclog/api`, restarted `com.m4.openclog-api`, and used the existing `OPENCLOG_OPENCLAW_SESSION_BACKFILL=0` LaunchAgent environment override after the default startup backfill path spent more than two minutes in SQLite work before opening the listener.
+- The final responsive listener now reports commit `05fa238`, PID `90222`, build timestamp `2026-06-06T19:35:03.247Z`, and runtime fingerprint `5599ca09712b9833b9e3eb59a2167648162d4161d8962acdee35891ef0336bfa` on `http://127.0.0.1:8787/api/version`.
+- Live `npm run test:load -- --base-url http://127.0.0.1:8787 --day-key 2026-06-06` reached all target routes on the same rebuilt source before the final post-proof restart, but failed the route-budget gate: `/api/operations/report` took 14454 ms / 750 ms, while `/api/verification/receipts` took 3 ms / 200 ms and `/api/sessions/:key` took 172 ms / 300 ms.
+- `npm run verify:desktop-native` passed with receipt `verification-npm-run-verify-desktop-native-20260606T192846262Z`; no new desktop-host self-check row was produced, so the latest native-runner row remains the May 31 historical `2d37c7f` evidence.
+
+## 2026-06-03 Trust-Surface Visibility Reverification
+- Reverified the dirty worktree on local `HEAD` `05fa238`; the active tranche now includes attention-item acknowledge/snooze state, `/api/healthz/details`, the healthz shell detail chip, closeout-blocker copy, and the blocked-gates + dry-runs + stale summaries built-in saved view.
+- Fixed the saved-view cap exposed by Playwright: built-in saved views no longer evict a newly saved operator view when the built-in list reaches the display cap.
+- Fixed route-budget percentile truthfulness by suppressing percentile labels until persisted route-budget observations exist for the route.
+- Refreshed all 54 visual snapshots after confirming the global shell drift was intentional for the healthz/saved-view additions.
+- Kept the runtime boundary explicit for the June 3 check: the live `8787` endpoint still reported commit `2d37c7f` then, so that proof was command, fixture-load, native-test, Gateway-probe, and visual proof rather than a rebuilt current-head live runtime. This boundary is superseded by the June 6 current-source listener proof above.
+
 ## 2026-06-01 Current-HEAD Proof And Focus Refactor
 - Reconciled the repo-local reporting artifacts with the live Google Doc authority for local `main` commit `2d37c7f`, replacing stale current-proof references to the older `4c15cf6` `8787` runtime while preserving that proof only as historical May 27 context.
 - Kept native cutover truth bounded: the May 30/31 evidence proves desktop self-check/native-runner evidence and live route-budget health, not browser-side receipt writes, mutation-enabled Gateway verification, live-send delivery success, or a full native authority handoff.

@@ -3,6 +3,23 @@
 ## Purpose
 Track OpenClog architecture, component ownership, and authority boundaries.
 
+## 2026-06-08 Final Startup Backfill Resilience Refactor
+- Startup backfill exception handling now has one throwable-message helper instead of repeated catch-branch logic, keeping scheduler, parser, bulk-write, and fallback write failure reporting consistent.
+- Test coverage now exercises the architectural boundaries around startup recovery: disabled scheduling returns immediately, scheduled no-op scans stay quiet, startup exceptions resolve as bounded results, and bulk repository failures do not fall back to expensive per-message startup writes.
+- The component ownership model is unchanged: Fastify binds first, scheduled backend recovery imports bounded OpenClaw evidence, SQLite owns persistence, and the browser remains read-only for proof and Gateway authority.
+
+## 2026-06-08 Startup Backfill Boundary
+- Fastify listener liveness now wins over recovery import work: `server.ts` creates the app, binds `127.0.0.1:8787`, then schedules OpenClaw session backfill instead of running it before `app.listen`.
+- LaunchAgent default backfill is deliberately bounded to 10 recent files / 10 messages and can be raised with explicit env limits for operator-run catch-up sweeps.
+- The SQLite repository has a batch entry path for backfill so imported messages are grouped by day, day summaries are regenerated once per touched day, and redacted event metadata is still stored.
+- Session drilldowns now use indexed session and approval-id queries instead of parsing every journal entry, keeping `/api/sessions/:key` inside the live route-budget harness.
+
+## 2026-06-03 Trust-Surface Visibility Tranche
+- Operations trust now includes persisted local operator state for `Needs attention now` items, including acknowledge and snooze actions routed through the backend and layered back into the report view model.
+- Health has two bounded surfaces: cheap `/api/healthz` readiness and expanded `/api/healthz/details` detail metadata for blocker, dry-run, and stale-summary inspection.
+- Saved views now include the built-in blocked-gates + dry-runs + stale summaries view; user-saved views are capped separately from built-ins so defaults cannot evict a newly saved operator view.
+- Route-budget percentile labels only appear when persisted route observations exist for the route, keeping the report from inventing p99-style evidence from a static contract.
+
 ## 2026-05-30 Saved-View Audit And Report-Budget Refactor
 - Saved-view evidence now has a complete backend-mediated lifecycle for the supported actions: settings updates persist `created`, `updated`, and `deleted`, while workbench application persists `used` through `/api/settings/operator-views/:id/used`.
 - The full operations report now carries bounded list payloads with explicit totals: recent summary jobs and ledger entries are capped for route-budget safety, while `totalJobCount`, `totalEntryCount`, and truncation metadata keep the operator truth visible.

@@ -2,6 +2,8 @@ import type {
   AdapterEvent,
   AgentActivity,
   AnalyticsSnapshot,
+  AttentionNowItem,
+  AttentionNowItemState,
   HealthAggregate,
   CorrelationGraph,
   DeliveryAdapterTarget,
@@ -156,6 +158,28 @@ export async function fetchHealthz(): Promise<HealthzResponse> {
 
 export async function fetchHealthzDetails(): Promise<HealthzDetailsResponse> {
   return fetchJson<HealthzDetailsResponse>("/api/healthz/details");
+}
+
+export async function acknowledgeAttentionItem(attentionItemId: AttentionNowItem["id"], payload: { acknowledgedAt?: string; acknowledgedBy?: string } = {}): Promise<AttentionNowItemState> {
+  const response = await fetch(`/api/operations/attention/${encodeURIComponent(attentionItemId)}/ack`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) throw new Error("Attention item acknowledgement failed");
+  const result = (await response.json()) as { state: AttentionNowItemState };
+  return result.state;
+}
+
+export async function snoozeAttentionItem(attentionItemId: AttentionNowItem["id"], snoozeUntil: string, payload: { acknowledgedBy?: string } = {}): Promise<AttentionNowItemState> {
+  const response = await fetch(`/api/operations/attention/${encodeURIComponent(attentionItemId)}/snooze`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ snoozeUntil, ...payload })
+  });
+  if (!response.ok) throw new Error("Attention item snooze failed");
+  const result = (await response.json()) as { state: AttentionNowItemState };
+  return result.state;
 }
 
 export async function fetchVersion(): Promise<VersionResponse> {

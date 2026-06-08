@@ -3,6 +3,21 @@
 ## Purpose
 Record first-person implementation notes from the builder/operator perspective.
 
+## 2026-06-08 Final Refactor And Verification
+- I treated the 100 percent coverage gate as part of the product contract. The first all-up verify failed there, so I refactored the duplicated throwable handling and added behavior tests for the missed startup-backfill failure paths.
+- I reran the whole gate instead of relying on the focused fix: coverage, E2E/UI, visual snapshots, red-team, docs, native, smoke, Gateway, and live load all got fresh evidence.
+- I kept the Gateway claim scoped: ready read/subscribe proof is green, but mutation testing stayed disabled and live-send delivery success is still not claimed.
+
+## 2026-06-06 Current-Source Listener Reverification
+- I stopped treating the old `2d37c7f` listener as current: the rebuilt `8787` runtime now reports `05fa238`, a fresh PID, and a June 6 runtime fingerprint.
+- I kept the red part red: live `npm run test:load` reaches the current listener, but `/api/operations/report` breaches the 750 ms budget badly enough that this is not a green live load closeout.
+- I treated the desktop-native command receipt and the desktop-host self-check row as separate evidence. The command gate is fresh and green; the latest native-runner row is still May 31 history.
+
+## 2026-06-03 Trust-Surface Reverification
+- I kept the proof split on purpose: current source proof was green through command, fixture-load, native-test, Gateway-probe, and visual gates, while the running 8787 listener was still historical `2d37c7f` evidence. The June 6 listener proof supersedes that identity but not the new live load breach.
+- I fixed the two places where the product could overstate reality: user saved views were being crowded out by built-ins, and route-budget rows could imply p99 evidence without any persisted observations.
+- I treated acknowledge/snooze and closeout-blocker copy as trust surfaces, not polish, so the tests and logs now describe how operators can act on attention items without widening authority.
+
 ## 2026-05-20 Mega Tranche Rework
 - I kept this pass grounded in the repo’s real seams instead of pretending everything in the roadmap was net-new: I reworked the existing operations report and operator shell so the bigger trust story stays server-derived.
 - I let the shared contract widen first, because most of the requested UI work was really a truth-shape problem hiding behind presentation asks.

@@ -1,15 +1,47 @@
 # OpenClog Reporting Seed
 
-## 2026-05-30/31 Current 8787 Proof And Rebaselined Live Load
-- The active LaunchAgent `com.m4.openclog-api` now runs `/Users/m4/OpenClog/scripts/run-openclog-api.sh` from `/Users/m4/OpenClog`; `http://127.0.0.1:8787/api/version` reported commit `2d37c7f`, PID `53455`, build timestamp `2026-05-31T03:06:08.801Z`, and runtime fingerprint `96c1db842ef7bf6990883b995733c9cc491ca181dbee6d81ebefaea98388977f`.
-- The desktop self-check path wrote real root-DB native evidence: `desktop-self-check:http___127_0_0_1_8787:2026_05_31T03_07_26_520Z`, status `passed`, observed API base `http://127.0.0.1:8787`, API health responded, public Gateway readiness was ready, LaunchAgent loaded, SQLite path present, and secure store available.
+## 2026-06-08 Final All-Gates Reporting Proof
+- Current source authority is local `main` at `05fa238` plus the now-committable trust-surface/startup-backfill diff.
+- The initial final-gate attempt failed only at coverage after the startup backfill work; the follow-up refactor and tests restored the repo-wide 100 percent statements/branches/functions/lines gate.
+- Final deterministic proof passed with `npm run verify`: forbidden-RPC, typecheck, lint, workspace builds, 21 Vitest files / 232 tests at 100 percent coverage, 210 Playwright E2E/UI tests, 54 visual snapshots, 8 red-team tests, and docs check.
+- Supplemental proof passed with `npm run verify:desktop-native`, `npm run test:smoke`, and `npm run verify:gateway`.
+- Latest current live route-budget proof is green on `http://127.0.0.1:8787`: `/api/operations/report` 553 ms / 750 ms, `/api/verification/receipts` 4 ms / 200 ms, `/api/sessions/:key` 2 ms / 300 ms, `breachCount: 0`.
+- Gateway proof is read/subscribe only with mutation testing disabled; live-send delivery success and mutation-enabled Gateway behavior remain outside this closeout.
+
+## 2026-06-08 Default Startup And Current Live Load Proof
+- Current live runtime authority is local `HEAD` `05fa238` plus the dirty trust-surface/backfill diff after a focused API rebuild and a default LaunchAgent restart.
+- `http://127.0.0.1:8787/api/version` reports commit `05fa238`, PID `98679`, build timestamp `2026-06-08T10:58:19.319Z`, and runtime fingerprint `84b2ece13dc6062251447943a4754a04d14236819453b7d61f4a8a65cf4e4826`.
+- The LaunchAgent no longer needs or inherits `OPENCLOG_OPENCLAW_SESSION_BACKFILL=0`. Default startup now binds first, then runs a bounded OpenClaw session recovery pass capped at 10 files / 10 messages unless explicit env limits override it.
+- The default startup proof bound `/api/version` in 729 ms; `/api/healthz` returned from the same listener in 0.263489 s after the scheduled backfill window.
+- Live route-budget proof is green on the current default-started listener: `npm run test:load -- --base-url http://127.0.0.1:8787 --day-key 2026-06-06` returned `breachCount: 0`; `/api/operations/report` was 249 ms / 750 ms, `/api/verification/receipts` was 3 ms / 200 ms, and `/api/sessions/:key` was 2 ms / 300 ms.
+- The earlier 14454 ms operations-report breach and the intermediate 2958 ms 50-message startup trial are retained as historical failure evidence. The current default bound is 10 messages at startup; broader OpenClaw catch-up sweeps should be run intentionally with explicit max-file/max-message env settings.
+- Still out of scope: fresh desktop-host self-check evidence, mutation-enabled Gateway proof, browser-written verification receipts, recovered-evidence drift resolution, and live-send delivery success.
+
+## 2026-06-06 Current-Source 8787 Runtime Reverification
+- Current live runtime authority is local `main` at `HEAD` `05fa238` plus the dirty trust-surface diff after a focused rebuild of `@openclog/core`, `@openclog/app`, and `@openclog/api`, followed by a restart of `com.m4.openclog-api`.
+- `http://127.0.0.1:8787/api/version` now reports commit `05fa238`, PID `90222`, build timestamp `2026-06-06T19:35:03.247Z`, and runtime fingerprint `5599ca09712b9833b9e3eb59a2167648162d4161d8962acdee35891ef0336bfa` after the final post-proof restart. It no longer reports the old `2d37c7f` listener.
+- The LaunchAgent proof is current but scoped: the job is running from `/Users/m4/OpenClog/scripts/run-openclog-api.sh` with inherited `OPENCLOG_OPENCLAW_SESSION_BACKFILL=0` for this proof run because the default startup backfill path spent more than two minutes in SQLite work before binding `8787`.
+- Live `npm run test:load -- --base-url http://127.0.0.1:8787 --day-key 2026-06-06` is truthful but red on the same rebuilt source before the final post-proof restart: `/api/operations/report` returned HTTP 200 in 14454 ms / 750 ms, `/api/verification/receipts` returned HTTP 200 in 3 ms / 200 ms, `/api/sessions/:key` returned HTTP 200 in 172 ms / 300 ms, and `breachCount` was 1.
+- Focused desktop-native command proof is fresh: `npm run verify:desktop-native` passed with receipt `verification-npm-run-verify-desktop-native-20260606T192846262Z` after rebuilding the web bundle and passing 3 Tauri tests. The latest desktop-host native-runner row is still historical May 31 evidence, not a new self-check row from this June 6 runtime.
+- Still out of scope: a green current-source live route-budget proof, a fresh desktop-host self-check row from the current dirty build, mutation-enabled Gateway proof, browser-written verification receipts, and live-send delivery success.
+
+## 2026-06-03 Current-HEAD Trust-Surface Reverification
+- Current source authority is local `HEAD` `05fa238` plus the dirty trust-surface diff. The verified surfaces are attention-item acknowledge/snooze state, `/api/healthz/details`, healthz shell detail visibility, closeout-blocker copy, the blocked-gates + dry-runs + stale summaries saved view, and route-budget percentile truthfulness.
+- Current command receipts are `verification-npm-run-verify-20260603T125558606Z`, `verification-npm-run-docs-check-20260603T125558564Z`, `verification-npm-run-test-visual-20260603T125557280Z`, `verification-npm-run-test-smoke-20260603T124524107Z`, `verification-npm-run-verify-desktop-native-20260603T124532554Z`, and `verification-npm-run-verify-gateway-20260603T124540994Z`, all recorded against commit `05fa238`.
+- Fixture load, not live 8787, was the June 3 route-budget proof: `/api/operations/report` ran at 148 ms / 750 ms, `/api/verification/receipts` at 112 ms / 200 ms, `/api/sessions/:key` at 164 ms / 300 ms, and `breachCount` stayed 0.
+- `npm run test:visual` is green after refreshing the 54 intentional baseline changes caused by the global healthz/saved-view shell updates.
+- At that June 3 check, the live `http://127.0.0.1:8787` runtime still reported commit `2d37c7f`; that stale-listener statement is superseded by the June 6 current-source runtime proof above.
+
+## 2026-05-30/31 Historical 8787 Proof And Rebaselined Live Load
+- At the time of that proof, the LaunchAgent `com.m4.openclog-api` ran `/Users/m4/OpenClog/scripts/run-openclog-api.sh` from `/Users/m4/OpenClog`; `http://127.0.0.1:8787/api/version` reported commit `2d37c7f`, PID `53455`, build timestamp `2026-05-31T03:06:08.801Z`, and runtime fingerprint `96c1db842ef7bf6990883b995733c9cc491ca181dbee6d81ebefaea98388977f`.
+- The desktop self-check path wrote real root-DB native evidence for that runtime: `desktop-self-check:http___127_0_0_1_8787:2026_05_31T03_07_26_520Z`, status `passed`, observed API base `http://127.0.0.1:8787`, API health responded, public Gateway readiness was ready, LaunchAgent loaded, SQLite path present, and secure store available.
 - Saved-view audit reporting is no longer limited to `used`: the root DB now has `created`, `updated`, `deleted`, and `used` evidence rows. Historical uses before the API path existed remain unbackfilled.
-- Live `npm run test:load` against `http://127.0.0.1:8787` is green under the rebaselined full-report contract: `/api/operations/report` 647 ms / 750 ms, `/api/verification/receipts` 2 ms / 200 ms, `/api/sessions/:key` 51 ms / 300 ms, breachCount 0. The old 250 ms report budget is superseded for the full operations packet; `/api/healthz` remains the cheap readiness route.
+- Live `npm run test:load` against `http://127.0.0.1:8787` was green for this historical `2d37c7f` runtime under the rebaselined full-report contract: `/api/operations/report` 647 ms / 750 ms, `/api/verification/receipts` 2 ms / 200 ms, `/api/sessions/:key` 51 ms / 300 ms, breachCount 0. The June 6 current-source listener supersedes this as current runtime proof and currently has a live `/api/operations/report` budget breach.
 
 ## 2026-05-27 Superseded Native And Live Load Proof
 - Native-runner reporting is now backed by real desktop-host evidence in `journal_native_runner_history`: the current root DB contains receipt `desktop-self-check:http___127_0_0_1_8787:2026_05_26T12_04_47_490Z`, observed API base `http://127.0.0.1:8787`, LaunchAgent loaded, SQLite path present, secure store available, and one persisted history row.
 - The May 27 Fastify proof used `http://127.0.0.1:8797` because the existing `8787` listener was a stale `53b761f` runtime. That proof reported commit `4c15cf6`, and is now superseded by the May 30/31 `2d37c7f` proof above.
-- Route-budget reporting now distinguishes live from fixture evidence: fixture rehearsals and live API checks both persist source-tagged rows, and the harness computes trend baselines within the same source. The old `8797` proof remains historical failed-closed evidence at 1895 ms then 1872 ms; the current `8787` proof is green.
+- Route-budget reporting now distinguishes live from fixture evidence: fixture rehearsals and live API checks both persist source-tagged rows, and the harness computes trend baselines within the same source. The old `8797` proof remains historical failed-closed evidence at 1895 ms then 1872 ms; the historical May 31 `8787` proof was green, while the June 6 current-source `8787` proof is red for `/api/operations/report`.
 - Native cutover remains prep-only. Fastify remains report and policy authority, and live-send delivery success, browser-side verification writes, mutation-enabled Gateway proof, and full native authority handoff must not be reported green.
 
 ## 2026-05-26 Native Runner Evidence Cutover Prep

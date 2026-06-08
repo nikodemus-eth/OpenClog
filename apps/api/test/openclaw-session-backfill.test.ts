@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
-import { backfillOpenClawSessions, resolveDefaultOpenClawSessionsDir } from "../src/openclaw-session-backfill.js";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { backfillOpenClawSessions, resolveDefaultOpenClawSessionsDir, scheduleOpenClawSessionBackfill, type OpenClawSessionBackfillResult } from "../src/openclaw-session-backfill.js";
 import { createSqliteRepository, type OpenClogRepository } from "../src/repository.js";
 
 describe("OpenClaw session backfill", () => {
@@ -10,6 +10,8 @@ describe("OpenClaw session backfill", () => {
   const repos: OpenClogRepository[] = [];
   const originalEnv = {
     home: process.env.HOME,
+    backfillEnabled: process.env.OPENCLOG_OPENCLAW_SESSION_BACKFILL,
+    backfillDelay: process.env.OPENCLOG_OPENCLAW_SESSION_BACKFILL_DELAY_MS,
     includeUser: process.env.OPENCLOG_OPENCLAW_SESSION_BACKFILL_INCLUDE_USER,
     maxFiles: process.env.OPENCLOG_OPENCLAW_SESSION_BACKFILL_MAX_FILES,
     maxMessages: process.env.OPENCLOG_OPENCLAW_SESSION_BACKFILL_MAX_MESSAGES,
@@ -20,6 +22,8 @@ describe("OpenClaw session backfill", () => {
     while (repos.length > 0) repos.pop()?.close();
     while (tempDirs.length > 0) rmSync(tempDirs.pop()!, { force: true, recursive: true });
     process.env.HOME = originalEnv.home;
+    process.env.OPENCLOG_OPENCLAW_SESSION_BACKFILL = originalEnv.backfillEnabled;
+    process.env.OPENCLOG_OPENCLAW_SESSION_BACKFILL_DELAY_MS = originalEnv.backfillDelay;
     process.env.OPENCLOG_OPENCLAW_SESSION_BACKFILL_INCLUDE_USER = originalEnv.includeUser;
     process.env.OPENCLOG_OPENCLAW_SESSION_BACKFILL_MAX_FILES = originalEnv.maxFiles;
     process.env.OPENCLOG_OPENCLAW_SESSION_BACKFILL_MAX_MESSAGES = originalEnv.maxMessages;
@@ -189,6 +193,31 @@ describe("OpenClaw session backfill", () => {
     });
   });
 
+  test("returns an empty result when the configured sessions window has no visible messages", () => {
+    const sessionsDir = mkdtempSync(join(tmpdir(), "openclaw-sessions-"));
+    tempDirs.push(sessionsDir);
+    const repo = createSqliteRepository(":memory:");
+    repos.push(repo);
+
+    writeFileSync(
+      join(sessionsDir, "session.trajectory.jsonl"),
+      JSON.stringify({
+        type: "message",
+        id: "ignored-trajectory",
+        timestamp: "2026-05-16T04:00:02.000Z",
+        message: { role: "assistant", content: "Trajectory messages are outside startup backfill." }
+      })
+    );
+
+    expect(backfillOpenClawSessions(repo, { sessionsDir })).toEqual({
+      errors: [],
+      filesScanned: 0,
+      messagesImported: 0,
+      sessionsDir,
+      skippedLines: 0
+    });
+  });
+
   test("stops after the configured message limit across multiple files", () => {
     const sessionsDir = mkdtempSync(join(tmpdir(), "openclaw-sessions-"));
     tempDirs.push(sessionsDir);
@@ -223,6 +252,95 @@ describe("OpenClaw session backfill", () => {
     expect(result.messagesImported).toBe(2);
     expect(result.latestTimestamp).toBe("2026-05-16T05:00:01.000Z");
     expect(importedBodies).toEqual(["First imported.", "Second imported."]);
+  });
+
+  test("uses repository bulk writes when available so startup backfill does not summarize per message", () => {
+    const sessionsDir = mkdtempSync(join(tmpdir(), "openclaw-sessions-"));
+    tempDirs.push(sessionsDir);
+    const addEntry = vi.fn();
+    const addEntries = vi.fn((items: Array<{ entry: { timestamp: string } }>) => items.map((item) => item.entry));
+    const repo = { addEntry, addEntries } as unknown as OpenClogRepository;
+
+    writeFileSync(
+      join(sessionsDir, "session.jsonl"),
+      [
+        JSON.stringify({ type: "session", id: "session-1", timestamp: "2026-05-16T04:00:00.000Z" }),
+        JSON.stringify({
+          type: "message",
+          id: "assistant-1",
+          timestamp: "2026-05-16T04:00:01.000Z",
+          message: { role: "assistant", content: "First bulk import." }
+        }),
+        JSON.stringify({
+          type: "message",
+          id: "assistant-2",
+          timestamp: "2026-05-16T04:00:02.000Z",
+          message: { role: "assistant", content: "Second bulk import." }
+        })
+      ].join("\n")
+    );
+
+    const result = backfillOpenClawSessions(repo, { sessionsDir, timeZone: "America/Los_Angeles" });
+
+    expect(result).toMatchObject({ messagesImported: 2, latestTimestamp: "2026-05-16T04:00:02.000Z" });
+    expect(addEntry).not.toHaveBeenCalled();
+    expect(addEntries).toHaveBeenCalledTimes(1);
+    expect(addEntries.mock.calls[0]?.[0]).toHaveLength(2);
+  });
+
+  test("records bulk-write failures without falling back to per-message startup writes", () => {
+    const sessionsDir = mkdtempSync(join(tmpdir(), "openclaw-sessions-"));
+    tempDirs.push(sessionsDir);
+    const addEntry = vi.fn();
+    const addEntries = vi.fn(() => {
+      throw new Error("bulk write unavailable");
+    });
+    const repo = { addEntry, addEntries } as unknown as OpenClogRepository;
+
+    writeFileSync(
+      join(sessionsDir, "session.jsonl"),
+      JSON.stringify({
+        type: "message",
+        id: "assistant-1",
+        timestamp: "2026-05-16T04:00:01.000Z",
+        message: { role: "assistant", content: "Bulk failure is contained." }
+      })
+    );
+
+    const result = backfillOpenClawSessions(repo, { sessionsDir, timeZone: "America/Los_Angeles" });
+
+    expect(addEntries).toHaveBeenCalledTimes(1);
+    expect(addEntry).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      errors: [{ file: "bulk-write", line: 0, message: "bulk write unavailable" }],
+      messagesImported: 0
+    });
+  });
+
+  test("records string throwables from bulk repository writes", () => {
+    const sessionsDir = mkdtempSync(join(tmpdir(), "openclaw-sessions-"));
+    tempDirs.push(sessionsDir);
+    const repo = {
+      addEntry: vi.fn(),
+      addEntries: vi.fn(() => {
+        throw "bulk string failure";
+      })
+    } as unknown as OpenClogRepository;
+
+    writeFileSync(
+      join(sessionsDir, "session.jsonl"),
+      JSON.stringify({
+        type: "message",
+        id: "assistant-1",
+        timestamp: "2026-05-16T04:00:01.000Z",
+        message: { role: "assistant", content: "String bulk failure is contained." }
+      })
+    );
+
+    const result = backfillOpenClawSessions(repo, { sessionsDir });
+
+    expect(result.errors).toEqual([{ file: "bulk-write", line: 0, message: "bulk string failure" }]);
+    expect(result.messagesImported).toBe(0);
   });
 
   test("uses environment fallbacks and skips malformed or non-visible message payloads", () => {
@@ -402,5 +520,118 @@ describe("OpenClaw session backfill", () => {
     );
 
     expect(result.errors).toEqual([expect.objectContaining({ message: "boom" })]);
+  });
+
+  test("schedules startup backfill after the listener can bind", async () => {
+    vi.useFakeTimers();
+    try {
+      const mod = (await import("../src/openclaw-session-backfill.js")) as typeof import("../src/openclaw-session-backfill.js") & {
+        scheduleOpenClawSessionBackfill?: (
+          repo: OpenClogRepository,
+          options: { runBackfill: () => OpenClawSessionBackfillResult; logger?: Pick<Console, "error"> }
+        ) => { completed: Promise<OpenClawSessionBackfillResult | undefined>; scheduled: boolean };
+      };
+      expect(mod.scheduleOpenClawSessionBackfill).toBeTypeOf("function");
+      const runBackfill = vi.fn(() => ({
+        errors: [],
+        filesScanned: 1,
+        latestTimestamp: "2026-05-16T04:00:02.000Z",
+        messagesImported: 1,
+        sessionsDir: "/tmp/openclaw-sessions",
+        skippedLines: 0
+      }));
+
+      const scheduled = mod.scheduleOpenClawSessionBackfill({} as OpenClogRepository, { runBackfill });
+
+      expect(scheduled.scheduled).toBe(true);
+      expect(runBackfill).not.toHaveBeenCalled();
+      await vi.runOnlyPendingTimersAsync();
+      await expect(scheduled.completed).resolves.toMatchObject({ messagesImported: 1 });
+      expect(runBackfill).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("does not schedule when startup backfill is disabled by environment", async () => {
+    process.env.OPENCLOG_OPENCLAW_SESSION_BACKFILL = "0";
+    const scheduled = scheduleOpenClawSessionBackfill({} as OpenClogRepository);
+
+    expect(scheduled.scheduled).toBe(false);
+    await expect(scheduled.completed).resolves.toBeUndefined();
+  });
+
+  test("scheduled startup backfill falls back to the real scanner and logs no-op results quietly", async () => {
+    vi.useFakeTimers();
+    try {
+      const sessionsDir = mkdtempSync(join(tmpdir(), "openclaw-sessions-"));
+      tempDirs.push(sessionsDir);
+      const logger = { error: vi.fn() };
+      const scheduled = scheduleOpenClawSessionBackfill({} as OpenClogRepository, { delayMs: 0, logger, sessionsDir });
+
+      await vi.runOnlyPendingTimersAsync();
+      await expect(scheduled.completed).resolves.toMatchObject({
+        errors: [],
+        filesScanned: 0,
+        messagesImported: 0,
+        sessionsDir,
+        skippedLines: 0
+      });
+      expect(logger.error).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("turns startup backfill exceptions into logged bounded results", async () => {
+    vi.useFakeTimers();
+    try {
+      process.env.OPENCLOG_OPENCLAW_SESSION_BACKFILL_DELAY_MS = "not-a-delay";
+      process.env.OPENCLOG_OPENCLAW_SESSIONS_DIR = "/tmp/openclaw-env-sessions";
+      const logger = { error: vi.fn() };
+      const scheduled = scheduleOpenClawSessionBackfill({} as OpenClogRepository, {
+        logger,
+        runBackfill: () => {
+          throw new Error("startup scan failed");
+        }
+      });
+
+      expect(scheduled.scheduled).toBe(true);
+      await vi.runOnlyPendingTimersAsync();
+      await expect(scheduled.completed).resolves.toMatchObject({
+        errors: [{ file: "startup", line: 0, message: "startup scan failed" }],
+        filesScanned: 0,
+        messagesImported: 0,
+        sessionsDir: "/tmp/openclaw-env-sessions",
+        skippedLines: 0
+      });
+      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("with 1 parse error(s)"));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("uses the default sessions directory when scheduled startup throws without configured paths", async () => {
+    vi.useFakeTimers();
+    try {
+      delete process.env.OPENCLOG_OPENCLAW_SESSIONS_DIR;
+      const logger = { error: vi.fn() };
+      const scheduled = scheduleOpenClawSessionBackfill({} as OpenClogRepository, {
+        delayMs: 0,
+        logger,
+        runBackfill: () => {
+          throw "startup string failure";
+        }
+      });
+
+      await vi.runOnlyPendingTimersAsync();
+      await expect(scheduled.completed).resolves.toMatchObject({
+        errors: [{ file: "startup", line: 0, message: "startup string failure" }],
+        sessionsDir: resolveDefaultOpenClawSessionsDir()
+      });
+      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("with 1 parse error(s)"));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

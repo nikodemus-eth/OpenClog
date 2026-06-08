@@ -65,6 +65,38 @@ describe("API routes", () => {
     await app.close();
   });
 
+  test("serves healthz details with failing gate payloads and delivery dry-run parity timestamps", async () => {
+    const repo = createSqliteRepository(":memory:");
+    cleanup.push(() => repo.close());
+    const app = createApiApp({ repo, gateway: createMemoryGateway({ ready: true }) });
+
+    const response = await app.inject({ method: "GET", url: "/api/healthz/details" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      ok: true,
+      details: {
+        generatedAt: expect.any(String),
+        closeoutBlockerCount: expect.any(Number),
+        failingGates: expect.arrayContaining([
+          expect.objectContaining({
+            id: expect.any(String),
+            label: expect.any(String),
+            detail: expect.any(String),
+            nextSafeActions: expect.any(Array)
+          })
+        ]),
+        deliveryTargets: expect.arrayContaining([
+          expect.objectContaining({
+            target: expect.any(String),
+            parityDriftState: expect.any(String)
+          })
+        ])
+      }
+    });
+    await app.close();
+  });
+
   test("serves bounded route-budget history for operations routes", async () => {
     const repo = createSqliteRepository(":memory:");
     cleanup.push(() => repo.close());
@@ -201,6 +233,14 @@ describe("API routes", () => {
         report: expect.objectContaining({ status: "drifting" })
       })
     ]);
+    expect(response.json().report.reportAssemblyTiming.sections).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "route.report_build", category: "route_phase" }),
+        expect.objectContaining({ id: "route.route_budget_audit", category: "route_phase" }),
+        expect.objectContaining({ category: "report_phase" }),
+        expect.objectContaining({ id: "sqlite.getRecoveredEvidenceSummary", category: "repository_query", rowCount: expect.any(Number) })
+      ])
+    );
     await app.close();
   });
 
@@ -228,6 +268,52 @@ describe("API routes", () => {
         detail: "Loaded from the operator workbench."
       })
     ]);
+    await app.close();
+  });
+
+  test("persists attention item acknowledgement and snooze state through the API", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "openclog-attention-state-"));
+    cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
+    const dbPath = join(dir, "openclog.db");
+    const repo = createSqliteRepository(dbPath);
+    cleanup.push(() => repo.close());
+    const app = createApiApp({ repo, gateway: createMemoryGateway({ ready: true }) });
+
+    const ack = await app.inject({
+      method: "POST",
+      url: "/api/operations/attention/stale_summary/ack",
+      payload: { acknowledgedAt: "2026-06-02T16:30:00.000Z", acknowledgedBy: "local-operator" }
+    });
+    const snooze = await app.inject({
+      method: "POST",
+      url: "/api/operations/attention/stale_summary/snooze",
+      payload: { snoozeUntil: "2026-06-02T17:30:00.000Z", acknowledgedBy: "local-operator" }
+    });
+
+    expect(ack.statusCode).toBe(200);
+    expect(ack.json()).toMatchObject({
+      ok: true,
+      state: {
+        attentionItemId: "stale_summary",
+        acknowledgedAt: "2026-06-02T16:30:00.000Z",
+        acknowledgedBy: "local-operator"
+      }
+    });
+    expect(snooze.statusCode).toBe(200);
+    expect(snooze.json()).toMatchObject({
+      ok: true,
+      state: {
+        attentionItemId: "stale_summary",
+        snoozeUntil: "2026-06-02T17:30:00.000Z",
+        acknowledgedBy: "local-operator"
+      }
+    });
+    expect(repo.getAttentionItemState("stale_summary")).toMatchObject({
+      attentionItemId: "stale_summary",
+      acknowledgedAt: "2026-06-02T16:30:00.000Z",
+      acknowledgedBy: "local-operator",
+      snoozeUntil: "2026-06-02T17:30:00.000Z"
+    });
     await app.close();
   });
 

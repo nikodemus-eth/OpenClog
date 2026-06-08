@@ -3,6 +3,28 @@
 ## Purpose
 Track OpenClog security posture, Gateway authority boundaries, redaction, and fail-closed behavior.
 
+## 2026-06-08 Final Verification Boundary
+- The final refactor only changed backend startup-backfill resilience and test coverage; it did not add browser write authority, Gateway credentials exposure, raw frame exposure, or new mutation routes.
+- `npm run verify` passed with 8 red-team tests, 210 Playwright E2E/UI tests, 54 visual snapshots, and 100 percent measured unit coverage. The red-team lane remains part of the all-up gate rather than a separate informal check.
+- `npm run verify:gateway` passed with status `ready` and read/subscribe probes only; mutation testing remained disabled, so no live create/send/abort delivery success is claimed.
+- Live load remains green after the coverage refactor: `/api/operations/report` 553 ms / 750 ms, `/api/verification/receipts` 4 ms / 200 ms, `/api/sessions/:key` 2 ms / 300 ms, `breachCount: 0`.
+
+## 2026-06-08 Default Startup Proof Boundary
+- Removing the `OPENCLOG_OPENCLAW_SESSION_BACKFILL=0` launchd override did not widen authority: OpenClaw session backfill still runs only inside the backend-owned local SQLite path after Fastify binds, and the browser still cannot write verification receipts, native history, report provenance, Gateway state, or secrets.
+- Default startup backfill is now bounded to 10 files / 10 messages and uses batched repository writes. Larger catch-up sweeps require explicit max-file/max-message env settings and should be treated as operational import work, not proof of broader Gateway or browser authority.
+- The current live load proof is green for route budgets (`/api/operations/report` 249 ms / 750 ms, `/api/verification/receipts` 3 ms / 200 ms, `/api/sessions/:key` 2 ms / 300 ms), but no live-send delivery success, mutation-enabled Gateway proof, browser-written receipt proof, or fresh desktop-host self-check row is claimed.
+
+## 2026-06-06 Current-Source Runtime Proof Boundary
+- The live `8787` endpoint now reports current local `HEAD` `05fa238` after a focused rebuild/restart, but this does not widen authority: the browser still cannot write verification receipts, native history, report provenance, Gateway state, or secrets.
+- The proof listener inherited `OPENCLOG_OPENCLAW_SESSION_BACKFILL=0` for this run because the default startup backfill path was CPU-bound in SQLite before binding the port. This is an operational startup boundary, not a new browser or Gateway permission.
+- Live load proof is intentionally not green: `/api/operations/report` breached at 14454 ms / 750 ms. No live-send delivery success, mutation-enabled Gateway proof, or fresh desktop-host self-check row is claimed.
+
+## 2026-06-03 Attention And Proof Boundary
+- Attention-item acknowledge/snooze mutates only local SQLite operator state through backend routes; it does not create a browser path for verification receipts, Gateway state, native history, report provenance, or secrets.
+- `/api/healthz/details` exposes sanitized blocker, dry-run, stale-summary, and parity metadata only. It does not expose Gateway tokens, auth headers, raw transport frames, delivery secrets, or unredacted verification logs.
+- At the June 3 check, the live `8787` endpoint was explicitly stale at `2d37c7f`; no current-head live-runtime authority was claimed for that dirty worktree. The June 6 section above supersedes that listener identity and keeps the remaining proof limits explicit.
+- Gateway verification was read/subscribe probing only with mutation testing disabled, so no create/send/abort session activity or live delivery success is claimed.
+
 ## 2026-05-30 Saved-View And Runtime Proof Boundary
 - Saved-view audit writes remain backend-owned local evidence. The browser can request a bounded `used` event when an operator applies a view, but it still cannot write verification receipts, report provenance, native history, Gateway state, or secrets.
 - Supported saved-view lifecycle evidence is now explicit: create, update, delete, and use are auditable; export and broad handoff distribution remain report/render surfaces, not mutation authority.

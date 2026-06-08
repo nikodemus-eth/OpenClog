@@ -249,6 +249,7 @@ export const journalTableNames = [
   "journal_alert_states",
   "journal_analytics_snapshots",
   "journal_approvals",
+  "journal_attention_item_states",
   "journal_audit_log",
   "journal_backend_fingerprints",
   "journal_bundle_exports",

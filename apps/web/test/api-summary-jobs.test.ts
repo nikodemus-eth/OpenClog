@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { SummaryJob } from "@openclog/core";
-import { isSummaryJobSettled, pollSummaryJobUntilSettled, verifyIntegrationTarget } from "../src/api.js";
+import { acknowledgeAttentionItem, isSummaryJobSettled, pollSummaryJobUntilSettled, snoozeAttentionItem, verifyIntegrationTarget } from "../src/api.js";
 
 describe("web API summary job helpers", () => {
   afterEach(() => {
@@ -84,6 +84,45 @@ describe("web API summary job helpers", () => {
     expect(isSummaryJobSettled("running")).toBe(false);
     expect(isSummaryJobSettled("completed")).toBe(true);
     expect(isSummaryJobSettled("failed")).toBe(true);
+  });
+
+  test("posts attention item acknowledgement and snooze requests", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        jsonResponse({
+          state: {
+            attentionItemId: "stale_summary",
+            acknowledgedAt: "2026-06-02T16:30:00.000Z",
+            acknowledgedBy: "local-operator"
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          state: {
+            attentionItemId: "stale_summary",
+            snoozeUntil: "2026-06-02T17:30:00.000Z",
+            acknowledgedBy: "local-operator"
+          }
+        })
+      );
+
+    const acknowledged = await acknowledgeAttentionItem("stale_summary", { acknowledgedBy: "local-operator" });
+    const snoozed = await snoozeAttentionItem("stale_summary", "2026-06-02T17:30:00.000Z", { acknowledgedBy: "local-operator" });
+
+    expect(acknowledged).toMatchObject({ attentionItemId: "stale_summary", acknowledgedBy: "local-operator" });
+    expect(snoozed).toMatchObject({ attentionItemId: "stale_summary", snoozeUntil: "2026-06-02T17:30:00.000Z" });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/operations/attention/stale_summary/ack", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ acknowledgedBy: "local-operator" })
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/operations/attention/stale_summary/snooze", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ snoozeUntil: "2026-06-02T17:30:00.000Z", acknowledgedBy: "local-operator" })
+    });
   });
 });
 

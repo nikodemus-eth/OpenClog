@@ -73,13 +73,48 @@ import type {
   VerificationReceiptDiff,
   VerificationReceiptLineage
 } from "@openclog/core";
-import type { ApplicationRepository, DeliveryLedgerInput, OperationsBacklogInput } from "./contracts.js";
+import type { ApplicationRepository, DeliveryLedgerInput, OperationsBacklogInput, SummaryJobReportSlice } from "./contracts.js";
 import { buildCapabilityViews } from "./capabilities.js";
+import { requireMethod } from "./utils.js";
 
 export function buildOperationsModule(repo: ApplicationRepository) {
   return {
     getOperationsBacklog(input: OperationsBacklogInput): OperationsBacklogReport {
       return buildOperationsBacklogReport(repo, input);
+    },
+    acknowledgeAttentionItem({
+      attentionItemId,
+      acknowledgedAt,
+      acknowledgedBy
+    }: {
+      attentionItemId: AttentionNowItem["id"];
+      acknowledgedAt: string;
+      acknowledgedBy?: string;
+    }) {
+      const current = repo.getAttentionItemState?.(attentionItemId) ?? { attentionItemId };
+      return requireMethod(repo.setAttentionItemState, "setAttentionItemState")(attentionItemId, {
+        ...current,
+        attentionItemId,
+        acknowledgedAt,
+        acknowledgedBy: acknowledgedBy ?? current.acknowledgedBy ?? "local-operator"
+      });
+    },
+    snoozeAttentionItem({
+      attentionItemId,
+      snoozeUntil,
+      acknowledgedBy
+    }: {
+      attentionItemId: AttentionNowItem["id"];
+      snoozeUntil: string;
+      acknowledgedBy?: string;
+    }) {
+      const current = repo.getAttentionItemState?.(attentionItemId) ?? { attentionItemId };
+      return requireMethod(repo.setAttentionItemState, "setAttentionItemState")(attentionItemId, {
+        ...current,
+        attentionItemId,
+        acknowledgedBy: acknowledgedBy ?? current.acknowledgedBy ?? "local-operator",
+        snoozeUntil
+      });
     },
     listDeliveryLedger(input: DeliveryLedgerInput = {}): DeliveryLedger {
       return buildDeliveryLedger(repo, input);
@@ -94,7 +129,7 @@ const SUMMARY_JOB_HISTORY_LIMIT = 50;
 const OPERATIONS_LEDGER_LIMIT = 100;
 const INCIDENT_TIMELINE_SUMMARY_JOB_LIMIT = 50;
 
-function createOperationsReportCache(sourceRepo: ApplicationRepository): ApplicationRepository {
+function createOperationsReportCache(sourceRepo: ApplicationRepository, recordQuery?: (section: ReportAssemblyTimingSection) => void): ApplicationRepository {
   const cached: ApplicationRepository = { ...sourceRepo };
   const days = new Map<string, JournalDay | null>();
   const routeBudgetObservations = new Map<string, RouteBudgetHistoryObservation[]>();
@@ -110,86 +145,150 @@ function createOperationsReportCache(sourceRepo: ApplicationRepository): Applica
   let sloSnapshot: SloSnapshot | undefined;
   let staleSummaryDayKeys: string[] | undefined;
   const recoveredEvidenceSummaries = new Map<string, RecoveredEvidenceSummary | undefined>();
+  const measureQuery = <T>(id: string, label: string, query: () => T, rowCount?: (value: T) => number | undefined, detail?: string): T => {
+    const startedAt = performance.now();
+    const value = query();
+    recordQuery?.({
+      id,
+      label,
+      category: "repository_query",
+      durationMs: Math.max(0, Math.round((performance.now() - startedAt) * 100) / 100),
+      ...(rowCount ? { rowCount: rowCount(value) ?? 0 } : {}),
+      ...(detail ? { detail } : {})
+    });
+    return value;
+  };
 
   if (sourceRepo.getDay) {
     cached.getDay = (dayKey) => {
-      if (!days.has(dayKey)) days.set(dayKey, sourceRepo.getDay?.(dayKey) ?? null);
+      if (!days.has(dayKey)) {
+        days.set(
+          dayKey,
+          measureQuery("sqlite.getDay", "SQLite get day", () => sourceRepo.getDay?.(dayKey) ?? null, (day) => (day ? 1 : 0), dayKey)
+        );
+      }
       return days.get(dayKey) ?? null;
     };
   }
   if (sourceRepo.listDays) {
     cached.listDays = () => {
-      dayRefs ??= sourceRepo.listDays?.() ?? [];
+      dayRefs ??= measureQuery("sqlite.listDays", "SQLite list days", () => sourceRepo.listDays?.() ?? [], (items) => items.length);
       return dayRefs;
     };
   }
   if (sourceRepo.listDeliveryReceipts) {
     cached.listDeliveryReceipts = () => {
-      deliveryReceipts ??= sourceRepo.listDeliveryReceipts?.() ?? [];
+      deliveryReceipts ??= measureQuery("sqlite.listDeliveryReceipts", "SQLite delivery receipts", () => sourceRepo.listDeliveryReceipts?.() ?? [], (items) => items.length);
       return deliveryReceipts;
     };
   }
   if (sourceRepo.listSummaryJobs) {
     cached.listSummaryJobs = () => {
-      summaryJobs ??= sourceRepo.listSummaryJobs?.() ?? [];
+      summaryJobs ??= measureQuery("sqlite.listSummaryJobs", "SQLite summary jobs", () => sourceRepo.listSummaryJobs?.() ?? [], (items) => items.length);
       return summaryJobs;
     };
   }
+  if (sourceRepo.getSummaryJobReportSlice) {
+    cached.getSummaryJobReportSlice = (limit) =>
+      measureQuery(
+        "sqlite.getSummaryJobReportSlice",
+        "SQLite summary-job report slice",
+        () => sourceRepo.getSummaryJobReportSlice?.(limit) ?? { jobs: [], totalJobCount: 0, queueDepth: 0, medianCompletionMs: 0 },
+        (slice) => slice.jobs.length,
+        `limit ${limit}`
+      );
+  }
   if (sourceRepo.listVerificationReceipts) {
     cached.listVerificationReceipts = () => {
-      verificationReceipts ??= sourceRepo.listVerificationReceipts?.() ?? [];
+      verificationReceipts ??= measureQuery("sqlite.listVerificationReceipts", "SQLite verification receipts", () => sourceRepo.listVerificationReceipts?.() ?? [], (items) => items.length);
       return verificationReceipts;
     };
   }
   if (sourceRepo.listNativeRunnerHistory) {
     cached.listNativeRunnerHistory = () => {
-      nativeRunnerHistory ??= sourceRepo.listNativeRunnerHistory?.() ?? [];
+      nativeRunnerHistory ??= measureQuery("sqlite.listNativeRunnerHistory", "SQLite native runner history", () => sourceRepo.listNativeRunnerHistory?.() ?? [], (items) => items.length);
       return nativeRunnerHistory;
     };
   }
   if (sourceRepo.listSavedViewAuditEvents) {
     cached.listSavedViewAuditEvents = () => {
-      savedViewAuditEvents ??= sourceRepo.listSavedViewAuditEvents?.() ?? [];
+      savedViewAuditEvents ??= measureQuery("sqlite.listSavedViewAuditEvents", "SQLite saved-view audit events", () => sourceRepo.listSavedViewAuditEvents?.() ?? [], (items) => items.length);
       return savedViewAuditEvents;
     };
   }
   if (sourceRepo.listRouteBudgetObservations) {
     cached.listRouteBudgetObservations = (route) => {
       const key = route ?? "__all__";
-      if (!routeBudgetObservations.has(key)) routeBudgetObservations.set(key, sourceRepo.listRouteBudgetObservations?.(route) ?? []);
+      if (!routeBudgetObservations.has(key)) {
+        routeBudgetObservations.set(
+          key,
+          measureQuery(
+            "sqlite.listRouteBudgetObservations",
+            "SQLite route-budget observations",
+            () => sourceRepo.listRouteBudgetObservations?.(route) ?? [],
+            (items) => items.length,
+            route ?? "all routes"
+          )
+        );
+      }
       return routeBudgetObservations.get(key) ?? [];
     };
   }
   if (sourceRepo.listStaleSummaryDayKeys) {
     cached.listStaleSummaryDayKeys = () => {
-      staleSummaryDayKeys ??= sourceRepo.listStaleSummaryDayKeys?.() ?? [];
+      staleSummaryDayKeys ??= measureQuery("sqlite.listStaleSummaryDayKeys", "SQLite stale summary day keys", () => sourceRepo.listStaleSummaryDayKeys?.() ?? [], (items) => items.length);
       return staleSummaryDayKeys;
     };
   }
   if (sourceRepo.getRecoveredEvidenceSummary) {
     cached.getRecoveredEvidenceSummary = (currentDayKey) => {
       if (!recoveredEvidenceSummaries.has(currentDayKey)) {
-        recoveredEvidenceSummaries.set(currentDayKey, sourceRepo.getRecoveredEvidenceSummary?.(currentDayKey));
+        recoveredEvidenceSummaries.set(
+          currentDayKey,
+          measureQuery(
+            "sqlite.getRecoveredEvidenceSummary",
+            "SQLite recovered evidence summary",
+            () => sourceRepo.getRecoveredEvidenceSummary?.(currentDayKey),
+            (summary) => summary?.entryCount ?? 0,
+            currentDayKey
+          )
+        );
       }
       return recoveredEvidenceSummaries.get(currentDayKey);
     };
   }
   if (sourceRepo.listHealthTimeline) {
     cached.listHealthTimeline = (limit = 10) => {
-      if (!healthTimelines.has(limit)) healthTimelines.set(limit, sourceRepo.listHealthTimeline?.(limit) ?? []);
+      if (!healthTimelines.has(limit)) {
+        healthTimelines.set(
+          limit,
+          measureQuery("sqlite.listHealthTimeline", "SQLite health timeline", () => sourceRepo.listHealthTimeline?.(limit) ?? [], (items) => items.length, `limit ${limit}`)
+        );
+      }
       return healthTimelines.get(limit) ?? [];
     };
   }
   if (sourceRepo.getHealthAggregate) {
     cached.getHealthAggregate = (limit = 20) => {
-      if (!healthAggregates.has(limit)) healthAggregates.set(limit, sourceRepo.getHealthAggregate?.(limit) ?? { createdAt: new Date().toISOString(), reconnectCount: 0, staleCount: 0, recoveryCount: 0, adapterFailureCount: 0 });
+      if (!healthAggregates.has(limit)) {
+        healthAggregates.set(
+          limit,
+          measureQuery(
+            "sqlite.getHealthAggregate",
+            "SQLite health aggregate",
+            () => sourceRepo.getHealthAggregate?.(limit) ?? { createdAt: new Date().toISOString(), reconnectCount: 0, staleCount: 0, recoveryCount: 0, adapterFailureCount: 0 },
+            () => 1,
+            `limit ${limit}`
+          )
+        );
+      }
       return healthAggregates.get(limit) as HealthAggregate;
     };
   }
   const getSloSnapshot = sourceRepo.getSloSnapshot;
   if (getSloSnapshot) {
     cached.getSloSnapshot = () => {
-      sloSnapshot ??= getSloSnapshot();
+      sloSnapshot ??= measureQuery("sqlite.getSloSnapshot", "SQLite SLO snapshot", () => getSloSnapshot(), () => 1);
       return sloSnapshot as SloSnapshot;
     };
   }
@@ -197,7 +296,7 @@ function createOperationsReportCache(sourceRepo: ApplicationRepository): Applica
   if (previewRetention) {
     cached.previewRetention = (policy) => {
       const key = JSON.stringify(policy);
-      if (!retentionPreviews.has(key)) retentionPreviews.set(key, previewRetention(policy));
+      if (!retentionPreviews.has(key)) retentionPreviews.set(key, measureQuery("sqlite.previewRetention", "SQLite retention preview", () => previewRetention(policy), () => 1));
       return retentionPreviews.get(key) as ReturnType<NonNullable<ApplicationRepository["previewRetention"]>>;
     };
   }
@@ -205,15 +304,16 @@ function createOperationsReportCache(sourceRepo: ApplicationRepository): Applica
 }
 
 function buildOperationsBacklogReport(sourceRepo: ApplicationRepository, input: OperationsBacklogInput): OperationsBacklogReport {
-  const repo = createOperationsReportCache(sourceRepo);
   const reportAssemblyStartedAt = performance.now();
   const reportAssemblySections: ReportAssemblyTimingSection[] = [];
+  const repo = createOperationsReportCache(sourceRepo, (section) => reportAssemblySections.push(section));
   const measureSection = <T>(id: string, label: string, build: () => T): T => {
     const startedAt = performance.now();
     const value = build();
     reportAssemblySections.push({
       id,
       label,
+      category: "report_phase",
       durationMs: Math.max(0, Math.round((performance.now() - startedAt) * 100) / 100)
     });
     return value;
@@ -224,7 +324,8 @@ function buildOperationsBacklogReport(sourceRepo: ApplicationRepository, input: 
   const incidentId = input.incidentId ?? incident?.id;
   const scopeKey = incidentId ? `${input.dayKey}:${incidentId}` : input.dayKey;
   const receipts = repo.listDeliveryReceipts?.() ?? [];
-  const summaryJobs = repo.listSummaryJobs?.() ?? [];
+  const summaryJobSlice = repo.getSummaryJobReportSlice?.(SUMMARY_JOB_HISTORY_LIMIT);
+  const summaryJobs = summaryJobSlice?.jobs ?? repo.listSummaryJobs?.() ?? [];
   const notes = incidentId ? repo.listInvestigationNotes?.({ incidentId }) ?? [] : repo.listInvestigationNotes?.({ dayKey: input.dayKey }) ?? [];
   const handoffPackets = incidentId ? repo.listIncidentHandoffPackets?.({ incidentId }) ?? [] : repo.listIncidentHandoffPackets?.({ dayKey: input.dayKey }) ?? [];
   const replay = safeReplay(repo, incidentId);
@@ -254,7 +355,7 @@ function buildOperationsBacklogReport(sourceRepo: ApplicationRepository, input: 
     buildAttentionNowDelta(day, receipts, verificationCenter, routeBudgets, repo)
   );
   const readinessAggregates = measureSection("readiness_aggregates", "Readiness aggregates", () =>
-    buildReadinessAggregates(repo, receipts, routeBudgets, verificationReceipts, summaryJobs)
+    buildReadinessAggregates(repo, receipts, routeBudgets, verificationReceipts, summaryJobs, summaryJobSlice)
   );
   const routeBudgetRegressions = measureSection("route_budget_regressions", "Route-budget regressions", () =>
     buildRouteBudgetRegressions(repo, routeBudgets)
@@ -274,7 +375,7 @@ function buildOperationsBacklogReport(sourceRepo: ApplicationRepository, input: 
   const verificationReceiptLineage = measureSection("verification_lineage", "Verification lineage", () =>
     buildVerificationReceiptLineage(verificationReceipts)
   );
-  const exportableViews = measureSection("exportable_views", "Exportable views", () => buildExportableViews(repo, day, checklist));
+  const exportableViews = measureSection("exportable_views", "Exportable views", () => buildExportableViews(repo, day, checklist, summaryJobs));
   const savedViewAudit = measureSection("saved_view_audit", "Saved-view audit", () => buildSavedViewAudit(repo));
   const incidentTemplates = measureSection("incident_templates", "Incident templates", () => buildIncidentTemplates());
   const deliveryContractPreviews = measureSection("delivery_contracts", "Delivery contracts", () => buildDeliveryContractPreviews());
@@ -297,7 +398,8 @@ function buildOperationsBacklogReport(sourceRepo: ApplicationRepository, input: 
       verificationReceipts,
       nativeRunnerHistory,
       generatedAt,
-      scopeKey
+      scopeKey,
+      summaryJobSlice?.totalJobCount
     )
   );
   const closeoutPacketPreview = measureSection("closeout_packet", "Closeout packet preview", () =>
@@ -309,7 +411,7 @@ function buildOperationsBacklogReport(sourceRepo: ApplicationRepository, input: 
     buildEvidenceQualityScores(day, incident, checklist, receipts, verificationCenter, reportFreshness, evidenceDrift)
   );
   const morningBrief = measureSection("morning_brief", "Morning brief", () =>
-    buildMorningBrief(attentionNow, attentionNowDelta, releaseReadinessGate, recoveredEvidenceSummary, routeBudgetRegressions, summaryJobs)
+    buildMorningBrief(attentionNow, attentionNowDelta, releaseReadinessGate, recoveredEvidenceSummary, routeBudgetRegressions, summaryJobs, summaryJobSlice?.queueDepth)
   );
   const morningCommand = measureSection("morning_command", "Morning command", () =>
     buildMorningCommand(attentionNow, verificationCenter, day, receipts, evidenceDrift, releaseReadinessGate)
@@ -320,7 +422,7 @@ function buildOperationsBacklogReport(sourceRepo: ApplicationRepository, input: 
     buildCausalityNarrative(causalityGraph, verificationCenter, routeBudgetRegressions, receipts)
   );
   const previousSnapshot = repo.getLatestOperationsReportSnapshot?.(scopeKey);
-  const summaryJobHistory = measureSection("summary_job_history", "Summary-job history", () => buildSummaryJobHistory(summaryJobs));
+  const summaryJobHistory = measureSection("summary_job_history", "Summary-job history", () => buildSummaryJobHistory(summaryJobs, summaryJobSlice));
   const currentSnapshot = {
     id: `report-snapshot-${scopeKey}-${generatedAt}`,
     scopeKey,
@@ -510,7 +612,7 @@ function collectReportDays(repo: ApplicationRepository, currentDay: JournalDay):
   return Array.from(days.values());
 }
 
-function buildSummaryJobHistory(jobs: SummaryJob[]): SummaryJobHistoryPanel {
+function buildSummaryJobHistory(jobs: SummaryJob[], slice?: SummaryJobReportSlice): SummaryJobHistoryPanel {
   const items = jobs.map((job) => {
     const queuedForMs = durationMs(job.createdAt, job.startedAt ?? job.completedAt);
     const runningForMs = durationMs(job.startedAt, job.completedAt);
@@ -526,36 +628,42 @@ function buildSummaryJobHistory(jobs: SummaryJob[]): SummaryJobHistoryPanel {
       ...(job.error ? { failureReason: job.error } : {})
     } satisfies SummaryJobHistoryItem;
   });
-  const medianCompletionMs = median(items.filter((job) => job.completedAt).map((job) => job.totalMs));
+  const medianCompletionMs = slice?.medianCompletionMs ?? median(items.filter((job) => job.completedAt).map((job) => job.totalMs));
   const withMedian = items.map((job) => ({ ...job, medianCompletionMs }));
   const byDay = new Map<string, SummaryJobHistoryItem[]>();
   for (const job of withMedian) byDay.set(job.dayKey, [...(byDay.get(job.dayKey) ?? []), job]);
   const waitingJobs = withMedian.filter((job) => job.status === "queued" || job.status === "running");
   const oldestWaiting = [...waitingJobs].sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0];
   const now = new Date().toISOString();
-  const days: SummaryJobDayHistory[] = [...byDay.entries()].map(([dayKey, dayJobs]) => ({
-    dayKey,
-    retries: Math.max(0, dayJobs.length - 1),
-    failureReasons: dayJobs.map((job) => job.failureReason).filter((reason): reason is string => Boolean(reason)),
-    medianCompletionMs: median(dayJobs.filter((job) => job.completedAt).map((job) => job.totalMs)),
-    queuedCount: dayJobs.filter((job) => job.status === "queued").length,
-    runningCount: dayJobs.filter((job) => job.status === "running").length,
-    completedCount: dayJobs.filter((job) => job.status === "completed").length,
-    failedCount: dayJobs.filter((job) => job.status === "failed").length
-  }));
+  const days: SummaryJobDayHistory[] =
+    slice?.days ??
+    [...byDay.entries()].map(([dayKey, dayJobs]) => ({
+      dayKey,
+      retries: Math.max(0, dayJobs.length - 1),
+      failureReasons: dayJobs.map((job) => job.failureReason).filter((reason): reason is string => Boolean(reason)),
+      medianCompletionMs: median(dayJobs.filter((job) => job.completedAt).map((job) => job.totalMs)),
+      queuedCount: dayJobs.filter((job) => job.status === "queued").length,
+      runningCount: dayJobs.filter((job) => job.status === "running").length,
+      completedCount: dayJobs.filter((job) => job.status === "completed").length,
+      failedCount: dayJobs.filter((job) => job.status === "failed").length
+    }));
+  const oldestWaitingCreatedAt = oldestWaiting?.createdAt ?? slice?.oldestWaitingCreatedAt;
+  const oldestWaitingAgeMs = oldestWaitingCreatedAt ? durationMs(oldestWaitingCreatedAt, now) : undefined;
   return {
     jobs: withMedian.slice(0, SUMMARY_JOB_HISTORY_LIMIT),
     days,
-    totalJobCount: withMedian.length,
-    totalDayCount: days.length,
-    queueDepth: waitingJobs.length,
-    dedupedDayKeys: [...byDay.entries()]
-      .filter(([, dayJobs]) => dayJobs.filter((job) => job.status === "queued" || job.status === "running").length > 1)
-      .map(([dayKey]) => dayKey),
-    ...(oldestWaiting
+    totalJobCount: slice?.totalJobCount ?? withMedian.length,
+    totalDayCount: slice?.totalDayCount ?? days.length,
+    queueDepth: slice?.queueDepth ?? waitingJobs.length,
+    dedupedDayKeys:
+      slice?.dedupedDayKeys ??
+      [...byDay.entries()]
+        .filter(([, dayJobs]) => dayJobs.filter((job) => job.status === "queued" || job.status === "running").length > 1)
+        .map(([dayKey]) => dayKey),
+    ...(oldestWaitingAgeMs !== undefined
       ? {
-          oldestWaitingAgeMs: durationMs(oldestWaiting.createdAt, now),
-          oldestWaitingAgeLabel: `${formatDuration(durationMs(oldestWaiting.createdAt, now))} old`
+          oldestWaitingAgeMs,
+          oldestWaitingAgeLabel: `${formatDuration(oldestWaitingAgeMs)} old`
         }
       : {})
   };
@@ -665,17 +773,34 @@ function buildRouteBudgets(repo: ApplicationRepository): RoutePerformanceBudget[
   const slo = repo.getSloSnapshot?.();
   const baseline = slo?.baselines ?? [];
   return [
-    budgetForRoute("/api/summary-jobs", 250, baseline.find((item) => item.id === "summary-jobs")?.current),
-    budgetForRoute("/api/incidents", 300, baseline.find((item) => item.id === "incidents")?.current),
-    budgetForRoute("/api/health", 100, baseline.find((item) => item.id === "health")?.current),
-    budgetForRoute("/api/operations/report", 750, baseline.find((item) => item.id === "operations-report")?.current),
-    budgetForRoute("/api/verification/receipts", 180, baseline.find((item) => item.id === "verification-receipts")?.current)
+    budgetForRoute("/api/summary-jobs", 250, baseline.find((item) => item.id === "summary-jobs")?.current, repo),
+    budgetForRoute("/api/incidents", 300, baseline.find((item) => item.id === "incidents")?.current, repo),
+    budgetForRoute("/api/health", 100, baseline.find((item) => item.id === "health")?.current, repo),
+    budgetForRoute("/api/operations/report", 750, baseline.find((item) => item.id === "operations-report")?.current, repo),
+    budgetForRoute("/api/verification/receipts", 180, baseline.find((item) => item.id === "verification-receipts")?.current, repo)
   ];
 }
 
-function budgetForRoute(route: RoutePerformanceBudget["route"], budgetMs: number, observedMs: number | undefined): RoutePerformanceBudget {
+function budgetForRoute(
+  route: RoutePerformanceBudget["route"],
+  budgetMs: number,
+  observedMs: number | undefined,
+  repo: ApplicationRepository
+): RoutePerformanceBudget {
   const observed = observedMs ?? Math.round(budgetMs * 0.6);
-  return { route, budgetMs, observedMs: observed, status: observed > budgetMs ? "breach" : "ok" };
+  const observations = repo.listRouteBudgetObservations?.(route) ?? [];
+  const budget: RoutePerformanceBudget = {
+    route,
+    budgetMs,
+    observedMs: observed,
+    status: observed > budgetMs ? "breach" : "ok"
+  };
+  if (observations.length === 0) return budget;
+  const percentileValue = percentileRank(
+    observations.map((item) => item.observedMs),
+    observed
+  );
+  return { ...budget, percentileValue, percentileLabel: `p${String(percentileValue)}` };
 }
 
 function buildVerificationCenter(
@@ -1103,7 +1228,7 @@ function withGateFreshness(input: Omit<VerificationCenterGate, "ageMs" | "ageLab
 
 function buildAttentionNow(
   day: JournalDay,
-  receipts: Array<{ id: string; status: string; dryRun?: boolean; retryCount?: number }>,
+  receipts: Array<{ id: string; status: string; dryRun?: boolean; retryCount?: number; target?: string }>,
   budgets: RoutePerformanceBudget[],
   verificationCenter: VerificationCenterReport,
   repo: ApplicationRepository
@@ -1152,6 +1277,18 @@ function buildAttentionNow(
       action: "Open why blocked and rerun the dry-run after remediation."
     });
   }
+  const expectedDryRunTargets = ["slack", "generic-webhook", "email", "github-issue"];
+  const missingDryRunTargets = expectedDryRunTargets.filter((target) => !receipts.some((receipt) => receipt.dryRun && receipt.target === target));
+  if (missingDryRunTargets.length > 0) {
+    items.push({
+      id: "missing_dry_run_delivery",
+      severity: "warning",
+      label: "Missing dry-run delivery evidence",
+      detail: `${missingDryRunTargets.join(", ")} are missing dry-run receipts.`,
+      evidenceIds: missingDryRunTargets,
+      action: "Run dry-run verification for every configured delivery target."
+    });
+  }
   const reconnects = repo.getHealthAggregate?.(24)?.reconnectCount ?? (repo.listHealthTimeline?.(24) ?? []).filter((entry) => entry.category === "reconnect").length;
   if (reconnects > 0) {
     items.push({
@@ -1173,7 +1310,13 @@ function buildAttentionNow(
       action: "Review route-budget regressions in the operations report header."
     });
   }
-  return items;
+  return items.map((item) => ({ ...item, ...(repo.getAttentionItemState?.(item.id) ?? {}) }));
+}
+
+function percentileRank(values: number[], observed: number): number {
+  const sorted = [...values, observed].sort((left, right) => left - right);
+  const index = Math.max(0, sorted.lastIndexOf(observed));
+  return Math.max(1, Math.min(99, Math.round(((index + 1) / sorted.length) * 100)));
 }
 
 function buildAttentionNowDelta(
@@ -1216,13 +1359,14 @@ function buildReadinessAggregates(
   receipts: Array<{ status: string }>,
   budgets: RoutePerformanceBudget[],
   verificationReceipts: VerificationReceipt[],
-  summaryJobs: SummaryJob[]
+  summaryJobs: SummaryJob[],
+  summaryJobSlice?: SummaryJobReportSlice
 ): ReadinessAggregate[] {
-  const summaryMedianCompletionMs = median(summaryJobs.filter((job) => job.completedAt).map((job) => durationMs(job.createdAt, job.completedAt)));
+  const summaryMedianCompletionMs = summaryJobSlice?.medianCompletionMs ?? median(summaryJobs.filter((job) => job.completedAt).map((job) => durationMs(job.createdAt, job.completedAt)));
   const latestFreshness = latestReceipt(verificationReceipts)?.freshness ?? "unknown";
   return [24, 168].map((windowHours): ReadinessAggregate => {
     const aggregate = repo.getHealthAggregate?.(windowHours);
-    const timeline = repo.listHealthTimeline?.(Math.min(windowHours, 168)) ?? [];
+    const timeline = aggregate ? [] : (repo.listHealthTimeline?.(Math.min(windowHours, 168)) ?? []);
     return {
       windowHours: windowHours as 24 | 168,
       reconnectCount: aggregate?.reconnectCount ?? timeline.filter((entry) => entry.category === "reconnect").length,
@@ -1338,7 +1482,7 @@ function buildVerificationReceiptLineage(receipts: VerificationReceipt[]): Verif
   });
 }
 
-function buildExportableViews(repo: ApplicationRepository, day: JournalDay, checklist: IncidentEvidenceChecklist): ExportableOperatorView[] {
+function buildExportableViews(repo: ApplicationRepository, day: JournalDay, checklist: IncidentEvidenceChecklist, summaryJobs: SummaryJob[]): ExportableOperatorView[] {
   const settings = repo.getSetting?.("settings.v2", {
     operatorViews: [] as Array<{
       id: string;
@@ -1360,7 +1504,9 @@ function buildExportableViews(repo: ApplicationRepository, day: JournalDay, chec
   const unresolvedEvidenceCount = checklist.items.filter((item) => !item.present).length;
   const latestReceiptAt = latestCompletedAt((repo.listDeliveryReceipts?.() ?? []).map((receipt) => ({ completedAt: receipt.completedAt ?? receipt.requestedAt })));
   const summaryTimestamp = day.generatedSummary?.lastEntryIncludedAt ?? day.generatedSummary?.createdAt;
-  const lastSuccessfulSummaryAt = latestCompletedAt((repo.listSummaryJobs?.() ?? []).filter((job) => job.dayKey === day.dayKey && job.status === "completed").map((job) => ({ completedAt: job.completedAt ?? job.generatedSummary?.createdAt ?? job.createdAt }))) ?? day.generatedSummary?.createdAt;
+  const lastSuccessfulSummaryAt =
+    latestCompletedAt(summaryJobs.filter((job) => job.dayKey === day.dayKey && job.status === "completed").map((job) => ({ completedAt: job.completedAt ?? job.generatedSummary?.createdAt ?? job.createdAt }))) ??
+    day.generatedSummary?.createdAt;
   return views.filter((view) => view.builtIn !== true).map((view) => {
     const redacted = {
       id: view.id,
@@ -1790,7 +1936,8 @@ function buildOperationsLedger(
   verificationReceipts: Array<{ id: string; status: "passed" | "failed" | "unknown"; completedAt?: string; startedAt: string; command: string }>,
   nativeRunnerHistory: NativeRunnerHistoryItem[],
   generatedAt: string,
-  scopeKey: string
+  scopeKey: string,
+  totalSummaryJobCount = jobs.length
 ): OperationsLedgerReport {
   const reportEntry = ledgerEntry(`ledger-report-${scopeKey}-${generatedAt}`, "report.generated", generatedAt, "completed", scopeKey, undefined, "report_generation", `Operations report snapshot generated for ${scopeKey}.`);
   const completedJobs = jobs.filter((job) => job.completedAt);
@@ -1816,7 +1963,7 @@ function buildOperationsLedger(
     )
   );
   const totalEntryCount =
-    1 + completedJobs.length + receiptEntries.length + retryEntries.length + actionEntries.length + verificationEntries.length + nativeRunnerEntries.length;
+    1 + totalSummaryJobCount + receiptEntries.length + retryEntries.length + actionEntries.length + verificationEntries.length + nativeRunnerEntries.length;
   const entries = [reportEntry, ...summaryEntries, ...receiptEntries, ...retryEntries, ...actionEntries, ...verificationEntries, ...nativeRunnerEntries]
     .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
     .slice(0, OPERATIONS_LEDGER_LIMIT);
@@ -2007,9 +2154,10 @@ function buildMorningBrief(
   releaseReadinessGate: ReleaseReadinessGate,
   recoveredEvidenceSummary: RecoveredEvidenceSummary,
   routeBudgetRegressions: RouteBudgetRegression[],
-  summaryJobs: SummaryJob[]
+  summaryJobs: SummaryJob[],
+  summaryQueueDepth?: number
 ): MorningBriefArtifact {
-  const queueDepth = summaryJobs.filter((job) => job.status === "queued" || job.status === "running").length;
+  const queueDepth = summaryQueueDepth ?? summaryJobs.filter((job) => job.status === "queued" || job.status === "running").length;
   const citations = Array.from(
     new Set([
       ...attentionNow.map((item) => item.id),

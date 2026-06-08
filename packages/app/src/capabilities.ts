@@ -63,7 +63,7 @@ export function assessCapabilityForUse(manifest: CapabilityManifest, now: string
   if (manifest.failureModes.length === 0) blockers.push("failure modes missing");
   if (manifest.auditProvenance.length === 0) blockers.push("audit provenance missing");
   if (!manifest.reviewBy && !manifest.expiresAt) blockers.push("review or expiry date missing");
-  const reviewByMs = manifest.reviewBy ? Date.parse(manifest.reviewBy) : Number.NaN;
+  const reviewByMs = manifest.reviewBy ? parseReviewDeadline(manifest.reviewBy) : Number.NaN;
   const expiresAtMs = manifest.expiresAt ? Date.parse(manifest.expiresAt) : Number.NaN;
   const nowMs = Date.parse(now);
   if (Number.isFinite(expiresAtMs) && Number.isFinite(nowMs) && expiresAtMs < nowMs) blockers.push("capability expired");
@@ -82,6 +82,11 @@ export function assessCapabilityForUse(manifest: CapabilityManifest, now: string
     blockers,
     checkedAt: now
   };
+}
+
+function parseReviewDeadline(value: string): number {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return Date.parse(`${value}T23:59:59.999Z`);
+  return Date.parse(value);
 }
 
 function mergeCapabilityManifests(manifests: CapabilityManifest[]): CapabilityManifest[] {

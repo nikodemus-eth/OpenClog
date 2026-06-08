@@ -7,6 +7,8 @@ import type {
   AlertFinding,
   AlertRule,
   AnalyticsSnapshot,
+  AttentionNowItem,
+  AttentionNowItemState,
   BackendFingerprint,
   EvidenceDriftReport,
   BundleSignature,
@@ -61,6 +63,7 @@ import type {
   ServiceHealthTimelineEntry,
   SessionDrilldown,
   SummaryJob,
+  SummaryJobDayHistory,
   SummaryCitation,
   SummaryProfile,
   VerificationReceipt
@@ -69,6 +72,7 @@ import { browserVisibleEntryText, exportDayAsMarkdown, sampleJournalDay, toPersi
 
 export interface OpenClogRepository {
   addAudit(action: string, metadata: Record<string, unknown>): void;
+  addEntries(entries: Array<{ entry: JournalEntry; sourceEvent?: GatewayEventLike }>): JournalEntry[];
   addEntry(entry: JournalEntry, sourceEvent?: GatewayEventLike): JournalEntry;
   addNote(body: string, now?: Date): JournalEntry;
   buildCorrelationGraph(incidentId: string): CorrelationGraph;
@@ -81,6 +85,16 @@ export interface OpenClogRepository {
   createReplayWorkspace(dayKey: string): ReplayWorkspace;
   createSummaryJob(dayKey: string): SummaryJob;
   listSummaryJobs(): SummaryJob[];
+  getSummaryJobReportSlice(limit: number): {
+    jobs: SummaryJob[];
+    totalJobCount: number;
+    queueDepth: number;
+    oldestWaitingCreatedAt?: string;
+    medianCompletionMs: number;
+    days: SummaryJobDayHistory[];
+    totalDayCount: number;
+    dedupedDayKeys: string[];
+  };
   completeCloseout(dayKey: string, exportTargets: string[]): CloseoutCompletion;
   deliverIntegration(target: DeliveryAdapterTarget, dayKey: string, options?: DeliveryRequestOptions): DeliveryReceipt;
   evaluateAlertRules(dayKey: string): AlertFinding[];
@@ -119,10 +133,12 @@ export interface OpenClogRepository {
   listNativeRunnerHistory(): NativeRunnerHistoryItem[];
   listVerificationReceipts(): VerificationReceipt[];
   listSavedViewAuditEvents(): SavedViewAuditEvent[];
+  getAttentionItemState(attentionItemId: AttentionNowItem["id"]): AttentionNowItemState | undefined;
   listRouteBudgetObservations(route?: RouteBudgetHistoryObservation["route"]): RouteBudgetHistoryObservation[];
   listStaleSummaryDayKeys(): string[];
   getRecoveredEvidenceSummary(currentDayKey: string): RecoveredEvidenceSummary | undefined;
   saveSavedViewAuditEvent(event: SavedViewAuditEvent): SavedViewAuditEvent;
+  setAttentionItemState(attentionItemId: AttentionNowItem["id"], state: AttentionNowItemState): AttentionNowItemState;
   saveRouteBudgetObservation(observation: RouteBudgetHistoryObservation): RouteBudgetHistoryObservation;
   getLatestOperationsReportSnapshot(scopeKey: string): {
     id: string;
@@ -274,6 +290,25 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       }
       syncLineageForEntry(db, entry, repo);
       return entry;
+    },
+    addEntries(items) {
+      const entriesByDay = new Map<string, JournalEntry[]>();
+      for (const item of items) entriesByDay.set(item.entry.dayKey, [...(entriesByDay.get(item.entry.dayKey) ?? []), item.entry]);
+      for (const [dayKey, incomingEntries] of entriesByDay) {
+        const day = repo.getDay(dayKey) ?? emptyDay(dayKey);
+        const incomingById = new Map(incomingEntries.map((entry) => [entry.id, entry]));
+        const entries = [...day.entries.filter((existing) => !incomingById.has(existing.id)), ...incomingEntries].sort((left, right) => left.timestamp.localeCompare(right.timestamp));
+        repo.upsertDay({ ...day, metrics: metricsFor(entries), entries });
+        repo.generateSummary(dayKey);
+      }
+      for (const item of items) {
+        if (item.sourceEvent) {
+          const event = toPersistableRedactedEvent(item.sourceEvent);
+          updateRedactedEventColumns(db, item.entry.id, event);
+        }
+        syncLineageForEntry(db, item.entry, repo);
+      }
+      return items.map((item) => item.entry);
     },
     addNote(body, now = new Date("2026-05-02T12:30:00.000Z")) {
       const dayKey = formatDay(now);
@@ -674,6 +709,62 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
         .all()
         .map((row) => JSON.parse(String(row.job_json)) as SummaryJob);
     },
+    getSummaryJobReportSlice(limit) {
+      const rowLimit = Math.max(1, limit);
+      const jobs = db
+        .prepare("SELECT job_json FROM journal_summary_jobs ORDER BY created_at DESC, id DESC LIMIT ?")
+        .all(rowLimit)
+        .map((row) => JSON.parse(String(row.job_json)) as SummaryJob);
+      const totalJobCount = countRows(db, "SELECT COUNT(*) AS count FROM journal_summary_jobs");
+      const queueDepth = countRows(db, "SELECT COUNT(*) AS count FROM journal_summary_jobs WHERE status IN ('queued', 'running')");
+      const oldestWaiting = db.prepare("SELECT MIN(created_at) AS created_at FROM journal_summary_jobs WHERE status IN ('queued', 'running')").get() as { created_at?: string } | undefined;
+      const completedSample = db
+        .prepare("SELECT job_json FROM journal_summary_jobs WHERE status = 'completed' ORDER BY created_at DESC, id DESC LIMIT 500")
+        .all()
+        .map((row) => JSON.parse(String(row.job_json)) as SummaryJob);
+      const medianCompletionMs = median(completedSample.filter((job) => job.completedAt).map((job) => durationMs(job.createdAt, job.completedAt)));
+      const dayRows = db
+        .prepare("SELECT day_key, status, COUNT(*) AS count FROM journal_summary_jobs GROUP BY day_key, status ORDER BY day_key DESC")
+        .all() as Array<{ day_key: string; status: SummaryJob["status"]; count: number }>;
+      const dayStats = new Map<string, SummaryJobDayHistory>();
+      for (const row of dayRows) {
+        const dayKey = String(row.day_key);
+        const stats =
+          dayStats.get(dayKey) ??
+          ({
+            dayKey,
+            retries: 0,
+            failureReasons: [],
+            medianCompletionMs: 0,
+            queuedCount: 0,
+            runningCount: 0,
+            completedCount: 0,
+            failedCount: 0
+          } satisfies SummaryJobDayHistory);
+        if (row.status === "queued") stats.queuedCount = Number(row.count);
+        if (row.status === "running") stats.runningCount = Number(row.count);
+        if (row.status === "completed") stats.completedCount = Number(row.count);
+        if (row.status === "failed") stats.failedCount = Number(row.count);
+        stats.retries = Math.max(0, stats.queuedCount + stats.runningCount + stats.completedCount + stats.failedCount - 1);
+        dayStats.set(dayKey, stats);
+      }
+      for (const job of jobs) {
+        if (!job.completedAt) continue;
+        const stats = dayStats.get(job.dayKey);
+        if (stats && stats.medianCompletionMs === 0) stats.medianCompletionMs = durationMs(job.createdAt, job.completedAt);
+      }
+      const days = [...dayStats.values()];
+      return {
+        jobs,
+        totalJobCount,
+        queueDepth,
+        ...(typeof oldestWaiting?.created_at === "string" ? { oldestWaitingCreatedAt: oldestWaiting.created_at } : {}),
+        medianCompletionMs,
+        days,
+        totalDayCount: days.length,
+        dedupedDayKeys: days.filter((day) => day.queuedCount + day.runningCount > 1).map((day) => day.dayKey)
+      };
+    },
     generateSummaryProfile(profileId, dayKey) {
       const day = repo.getDay(dayKey) ?? emptyDay(dayKey);
       const profile = summaryProfiles.find((item) => item.id === profileId) ?? summaryProfiles[0];
@@ -758,10 +849,7 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       };
     },
     getDrilldown(sessionKey) {
-      const allEntries = listAllEntries(db);
-      const directEntries = allEntries.filter((entry) => entry.sessionId === sessionKey);
-      const relatedApprovalIds = new Set(directEntries.map((entry) => entry.approvalId).filter((approvalId): approvalId is string => Boolean(approvalId)));
-      const entries = allEntries.filter((entry) => entry.sessionId === sessionKey || Boolean(entry.approvalId && relatedApprovalIds.has(entry.approvalId)));
+      const entries = listSessionDrilldownEntries(db, sessionKey);
       const uniqueApprovalIds = new Set(entries.map((entry) => entry.approvalId).filter((approvalId): approvalId is string => Boolean(approvalId)));
       let toolCount = 0;
       let reconnectCount = 0;
@@ -879,6 +967,10 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       const row = db.prepare("SELECT state_json FROM journal_alert_states WHERE id = ?").get(ruleId);
       return row ? (JSON.parse(String(row.state_json)) as AlertStateRecord) : undefined;
     },
+    getAttentionItemState(attentionItemId) {
+      const row = db.prepare("SELECT state_json FROM journal_attention_item_states WHERE id = ?").get(attentionItemId);
+      return row ? (JSON.parse(String(row.state_json)) as AttentionNowItemState) : undefined;
+    },
     generateOperatorRunbook() {
       return {
         generatedAt: new Date().toISOString(),
@@ -909,6 +1001,7 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       return db.prepare("SELECT rule_json FROM journal_alert_rules ORDER BY id ASC").all().map((row) => JSON.parse(String(row.rule_json)) as AlertRule);
     },
     listDays() {
+      const recoveredBadges = buildRecoveredEvidenceBadges(db);
       return db
         .prepare("SELECT day_key, title, date_label, summary, metrics_json FROM journal_days ORDER BY day_key DESC")
         .all()
@@ -918,24 +1011,7 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
           dateLabel: String(row.date_label),
           summary: typeof row.summary === "string" ? row.summary : undefined,
           evidenceCompleteness: buildEvidenceCompleteness(db, String(row.day_key), typeof row.summary === "string" ? row.summary : undefined, getGeneratedSummary(db, String(row.day_key))),
-          ...(() => {
-            const recoveredEntries = listAllEntries(db).filter(
-              (entry) => entry.dayKey === String(row.day_key) && entry.backfilled === true && /openclaw/i.test(`${entry.source} ${entry.sourceLabel ?? ""}`)
-            );
-            const latestImportedAt = recoveredEntries
-              .map((entry) => entry.importedAt)
-              .filter((value): value is string => Boolean(value))
-              .sort((left, right) => right.localeCompare(left))[0];
-            return recoveredEntries.length > 0
-              ? {
-                  recoveredEvidenceBadge: {
-                    label: recoveredEntries.find((entry) => entry.sourceLabel)?.sourceLabel ?? "Backfilled from OpenClaw",
-                    entryCount: recoveredEntries.length,
-                    latestImportedAt
-                  }
-                }
-              : {};
-          })(),
+          ...(recoveredBadges.get(String(row.day_key)) ? { recoveredEvidenceBadge: recoveredBadges.get(String(row.day_key)) } : {}),
           ...(listIncidentIdsForDay(db, String(row.day_key)).length > 0 ? { incidentIds: listIncidentIdsForDay(db, String(row.day_key)) } : {}),
           metrics: JSON.parse(String(row.metrics_json)) as JournalDay["metrics"]
         }));
@@ -947,24 +1023,15 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       const rowLimit = Math.max(1, limit);
       return db
         .prepare(
-          `SELECT id, day_key, title, body, kind, status, severity, timestamp, entry_json
+          `SELECT id, day_key, title, health_category, timestamp
            FROM journal_entries
-           WHERE lower(title || ' ' || coalesce(body, '')) LIKE '%reconnect%'
-              OR lower(title || ' ' || coalesce(body, '')) LIKE '%sequence gap%'
-              OR kind IN ('approval_requested', 'approval_resolved', 'error')
-              OR (kind IN ('tool_call', 'tool_result') AND (status = 'failed' OR severity = 'error'))
+           WHERE health_category IS NOT NULL
            ORDER BY timestamp DESC
            LIMIT ?`
         )
         .all(rowLimit)
         .map((row) => {
-          const category = classifyHealthHistoryCategoryFromColumns({
-            title: String(row.title),
-            body: typeof row.body === "string" ? row.body : undefined,
-            kind: String(row.kind),
-            status: typeof row.status === "string" ? row.status : undefined,
-            severity: typeof row.severity === "string" ? row.severity : undefined
-          });
+          const category = normalizeHealthHistoryCategory(row.health_category);
           if (!category) return null;
           return {
             id: `health-${String(row.id)}`,
@@ -1014,15 +1081,31 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
         .slice(0, Math.max(1, limit));
     },
     getHealthAggregate(limit = 20) {
-      const history = repo.listHealthHistory(limit);
-      const timeline = repo.listHealthTimeline(limit);
+      const rowLimit = Math.max(1, limit);
+      const aggregate = db
+        .prepare(
+          `WITH recent AS (
+             SELECT health_category
+             FROM journal_entries
+             WHERE health_category IS NOT NULL
+             ORDER BY timestamp DESC
+             LIMIT ?
+           )
+           SELECT
+             SUM(CASE WHEN health_category = 'reconnect' THEN 1 ELSE 0 END) AS reconnect_count,
+             SUM(CASE WHEN health_category = 'gateway_error' THEN 1 ELSE 0 END) AS stale_count,
+             SUM(CASE WHEN health_category NOT IN ('reconnect', 'gateway_error') THEN 1 ELSE 0 END) AS recovery_count
+           FROM recent`
+        )
+        .get(rowLimit) as { reconnect_count?: number; stale_count?: number; recovery_count?: number } | undefined;
+      const failedReceipts = repo.listDeliveryReceipts().filter((receipt) => receipt.status === "failed");
       return {
         createdAt: new Date().toISOString(),
-        reconnectCount: history.filter((entry) => entry.category === "reconnect").length,
-        staleCount: timeline.filter((entry) => entry.category === "stale").length,
-        recoveryCount: timeline.filter((entry) => entry.category === "recovery").length,
-        adapterFailureCount: timeline.filter((entry) => entry.category === "adapter_failure").length,
-        latestErrorCategory: repo.listDeliveryReceipts().find((receipt) => receipt.status === "failed")?.errorCategory
+        reconnectCount: Number(aggregate?.reconnect_count ?? 0),
+        staleCount: Number(aggregate?.stale_count ?? 0),
+        recoveryCount: Number(aggregate?.recovery_count ?? 0),
+        adapterFailureCount: failedReceipts.slice(0, rowLimit).length,
+        latestErrorCategory: failedReceipts[0]?.errorCategory
       };
     },
     listIncidents() {
@@ -1076,9 +1159,10 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
         .map((row) => JSON.parse(String(row.event_json)) as SavedViewAuditEvent);
     },
     listRouteBudgetObservations(route) {
-      return db
-        .prepare("SELECT observation_json FROM journal_route_budget_observations ORDER BY recorded_at DESC, id DESC")
-        .all()
+      const rows = route
+        ? db.prepare("SELECT observation_json FROM journal_route_budget_observations WHERE route = ? ORDER BY recorded_at DESC, id DESC").all(route)
+        : db.prepare("SELECT observation_json FROM journal_route_budget_observations ORDER BY recorded_at DESC, id DESC").all();
+      return rows
         .map((row) => JSON.parse(String(row.observation_json)) as RouteBudgetHistoryObservation)
         .filter((item) => !route || item.route === route);
     },
@@ -1156,8 +1240,8 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
             ? countRows(db, `SELECT COUNT(*) AS count FROM journal_daily_summaries WHERE day_key IN (${placeholders})`, ...removedDayKeys)
             : 0,
         removedAuditCount: policy.includeAudit ? Math.max(removedEntryCount - keptDayCount, 0) : 0,
-        removedIncidentCount: repo.listIncidents().filter((incident) => incident.dayKeys.some((dayKey) => removedDayKeys.includes(dayKey))).length,
-        removedAlertCount: repo.listAlertRules().length,
+        removedIncidentCount: countStoredIncidentsForRemovedDays(db, removedDayKeys),
+        removedAlertCount: countRows(db, "SELECT COUNT(*) AS count FROM journal_alert_rules"),
         removedBundleCount: removedDayKeys.length
       };
     },
@@ -1260,21 +1344,34 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       return report;
     },
     getSloSnapshot() {
-      const failedDeliveryCount = repo.listDeliveryReceipts().filter((receipt) => receipt.status === "failed").length;
+      const deliveryReceipts = repo.listDeliveryReceipts();
+      const failedDeliveryCount = deliveryReceipts.filter((receipt) => receipt.status === "failed").length;
       const staleSummaryCount = countRows(
         db,
         `SELECT COUNT(*) AS count
          FROM journal_daily_summaries summaries
          WHERE (SELECT MAX(timestamp) FROM journal_entries entries WHERE entries.day_key = summaries.day_key) > summaries.created_at`
       );
-      const retryBacklogCount = repo.listDeliveryReceipts().filter((receipt) => receipt.status === "failed" && receipt.retryCount > 0).length;
+      const retryBacklogCount = deliveryReceipts.filter((receipt) => receipt.status === "failed" && receipt.retryCount > 0).length;
       const reconnectHeavyDayCount = countRows(
         db,
-        "SELECT COUNT(DISTINCT day_key) AS count FROM journal_entries WHERE lower(title || ' ' || coalesce(body, '')) LIKE '%reconnect%'"
+        "SELECT COUNT(DISTINCT day_key) AS count FROM journal_entries WHERE health_category = 'reconnect'"
       );
       return {
         createdAt: new Date().toISOString(),
-        gatewayFreshnessOk: repo.getHealthAggregate(10).staleCount === 0,
+        gatewayFreshnessOk:
+          countRows(
+            db,
+            `SELECT COUNT(*) AS count
+             FROM (
+               SELECT health_category
+               FROM journal_entries
+               WHERE health_category = 'gateway_error'
+               ORDER BY timestamp DESC
+               LIMIT ?
+             )`,
+            10
+          ) === 0,
         staleSummaryCount,
         failedDeliveryCount,
         retryBacklogCount,
@@ -1414,6 +1511,11 @@ export function createSqliteRepository(filename: string): OpenClogRepository {
       saveJsonRow(db, "journal_alert_states", ruleId, JSON.stringify(next));
       return next;
     },
+    setAttentionItemState(attentionItemId, state) {
+      const next = { ...state, attentionItemId };
+      saveJsonRow(db, "journal_attention_item_states", attentionItemId, JSON.stringify(next));
+      return next;
+    },
     setPinnedDayContext(dayKey, context, now = new Date()) {
       const next: PinnedDayContext = { ...context, updatedAt: now.toISOString() };
       db.prepare("INSERT INTO journal_pinned_context (day_key, context_json) VALUES (?, ?) ON CONFLICT(day_key) DO UPDATE SET context_json = excluded.context_json").run(dayKey, JSON.stringify(next));
@@ -1550,6 +1652,10 @@ function migrate(db: DatabaseSync): void {
       raw_event_hash TEXT,
       redaction_report_json TEXT,
       redacted INTEGER NOT NULL DEFAULT 1,
+      backfilled INTEGER NOT NULL DEFAULT 0,
+      source_label TEXT,
+      imported_at TEXT,
+      health_category TEXT,
       entry_json TEXT NOT NULL,
       FOREIGN KEY (day_key) REFERENCES journal_days(day_key)
     );
@@ -1566,6 +1672,7 @@ function migrate(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS journal_profiles (id TEXT PRIMARY KEY, profile_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_retention_snapshots (id TEXT PRIMARY KEY, snapshot_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_alert_states (id TEXT PRIMARY KEY, state_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_attention_item_states (id TEXT PRIMARY KEY, state_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_audit_log (id TEXT PRIMARY KEY, action TEXT NOT NULL, actor TEXT NOT NULL, target_type TEXT NOT NULL, target_id TEXT, timestamp TEXT NOT NULL, metadata_json TEXT);
     CREATE TABLE IF NOT EXISTS journal_delivery_receipts (id TEXT PRIMARY KEY, requested_at TEXT, day_key TEXT, incident_id TEXT, target TEXT, receipt_json TEXT NOT NULL);
@@ -1597,10 +1704,14 @@ function migrate(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS journal_evidence_drift_observations (id TEXT PRIMARY KEY, scope_key TEXT NOT NULL, created_at TEXT NOT NULL, observation_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_route_budget_observations (id TEXT PRIMARY KEY, route TEXT NOT NULL, recorded_at TEXT NOT NULL, observation_json TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS idx_journal_entries_session ON journal_entries(session_id, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_journal_entries_approval_time ON journal_entries(approval_id, timestamp) WHERE approval_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_journal_entries_status ON journal_entries(status, timestamp);
     CREATE INDEX IF NOT EXISTS idx_journal_entries_tool_name ON journal_entries(tool_name, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_journal_entries_source_day_time ON journal_entries(source, day_key, timestamp);
     CREATE INDEX IF NOT EXISTS idx_journal_adapter_events_id ON journal_adapter_events(id);
     CREATE INDEX IF NOT EXISTS idx_journal_delivery_receipts_requested ON journal_delivery_receipts(requested_at, target);
+    CREATE INDEX IF NOT EXISTS idx_journal_summary_jobs_status_created ON journal_summary_jobs(status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_journal_summary_jobs_created ON journal_summary_jobs(created_at);
     CREATE INDEX IF NOT EXISTS idx_journal_incident_action_records_created ON journal_incident_action_records(created_at, incident_id);
     CREATE INDEX IF NOT EXISTS idx_journal_handoff_packets_day ON journal_incident_handoff_packets(day_key, created_at);
     CREATE INDEX IF NOT EXISTS idx_journal_report_snapshots_scope ON journal_operations_report_snapshots(scope_key, generated_at);
@@ -1608,8 +1719,56 @@ function migrate(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS idx_journal_evidence_drift_scope ON journal_evidence_drift_observations(scope_key, created_at);
     CREATE INDEX IF NOT EXISTS idx_journal_native_runner_created ON journal_native_runner_history(created_at);
     CREATE INDEX IF NOT EXISTS idx_journal_route_budget_route ON journal_route_budget_observations(route, recorded_at);
+    CREATE INDEX IF NOT EXISTS idx_journal_route_budget_route_recorded_id ON journal_route_budget_observations(route, recorded_at DESC, id DESC);
   `);
+  migrateEntryHotMetadata(db);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_journal_entries_health_time ON journal_entries(timestamp DESC) WHERE health_category IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_journal_entries_health_category_day_time ON journal_entries(health_category, day_key, timestamp DESC);
+  `);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_journal_entries_backfilled_day_imported ON journal_entries(backfilled, day_key, imported_at)");
   migrateVerificationReceipts(db);
+}
+
+function migrateEntryHotMetadata(db: DatabaseSync): void {
+  const columns = new Set(db.prepare("PRAGMA table_info(journal_entries)").all().map((row) => String(row.name)));
+  if (!columns.has("backfilled")) db.exec("ALTER TABLE journal_entries ADD COLUMN backfilled INTEGER NOT NULL DEFAULT 0");
+  if (!columns.has("source_label")) db.exec("ALTER TABLE journal_entries ADD COLUMN source_label TEXT");
+  if (!columns.has("imported_at")) db.exec("ALTER TABLE journal_entries ADD COLUMN imported_at TEXT");
+  if (!columns.has("health_category")) db.exec("ALTER TABLE journal_entries ADD COLUMN health_category TEXT");
+  db.exec(`
+    UPDATE journal_entries
+    SET backfilled = CASE WHEN json_extract(entry_json, '$.backfilled') = 1 THEN 1 ELSE 0 END,
+        source_label = CASE
+          WHEN json_type(entry_json, '$.sourceLabel') IS NOT NULL THEN json_extract(entry_json, '$.sourceLabel')
+          ELSE source_label
+        END,
+        imported_at = CASE
+          WHEN json_type(entry_json, '$.importedAt') IS NOT NULL THEN json_extract(entry_json, '$.importedAt')
+          ELSE imported_at
+        END
+    WHERE (json_type(entry_json, '$.sourceLabel') IS NOT NULL AND (source_label IS NULL OR source_label != json_extract(entry_json, '$.sourceLabel')))
+       OR (json_type(entry_json, '$.importedAt') IS NOT NULL AND (imported_at IS NULL OR imported_at != json_extract(entry_json, '$.importedAt')))
+       OR backfilled != CASE WHEN json_extract(entry_json, '$.backfilled') = 1 THEN 1 ELSE 0 END
+  `);
+  db.exec(`
+    UPDATE journal_entries
+    SET health_category = CASE
+      WHEN lower(title || ' ' || coalesce(body, '')) LIKE '%reconnect%' THEN 'reconnect'
+      WHEN lower(title || ' ' || coalesce(body, '')) LIKE '%sequence gap%' THEN 'sequence_gap'
+      WHEN kind IN ('approval_requested', 'approval_resolved') THEN 'approval'
+      WHEN kind IN ('tool_call', 'tool_result') AND (status = 'failed' OR severity = 'error') THEN 'tool_failure'
+      WHEN kind = 'error' THEN 'gateway_error'
+      ELSE NULL
+    END
+    WHERE health_category IS NULL
+      AND (
+        lower(title || ' ' || coalesce(body, '')) LIKE '%reconnect%'
+        OR lower(title || ' ' || coalesce(body, '')) LIKE '%sequence gap%'
+        OR kind IN ('approval_requested', 'approval_resolved', 'error')
+        OR (kind IN ('tool_call', 'tool_result') AND (status = 'failed' OR severity = 'error'))
+      )
+  `);
 }
 
 function seedDefaults(db: DatabaseSync): void {
@@ -1653,6 +1812,7 @@ function saveJsonRow(db: DatabaseSync, table: string, id: string, json: string, 
     journal_profiles: "profile_json",
     journal_retention_snapshots: "snapshot_json",
     journal_alert_states: "state_json",
+    journal_attention_item_states: "state_json",
     journal_adapter_events: "adapter_event_json",
     journal_plugins: "plugin_json",
     journal_capabilities: "capability_json",
@@ -1803,13 +1963,19 @@ function sleepSync(ms: number): void {
 }
 
 function upsertEntry(db: DatabaseSync, entry: JournalEntry): void {
+  const healthCategory = classifyHealthHistoryCategoryFromColumns(entry);
   db.prepare(
     `INSERT INTO journal_entries (
       id, day_key, session_id, source, kind, title, body, timestamp, status, severity,
       actor_label, tool_name, approval_id, raw_event_redacted_json, raw_event_hash,
-      redaction_report_json, redacted, entry_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET entry_json = excluded.entry_json`
+      redaction_report_json, redacted, backfilled, source_label, imported_at, health_category, entry_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      entry_json = excluded.entry_json,
+      backfilled = excluded.backfilled,
+      source_label = excluded.source_label,
+      imported_at = excluded.imported_at,
+      health_category = excluded.health_category`
   ).run(
     entry.id,
     entry.dayKey,
@@ -1826,6 +1992,10 @@ function upsertEntry(db: DatabaseSync, entry: JournalEntry): void {
     entry.approvalId ?? null,
     entry.rawEventHash ?? null,
     entry.redacted ? 1 : 0,
+    entry.backfilled ? 1 : 0,
+    entry.sourceLabel ?? null,
+    entry.importedAt ?? null,
+    healthCategory,
     JSON.stringify(entry)
   );
 }
@@ -1843,16 +2013,66 @@ function listAllEntries(db: DatabaseSync): JournalEntry[] {
   return db.prepare("SELECT entry_json FROM journal_entries ORDER BY timestamp ASC").all().map((row) => JSON.parse(String(row.entry_json)) as JournalEntry);
 }
 
+function listSessionDrilldownEntries(db: DatabaseSync, sessionKey: string): JournalEntry[] {
+  const directRows = db
+    .prepare("SELECT entry_json FROM journal_entries WHERE session_id = ? ORDER BY timestamp ASC, id ASC")
+    .all(sessionKey) as Array<{ entry_json: string }>;
+  const directEntries = directRows.map((row) => JSON.parse(String(row.entry_json)) as JournalEntry);
+  const approvalIds = Array.from(new Set(directEntries.map((entry) => entry.approvalId).filter((approvalId): approvalId is string => Boolean(approvalId))));
+  if (approvalIds.length === 0) return directEntries;
+  const placeholders = approvalIds.map(() => "?").join(", ");
+  const approvalRows = db
+    .prepare(
+      `SELECT entry_json
+       FROM journal_entries
+       WHERE approval_id IN (${placeholders})
+         AND (session_id IS NULL OR session_id != ?)
+       ORDER BY timestamp ASC, id ASC`
+    )
+    .all(...approvalIds, sessionKey) as Array<{ entry_json: string }>;
+  const entriesById = new Map<string, JournalEntry>();
+  for (const entry of directEntries) entriesById.set(entry.id, entry);
+  for (const row of approvalRows) {
+    const entry = JSON.parse(String(row.entry_json)) as JournalEntry;
+    entriesById.set(entry.id, entry);
+  }
+  return Array.from(entriesById.values()).sort((left, right) => left.timestamp.localeCompare(right.timestamp) || left.id.localeCompare(right.id));
+}
+
+function buildRecoveredEvidenceBadges(db: DatabaseSync): Map<string, NonNullable<Omit<JournalDay, "entries">["recoveredEvidenceBadge"]>> {
+  const rows = db
+    .prepare(
+      `SELECT day_key,
+              COUNT(*) AS entry_count,
+              MAX(imported_at) AS latest_imported_at,
+              MAX(source_label) AS source_label
+       FROM journal_entries
+       WHERE backfilled = 1
+          OR source IN ('openclaw', 'openclaw-session-jsonl')
+       GROUP BY day_key`
+    )
+    .all() as Array<{ day_key: string; entry_count: number; latest_imported_at?: string; source_label?: string }>;
+  const badges = new Map<string, NonNullable<Omit<JournalDay, "entries">["recoveredEvidenceBadge"]>>();
+  for (const row of rows) {
+    badges.set(String(row.day_key), {
+      label: row.source_label ?? "Backfilled from OpenClaw",
+      entryCount: Number(row.entry_count),
+      ...(typeof row.latest_imported_at === "string" ? { latestImportedAt: row.latest_imported_at } : {})
+    });
+  }
+  return badges;
+}
+
 function getGeneratedSummary(db: DatabaseSync, dayKey: string): GeneratedSummary | undefined {
   const row = db.prepare("SELECT summary, created_at FROM journal_daily_summaries WHERE day_key = ?").get(dayKey);
   if (!row) return undefined;
   const createdAt = String(row.created_at);
-  const entries = db
-    .prepare("SELECT entry_json FROM journal_entries WHERE day_key = ? ORDER BY timestamp ASC")
-    .all(dayKey)
-    .map((entryRow) => JSON.parse(String(entryRow.entry_json)) as JournalEntry);
-  const latestEntryObservedAt = latestTimestampForEntries(entries);
-  const lastEntryIncludedAt = latestTimestampForEntries(entries.filter((entry) => entry.timestamp <= createdAt));
+  const latestRow = db.prepare("SELECT MAX(timestamp) AS timestamp FROM journal_entries WHERE day_key = ?").get(dayKey) as { timestamp?: string } | undefined;
+  const includedRow = db
+    .prepare("SELECT MAX(timestamp) AS timestamp FROM journal_entries WHERE day_key = ? AND timestamp <= ?")
+    .get(dayKey, createdAt) as { timestamp?: string } | undefined;
+  const latestEntryObservedAt = typeof latestRow?.timestamp === "string" ? latestRow.timestamp : undefined;
+  const lastEntryIncludedAt = typeof includedRow?.timestamp === "string" ? includedRow.timestamp : undefined;
   return {
     summary: String(row.summary),
     createdAt,
@@ -2117,29 +2337,41 @@ function classifyHealthHistoryCategoryFromColumns(entry: {
   return null;
 }
 
+function normalizeHealthHistoryCategory(value: unknown): HealthHistoryEntry["category"] | null {
+  if (value === "reconnect" || value === "sequence_gap" || value === "approval" || value === "tool_failure" || value === "gateway_error") return value;
+  return null;
+}
+
 function buildRecoveredEvidenceSummaryFromRows(db: DatabaseSync, _currentDayKey: string): RecoveredEvidenceSummary {
   const rows = db
     .prepare(
-      `SELECT day_key, entry_json
-       FROM journal_entries
-       WHERE entry_json LIKE '%"backfilled":true%'
-          OR source IN ('openclaw', 'openclaw-session-jsonl')
-       ORDER BY timestamp ASC`
+      `SELECT entries.day_key AS day_key,
+              COUNT(*) AS entry_count,
+              MAX(entries.imported_at) AS latest_imported_at,
+              MAX(entries.source_label) AS source_label,
+              summaries.created_at AS summary_created_at
+       FROM journal_entries entries
+       LEFT JOIN journal_daily_summaries summaries ON summaries.day_key = entries.day_key
+       WHERE entries.backfilled = 1
+          OR entries.source IN ('openclaw', 'openclaw-session-jsonl')
+       GROUP BY entries.day_key
+       ORDER BY entries.day_key ASC`
     )
-    .all();
-  const entries = rows
-    .map((row) => JSON.parse(String(row.entry_json)) as JournalEntry)
-    .filter((entry) => entry.backfilled === true);
+    .all() as Array<{ day_key: string; entry_count: number; latest_imported_at?: string; source_label?: string; summary_created_at?: string }>;
   const dayKeys = new Set<string>();
-  const summariesByDay = new Map<string, GeneratedSummary | undefined>();
   let latestImportedAt: string | undefined;
   let provisionalMetrics = false;
-  for (const entry of entries) {
-    dayKeys.add(entry.dayKey);
-    if (entry.importedAt && (!latestImportedAt || entry.importedAt > latestImportedAt)) latestImportedAt = entry.importedAt;
-    if (!summariesByDay.has(entry.dayKey)) summariesByDay.set(entry.dayKey, getGeneratedSummary(db, entry.dayKey));
-    const summary = summariesByDay.get(entry.dayKey);
-    if (summary?.lastEntryIncludedAt && entry.importedAt && summary.lastEntryIncludedAt.localeCompare(entry.importedAt) < 0) {
+  let sourceLabel = "Backfilled from OpenClaw";
+  let entryCount = 0;
+  for (const row of rows) {
+    const dayKey = String(row.day_key);
+    dayKeys.add(dayKey);
+    entryCount += Number(row.entry_count);
+    if (row.source_label) sourceLabel = String(row.source_label);
+    const importedAt = typeof row.latest_imported_at === "string" ? row.latest_imported_at : undefined;
+    if (importedAt && (!latestImportedAt || importedAt > latestImportedAt)) latestImportedAt = importedAt;
+    const summaryCreatedAt = typeof row.summary_created_at === "string" ? row.summary_created_at : undefined;
+    if (importedAt && (!summaryCreatedAt || summaryCreatedAt.localeCompare(importedAt) < 0)) {
       provisionalMetrics = true;
     }
   }
@@ -2147,8 +2379,8 @@ function buildRecoveredEvidenceSummaryFromRows(db: DatabaseSync, _currentDayKey:
     ? "Recovered evidence changed after the last successful summary; usage totals are provisional."
     : "Recovered evidence aligns with the latest available summary window.";
   return {
-    sourceLabel: entries[0]?.sourceLabel ?? "Backfilled from OpenClaw",
-    entryCount: entries.length,
+    sourceLabel,
+    entryCount,
     dayCount: dayKeys.size,
     dayKeys: Array.from(dayKeys).sort(),
     ...(latestImportedAt ? { latestImportedAt } : {}),
@@ -2197,6 +2429,16 @@ function listIncidentIdsForDay(db: DatabaseSync, dayKey: string): string[] {
     .map((incident) => incident.id);
 }
 
+function countStoredIncidentsForRemovedDays(db: DatabaseSync, removedDayKeys: string[]): number {
+  if (removedDayKeys.length === 0) return 0;
+  const removed = new Set(removedDayKeys);
+  return db
+    .prepare("SELECT incident_json FROM journal_incidents ORDER BY id ASC")
+    .all()
+    .map((row) => JSON.parse(String(row.incident_json)) as IncidentSummary)
+    .filter((incident) => incident.dayKeys.some((dayKey) => removed.has(dayKey))).length;
+}
+
 function resolveGithubRepo(): string {
   const explicit = process.env.OPENCLOG_GITHUB_REPO?.trim();
   if (explicit) return explicit;
@@ -2233,9 +2475,24 @@ function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function countRows(db: DatabaseSync, sql: string, ...values: string[]): number {
+function countRows(db: DatabaseSync, sql: string, ...values: Array<string | number | null>): number {
   const row = db.prepare(sql).get(...values) as { count?: number } | undefined;
   return typeof row?.count === "number" ? row.count : 0;
+}
+
+function durationMs(start: string | undefined, end: string | undefined): number {
+  if (!start || !end) return 0;
+  const startMs = Date.parse(start);
+  const endMs = Date.parse(end);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return 0;
+  return Math.max(0, endMs - startMs);
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? Math.round((sorted[middle - 1] + sorted[middle]) / 2) : sorted[middle];
 }
 
 function buildSessionDrilldownSummary(sessionKey: string, entries: JournalEntry[], toolCount: number, approvalCount: number, reconnectCount: number): string {

@@ -3,6 +3,8 @@ import type {
   AlertFinding,
   AlertRule,
   AnalyticsSnapshot,
+  AttentionNowItem,
+  AttentionNowItemState,
   BackendFingerprint,
   BundleVerificationResult,
   CapabilityManifest,
@@ -46,6 +48,7 @@ import type {
   ServiceHealthTimelineEntry,
   SessionDrilldown,
   SummaryJob,
+  SummaryJobDayHistory,
   SummaryProfile,
   CorrelationGraph,
   SloSnapshot,
@@ -65,6 +68,17 @@ export interface PaginatedSessionDrilldown extends SessionDrilldown {
 export interface PaginatedListResult<T> {
   items: T[];
   nextCursor?: string;
+}
+
+export interface SummaryJobReportSlice {
+  jobs: SummaryJob[];
+  totalJobCount: number;
+  queueDepth: number;
+  oldestWaitingCreatedAt?: string;
+  medianCompletionMs: number;
+  days?: SummaryJobDayHistory[];
+  totalDayCount?: number;
+  dedupedDayKeys?: string[];
 }
 
 export interface RetentionSnapshotRecord {
@@ -154,6 +168,7 @@ export interface GovernanceRepository {
   createSummaryJob(dayKey: string): SummaryJob;
   getSummaryJob(jobId: string): SummaryJob | undefined;
   listSummaryJobs?(): SummaryJob[];
+  getSummaryJobReportSlice?(limit: number): SummaryJobReportSlice;
   verifyReplayBundle(bundle: { manifest?: Record<string, unknown>; day?: { dayKey?: string; entries?: unknown[] }; markdown?: string }): BundleVerificationResult;
   createReplayWorkspace(dayKey: string): ReplayWorkspace;
   getSloSnapshot(): SloSnapshot;
@@ -164,6 +179,8 @@ export interface GovernanceRepository {
   saveNativeRunnerHistory?(runner: NativeRunnerHistoryItem): NativeRunnerHistoryItem;
   listSavedViewAuditEvents?(): SavedViewAuditEvent[];
   saveSavedViewAuditEvent?(event: SavedViewAuditEvent): SavedViewAuditEvent;
+  getAttentionItemState?(attentionItemId: AttentionNowItem["id"]): AttentionNowItemState | undefined;
+  setAttentionItemState?(attentionItemId: AttentionNowItem["id"], state: AttentionNowItemState): AttentionNowItemState;
   listStaleSummaryDayKeys?(): string[];
   getRecoveredEvidenceSummary?(currentDayKey: string): RecoveredEvidenceSummary | undefined;
   getLatestOperationsReportSnapshot?(scopeKey: string): {

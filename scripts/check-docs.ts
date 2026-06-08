@@ -67,13 +67,27 @@ for (const path of walk(".")) {
 function walk(root: string): string[] {
   const ignored = new Set([".git", "coverage", "dist", "node_modules", "output", "playwright-report"]);
   return readdirSync(root).flatMap((entry) => {
-    if (ignored.has(entry)) return [];
+    if (ignored.has(entry) || isSqliteRuntimeFile(entry)) return [];
     const path = join(root, entry).replace(/^\.\//, "");
-    const stats = statSync(path);
+    let stats: ReturnType<typeof statSync>;
+    try {
+      stats = statSync(path);
+    } catch (error) {
+      if (isEnoent(error)) return [];
+      throw error;
+    }
     return stats.isDirectory() ? walk(path) : [path];
   });
 }
 
 function shouldScan(path: string): boolean {
   return [".css", ".html", ".json", ".md", ".svg", ".ts", ".tsx"].some((extension) => path.endsWith(extension));
+}
+
+function isSqliteRuntimeFile(path: string): boolean {
+  return /\.db(?:-(?:journal|shm|wal))?$/.test(path);
+}
+
+function isEnoent(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }

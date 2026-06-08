@@ -69,6 +69,11 @@ export function buildVerificationTrustSummary(report: OperationsBacklogReport | 
     .join(" ");
 }
 
+export function buildHealthzSummaryChip(report: OperationsBacklogReport | null): string {
+  if (!report) return "Healthz summary unavailable";
+  return `Healthz blocked ${report.healthzEvidence.blockedGateIds?.length ?? 0} · route regressions ${report.healthzEvidence.routeBudgetRegressionCount} · queue ${report.healthzEvidence.queueDepth}`;
+}
+
 export function buildReportSnapshotSummary(report: OperationsBacklogReport | null): string | null {
   const current = report?.reportProvenance.currentSnapshotId;
   if (!current) return null;
@@ -166,6 +171,20 @@ export function buildNamedOperatorViews(dayKey: string, sessionKey?: string): Op
       hypothesis: "Stale summaries and failed deliveries are the highest-friction morning handoff risks.",
       validationSteps: ["Refresh stale summaries.", "Inspect failed delivery receipts.", "Confirm no newer evidence is missing from handoff views."],
       drilldown: { sessionKey, tab: "deliveries", scrollTop: 0 }
+    },
+    {
+      id: "blocked-gates-failed-dry-runs-stale-summaries",
+      label: "Blocked gates + dry-runs + stale summaries",
+      dayKey,
+      searchQuery: "verification blocked failed gate dry-run summary stale",
+      activeFilters: ["errors"],
+      grouped: true,
+      builtIn: true,
+      persistedAcrossRestarts: true,
+      rolePreset: "triage",
+      hypothesis: "Blocked gates, failed dry-runs, and stale summaries are the shortest path to a bad handoff.",
+      validationSteps: ["Open blocked verification gates.", "Resolve failed or missing dry-runs.", "Refresh stale summaries before handoff."],
+      drilldown: { sessionKey, tab: "actions", scrollTop: 0 }
     },
     {
       id: "failed-receipts",
@@ -721,7 +740,9 @@ export function formatCapabilitySummary(capability: CapabilityView): string {
 
 export function formatAttentionNowItem(item: AttentionNowItem): string {
   const detail = stripTrailingSentencePunctuation(safeWorkbenchCopy(item.detail));
-  return `${item.severity}: ${safeWorkbenchCopy(item.label)} - ${detail}. Evidence ${item.evidenceIds.map(safeWorkbenchCopy).join(", ") || "none"}. Action: ${safeWorkbenchCopy(item.action)}`;
+  const acknowledged = item.acknowledgedAt ? ` Acknowledged ${safeWorkbenchCopy(item.acknowledgedAt)} by ${safeWorkbenchCopy(item.acknowledgedBy ?? "local-operator")}.` : "";
+  const snoozed = item.snoozeUntil ? ` Snoozed until ${safeWorkbenchCopy(item.snoozeUntil)}.` : "";
+  return `${item.severity}: ${safeWorkbenchCopy(item.label)} - ${detail}. Evidence ${item.evidenceIds.map(safeWorkbenchCopy).join(", ") || "none"}. Action: ${safeWorkbenchCopy(item.action)}${acknowledged}${snoozed}`;
 }
 
 export function formatWhyBlocked(input: { label: string; blockingReasons: string[]; nextSafeActions: string[]; evidenceIds: string[] }): string {

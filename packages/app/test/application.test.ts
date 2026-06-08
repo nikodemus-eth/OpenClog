@@ -145,6 +145,62 @@ describe("OpenClog application layer", () => {
     expect(report.summaryJobHistory.jobs.length).toBeLessThanOrEqual(50);
     expect(report.operationsLedger.totalEntryCount).toBeGreaterThan(report.operationsLedger.entries.length);
     expect(report.operationsLedger.entries.length).toBeLessThanOrEqual(100);
+    const operationsBudget = report.routePerformanceBudgets.find((budget) => budget.route === "/api/operations/report");
+    expect(operationsBudget).toMatchObject({ route: "/api/operations/report", observedMs: 450, status: "ok" });
+    expect(operationsBudget).not.toHaveProperty("percentileLabel");
+    expect(operationsBudget).not.toHaveProperty("percentileValue");
+  });
+
+  test("uses a bounded summary-job report slice and records repository query timing", () => {
+    const sliceJobs: SummaryJob[] = [
+      {
+        id: "summary-job-recent",
+        dayKey: "2026-05-27",
+        status: "queued",
+        createdAt: "2026-05-27T12:05:00.000Z"
+      }
+    ];
+    const app = createOpenClogApplication({
+      repo: {
+        getDay: () => buildDay("2026-05-27", ["entry-1"]),
+        listSummaryJobs: () => {
+          throw new Error("operations report should use the bounded summary-job slice");
+        },
+        getSummaryJobReportSlice: () => ({
+          jobs: sliceJobs,
+          totalJobCount: 125,
+          queueDepth: 1,
+          oldestWaitingCreatedAt: "2026-05-27T12:05:00.000Z",
+          medianCompletionMs: 2000
+        }),
+        listDeliveryReceipts: () => [],
+        listVerificationReceipts: () => [],
+        listNativeRunnerHistory: () => [],
+        listIncidentActionRecords: () => [],
+        listHealthTimeline: () => [],
+        getHealthAggregate: () => ({ createdAt: "2026-05-27T12:00:00.000Z", reconnectCount: 0, staleCount: 0, recoveryCount: 0, adapterFailureCount: 0 }),
+        getSloSnapshot: () => ({ createdAt: "2026-05-27T12:00:00.000Z", gatewayFreshnessOk: true, staleSummaryCount: 0, failedDeliveryCount: 0, retryBacklogCount: 0, reconnectHeavyDayCount: 0, baselines: [] }),
+        getSetting: () => ({ operatorViews: [] }),
+        getLatestOperationsReportSnapshot: () => undefined,
+        saveOperationsReportSnapshot: (snapshot) => snapshot,
+        listEvidenceDriftObservations: () => [],
+        saveEvidenceDriftObservation: (observation) => observation,
+        listRouteBudgetObservations: () => [],
+        previewRetention: () => ({ keepDays: 1, removedDayKeys: [], removedEntryCount: 0, removedSummaryCount: 0, removedAuditCount: 0 })
+      }
+    });
+
+    const report = app.getOperationsBacklog({ dayKey: "2026-05-27" });
+
+    expect(report.summaryJobHistory.totalJobCount).toBe(125);
+    expect(report.summaryJobHistory.queueDepth).toBe(1);
+    expect(report.summaryJobHistory.jobs).toEqual([expect.objectContaining({ id: "summary-job-recent", medianCompletionMs: 2000 })]);
+    expect(report.reportAssemblyTiming.slowestSections).toEqual(
+      [...report.reportAssemblyTiming.slowestSections].sort((left, right) => right.durationMs - left.durationMs)
+    );
+    expect(report.reportAssemblyTiming.sections).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "sqlite.getSummaryJobReportSlice", category: "repository_query", rowCount: 1 })])
+    );
   });
 
   test("paginates search results and drilldowns with stable cursors", () => {
@@ -1072,6 +1128,11 @@ describe("OpenClog application layer", () => {
       expect.arrayContaining([
         expect.objectContaining({ id: "stale_summary", severity: "warning", label: expect.stringContaining("Stale summary") }),
         expect.objectContaining({ id: "failed_dry_run_delivery", severity: "critical", evidenceIds: ["receipt-slack-failed"] }),
+        expect.objectContaining({
+          id: "missing_dry_run_delivery",
+          severity: "warning",
+          evidenceIds: expect.arrayContaining(["email", "generic-webhook", "github-issue"])
+        }),
         expect.objectContaining({ id: "route_budget_regression", severity: "warning", action: expect.stringContaining("Review route") })
       ])
     );
@@ -1084,6 +1145,10 @@ describe("OpenClog application layer", () => {
     expect(report.routeBudgetRegressions).toEqual([
       expect.objectContaining({ route: "/api/summary-jobs", baselineMs: 250, observedMs: 340, deltaMs: 90, severity: "breach" })
     ]);
+    const summaryJobsBudget = report.routePerformanceBudgets.find((budget) => budget.route === "/api/summary-jobs");
+    expect(summaryJobsBudget).toMatchObject({ route: "/api/summary-jobs", observedMs: 340, status: "breach" });
+    expect(summaryJobsBudget).not.toHaveProperty("percentileLabel");
+    expect(summaryJobsBudget).not.toHaveProperty("percentileValue");
     expect(report.closeoutReadiness).toMatchObject({
       label: "blocked",
       requiredEvidenceFresh: false,
@@ -1197,6 +1262,78 @@ describe("OpenClog application layer", () => {
     expect(report.closeoutPacketPreview).toMatchObject({
       sourceSnapshotId: expect.any(String),
       sourceViewLabel: "Saved scope review"
+    });
+  });
+
+  test("merges attention item acknowledgement and snooze state into the operations report", () => {
+    const attentionStates = new Map<
+      string,
+      {
+        acknowledgedAt?: string;
+        acknowledgedBy?: string;
+        snoozeUntil?: string;
+      }
+    >([
+      [
+        "stale_summary",
+        {
+          acknowledgedAt: "2026-05-08T12:30:00.000Z",
+          acknowledgedBy: "local-operator",
+          snoozeUntil: "2026-05-08T13:30:00.000Z"
+        }
+      ]
+    ]);
+    const staleDay: JournalDay = {
+      ...buildDay("2026-05-08", ["entry-1"]),
+      entries: [
+        {
+          id: "entry-1",
+          dayKey: "2026-05-08",
+          source: "system",
+          kind: "system_status",
+          title: "Entry entry-1",
+          body: "Body entry-1",
+          timestamp: "2026-05-08T12:05:00.000Z",
+          status: "info",
+          severity: "info",
+          redacted: true
+        }
+      ],
+      generatedSummary: {
+        summary: "Older summary",
+        createdAt: "2026-05-08T00:00:00.000Z",
+        source: "rules"
+      }
+    };
+    const app = createOpenClogApplication({
+      repo: {
+        getDay: () => staleDay,
+        listDeliveryReceipts: () => [],
+        listVerificationReceipts: () => [],
+        listNativeRunnerHistory: () => [],
+        listIncidentActionRecords: () => [],
+        listHealthTimeline: () => [],
+        getHealthAggregate: () => ({ createdAt: "2026-05-08T12:40:00.000Z", reconnectCount: 0, staleCount: 0, recoveryCount: 0, adapterFailureCount: 0 }),
+        getSloSnapshot: () => ({ createdAt: "2026-05-08T12:40:00.000Z", gatewayFreshnessOk: true, staleSummaryCount: 1, failedDeliveryCount: 0, retryBacklogCount: 0, reconnectHeavyDayCount: 0, baselines: [] }),
+        getSetting: () => ({ operatorViews: [] }),
+        getLatestOperationsReportSnapshot: () => undefined,
+        saveOperationsReportSnapshot: (snapshot) => snapshot,
+        listEvidenceDriftObservations: () => [],
+        saveEvidenceDriftObservation: (observation) => observation,
+        listRouteBudgetObservations: () => [],
+        previewRetention: () => ({ keepDays: 1, removedDayKeys: [], removedEntryCount: 0, removedSummaryCount: 0, removedAuditCount: 0 }),
+        getAttentionItemState: (id: string) => attentionStates.get(id),
+        listDays: () => [{ ...staleDay, entries: undefined } as Omit<JournalDay, "entries">]
+      }
+    });
+
+    const report = app.getOperationsBacklog({ dayKey: "2026-05-08" });
+    const staleSummary = report.attentionNow.find((item) => item.id === "stale_summary");
+
+    expect(staleSummary).toMatchObject({
+      acknowledgedAt: "2026-05-08T12:30:00.000Z",
+      acknowledgedBy: "local-operator",
+      snoozeUntil: "2026-05-08T13:30:00.000Z"
     });
   });
 

@@ -3,6 +3,29 @@
 ## Purpose
 Track public API contracts and Gateway RPC usage.
 
+## 2026-06-08 Final Startup Backfill Coverage Refactor
+- Centralized startup backfill throwable handling so scheduler failures, JSON parse failures, bulk-write failures, and fallback per-message write failures all use the same message normalization path.
+- Added API test coverage for scheduler disabled state, scheduled real-scanner fallback, startup exception containment, empty configured session windows, and bulk-write failure containment.
+- The API contract is unchanged: `GET /api/version` still binds before scheduled backfill work, startup import remains bounded by default, and `GET /api/sessions/:key` remains SQL-filtered.
+- Final proof passed through `npm run verify`, `npm run verify:desktop-native`, `npm run test:smoke`, `npm run verify:gateway`, and live `npm run test:load -- --base-url http://127.0.0.1:8787 --day-key 2026-06-06`.
+
+## 2026-06-08 Default Startup And Report Route Proof
+- `apps/api/src/server.ts` now lets `GET /api/version` bind before OpenClaw session backfill starts. Backfill is scheduled after `app.listen`, and the default LaunchAgent pass is capped at 10 files / 10 messages unless the existing max env vars override it.
+- `apps/api/src/openclaw-session-backfill.ts` now uses repository bulk writes when available, so startup recovery does not force per-message day upserts and generated summaries.
+- `GET /api/sessions/:key` is bounded by SQL-filtered session and approval rows before JSON parsing, replacing the full-entry scan that made the live load harness red after the report path was fixed.
+- After clearing the inherited launchd backfill override and restarting, `GET /api/version` bound in 729 ms and reported commit `05fa238`, PID `98679`, build timestamp `2026-06-08T10:58:19.319Z`, and runtime fingerprint `84b2ece13dc6062251447943a4754a04d14236819453b7d61f4a8a65cf4e4826`.
+- Live load proof is green on the default-started listener: `/api/operations/report` 249 ms / 750 ms, `/api/verification/receipts` 3 ms / 200 ms, `/api/sessions/:key` 2 ms / 300 ms, `breachCount: 0`.
+
+## 2026-06-06 Current-Source Listener Proof
+- Rebuilt the API-serving packages and restarted `com.m4.openclog-api`; after a final post-proof restart for responsiveness, `GET /api/version` on `http://127.0.0.1:8787` reports commit `05fa238`, PID `90222`, build timestamp `2026-06-06T19:35:03.247Z`, and runtime fingerprint `5599ca09712b9833b9e3eb59a2167648162d4161d8962acdee35891ef0336bfa`.
+- `GET /api/healthz` and `GET /api/healthz/details` returned from the rebuilt listener and stayed sanitized, but the full operations report path remains too slow for the live route-budget harness.
+
+## 2026-06-03 Trust-Surface Routes
+- Added backend-mediated attention-item state routes for the operations surface: acknowledge and snooze requests update local operator state and are reflected in the report attention list.
+- Added `GET /api/healthz/details` as the expanded sanitized health detail route, keeping `/api/healthz` as the cheap readiness route.
+- `/api/operations/report` now carries the blocked-gates + dry-runs + stale summaries saved-view inputs and suppresses route-budget percentile labels when no persisted route observations exist.
+- Gateway RPC method names, requested scopes, composer behavior, approval behavior, and delivery transports did not change in this tranche.
+
 ## 2026-05-18 Quick Wins Trust Tranche
 - No new public route names were introduced in this tranche.
 - `GET /api/days` now carries additive day-level route-budget regression metadata so archive rows can render explicit delta callouts from backend-authored data.

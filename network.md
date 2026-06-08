@@ -3,6 +3,28 @@
 ## Purpose
 Track network behavior, local Gateway assumptions, and remote deployment boundaries.
 
+## 2026-06-08 Final Local Network Proof
+- Latest live route-budget proof against `http://127.0.0.1:8787` remained green after the coverage refactor: `/api/operations/report` 553 ms / 750 ms, `/api/verification/receipts` 4 ms / 200 ms, `/api/sessions/:key` 2 ms / 300 ms, `breachCount: 0`.
+- `npm run verify:gateway` passed against the local Gateway with status `ready`, role `operator`, scopes `operator.admin`, `operator.read`, and `operator.write`; mutation testing stayed disabled.
+- The browser network boundary is unchanged: the web app still uses OpenClog HTTP/SSE routes and does not connect directly to OpenClaw Gateway or receive Gateway credentials.
+
+## 2026-06-08 Default 8787 Startup Proof
+- `com.m4.openclog-api` remains local and loopback-only on `http://127.0.0.1:8787`; no browser-to-Gateway boundary changed.
+- The user launchd environment no longer carries `OPENCLOG_OPENCLAW_SESSION_BACKFILL=0`. `launchctl print gui/$(id -u)/com.m4.openclog-api` showed the inherited environment contained `SSH_AUTH_SOCK` only.
+- The default-started listener bound `/api/version` in 729 ms and reported commit `05fa238`, PID `98679`, build timestamp `2026-06-08T10:58:19.319Z`, and runtime fingerprint `84b2ece13dc6062251447943a4754a04d14236819453b7d61f4a8a65cf4e4826`.
+- The live load harness is green on that listener: `/api/operations/report` 249 ms / 750 ms, `/api/verification/receipts` 3 ms / 200 ms, `/api/sessions/:key` 2 ms / 300 ms, `breachCount: 0`.
+- Remaining network proof limits are unchanged: mutation-enabled Gateway verification and live-send delivery proof are not covered by this loopback startup/load pass.
+
+## 2026-06-06 Current-Source 8787 Runtime Boundary
+- The live OpenClog API listener on `http://127.0.0.1:8787` no longer reports the old `2d37c7f` runtime. After focused package rebuild and final post-proof LaunchAgent restart, `/api/version` reports commit `05fa238`, PID `90222`, build timestamp `2026-06-06T19:35:03.247Z`, and runtime fingerprint `5599ca09712b9833b9e3eb59a2167648162d4161d8962acdee35891ef0336bfa`.
+- The LaunchAgent remains local and loopback-only; this proof run inherited `OPENCLOG_OPENCLAW_SESSION_BACKFILL=0` because the default startup backfill path could keep the process CPU-bound before it opened the port.
+- Live route-budget proof is not green: `npm run test:load -- --base-url http://127.0.0.1:8787 --day-key 2026-06-06` reached all three HTTP targets, but `/api/operations/report` breached at 14454 ms / 750 ms.
+
+## 2026-06-03 Gateway And Runtime Boundary
+- `npm run verify:gateway` passed against the local loopback Gateway with status ready and read/subscribe probes for `health`, `system-presence`, `exec.approval.list`, `sessions.list`, `sessions.subscribe`, and `sessions.messages.subscribe`; mutation testing stayed disabled.
+- The browser network boundary did not widen for attention acknowledge/snooze, healthz details, closeout blockers, or saved views: the web app still uses OpenClog HTTP/SSE routes and never talks directly to OpenClaw Gateway.
+- At that June 3 check, the live OpenClog API listener on `http://127.0.0.1:8787` was stale because `/api/version` reported commit `2d37c7f` while the working tree was on `HEAD` `05fa238` plus dirty changes. The June 6 section above supersedes that listener identity.
+
 ## 2026-05-18 Quick Wins Trust Tranche
 - No browser-to-Gateway boundary changed in this tranche: the browser still talks only to the OpenClog HTTP/SSE API, and all new trust cues come from backend/shared report assembly.
 - The new delivery-target `last verified` indicators, verification receipt comparisons, incident badge state, and route-budget regression row metadata are all backend-authored view data over existing local routes.

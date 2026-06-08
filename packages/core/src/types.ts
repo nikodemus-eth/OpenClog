@@ -1158,7 +1158,10 @@ export interface ReportFreshness {
 export interface ReportAssemblyTimingSection {
   id: string;
   label: string;
+  category?: "route_phase" | "report_phase" | "repository_query";
   durationMs: number;
+  rowCount?: number;
+  detail?: string;
 }
 
 export interface ReportAssemblyTiming {
@@ -1304,6 +1307,8 @@ export interface RoutePerformanceBudget {
   budgetMs: number;
   observedMs: number;
   status: "ok" | "breach";
+  percentileLabel?: string;
+  percentileValue?: number;
 }
 
 export interface ChaosTestScenario {
@@ -1369,12 +1374,23 @@ export interface AttentionNowItem {
     | "repeated_receipt_failure"
     | "reconnect_event"
     | "route_budget_regression"
-    | "failed_dry_run_delivery";
+    | "failed_dry_run_delivery"
+    | "missing_dry_run_delivery";
   severity: "info" | "warning" | "critical";
   label: string;
   detail: string;
   evidenceIds: string[];
   action: string;
+  acknowledgedAt?: string;
+  acknowledgedBy?: string;
+  snoozeUntil?: string;
+}
+
+export interface AttentionNowItemState {
+  attentionItemId: AttentionNowItem["id"];
+  acknowledgedAt?: string;
+  acknowledgedBy?: string;
+  snoozeUntil?: string;
 }
 
 export interface ReadinessAggregate {
